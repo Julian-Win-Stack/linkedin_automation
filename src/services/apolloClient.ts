@@ -3,6 +3,7 @@ import axios, { AxiosInstance } from "axios";
 const APOLLO_BASE_URL = "https://api.apollo.io/api/v1";
 const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_RETRIES = 2;
+type QueryValue = string | number | boolean;
 
 function getApiKey(): string {
   const apiKey = process.env.APOLLO_API_KEY;
@@ -78,6 +79,47 @@ export async function apolloPost<TResponse>(
       }
 
       // Simple backoff keeps prototype resilient to temporary failures.
+      await sleep(300 * attempt);
+    }
+  }
+}
+
+function toQueryString(queryParams: Record<string, QueryValue | QueryValue[]>): string {
+  const params = new URLSearchParams();
+
+  for (const [key, rawValue] of Object.entries(queryParams)) {
+    if (Array.isArray(rawValue)) {
+      for (const value of rawValue) {
+        params.append(key, String(value));
+      }
+    } else {
+      params.append(key, String(rawValue));
+    }
+  }
+
+  return params.toString();
+}
+
+export async function apolloPostWithQuery<TResponse>(
+  path: string,
+  queryParams: Record<string, QueryValue | QueryValue[]>,
+  retries = DEFAULT_RETRIES
+): Promise<TResponse> {
+  const client = createApolloClient();
+  const queryString = toQueryString(queryParams);
+  const requestPath = queryString.length > 0 ? `${path}?${queryString}` : path;
+  let attempt = 0;
+
+  while (true) {
+    try {
+      const response = await client.post<TResponse>(requestPath);
+      return response.data;
+    } catch (error) {
+      attempt += 1;
+      if (attempt > retries) {
+        throw new Error(toApolloErrorMessage(error));
+      }
+
       await sleep(300 * attempt);
     }
   }

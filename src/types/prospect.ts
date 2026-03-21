@@ -1,9 +1,16 @@
 export interface Prospect {
+  id: string;
   name: string;
   title: string;
-  company: string;
+}
+
+export interface EnrichedEmployee {
+  startDate: string | null;
+  endDate: string | null;
+  name: string;
   linkedinUrl: string | null;
-  tenureMonths: string | null;
+  currentTitle: string;
+  tenure: string | null;
 }
 
 export interface EmploymentHistoryItem {
@@ -16,6 +23,7 @@ export interface EmploymentHistoryItem {
 }
 
 export interface ApolloPerson {
+  id?: string;
   name?: string;
   first_name?: string;
   last_name?: string;

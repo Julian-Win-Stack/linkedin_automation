@@ -7,16 +7,12 @@ describe("getCompany", () => {
     expect(result).toEqual({
       companyName: "rappi.com",
       domain: "rappi.com",
-      linkedinUrl: null,
     });
   });
 
-  it("accepts a linkedin company url", async () => {
-    const result = await getCompany("https://www.linkedin.com/company/rappi/");
-    expect(result).toEqual({
-      companyName: "https://www.linkedin.com/company/rappi/",
-      domain: null,
-      linkedinUrl: "https://www.linkedin.com/company/rappi/",
+  it("rejects linkedin company urls", async () => {
+    await expect(getCompany("https://www.linkedin.com/company/rappi/")).rejects.toMatchObject({
+      name: "InvalidCompanyInputError",
     });
   });
 

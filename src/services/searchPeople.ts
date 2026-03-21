@@ -1,10 +1,10 @@
-import { apolloPost } from "./apolloClient";
+import { apolloPostWithQuery } from "./apolloClient";
 import { ResolvedCompany } from "./getCompany";
 import { ApolloPerson, Prospect } from "../types/prospect";
-import { computeTenure } from "./computeTenure";
 
-const DEFAULT_TITLE_KEYWORDS = ["sre", "site reliability", "platform"];
+const DEFAULT_PERSON_TITLES = ["SRE", "Site Reliability"];
 const APOLLO_PAGE_SIZE = 100;
+const MAX_APOLLO_PAGES = 500;
 
 interface PeopleSearchResponse {
   people?: ApolloPerson[];
@@ -12,15 +12,6 @@ interface PeopleSearchResponse {
     page?: number;
     total_pages?: number;
   };
-}
-
-function personMatchesTitleKeywords(title: string | undefined, titleKeywords: string[]): boolean {
-  if (!title) {
-    return false;
-  }
-
-  const normalizedTitle = title.toLowerCase();
-  return titleKeywords.some((keyword) => normalizedTitle.includes(keyword));
 }
 
 function toName(person: ApolloPerson): string {
@@ -32,54 +23,53 @@ function toName(person: ApolloPerson): string {
 }
 
 function toProspect(person: ApolloPerson, companyName: string): Prospect {
+  const fallbackId = `${companyName}:${toName(person)}:${person.title ?? ""}`;
   return {
+    id: person.id ?? fallbackId,
     name: toName(person),
     title: person.title ?? "",
-    company: person.organization_name ?? companyName,
-    linkedinUrl: person.linkedin_url ?? null,
-    tenureMonths: computeTenure(person.employment_history, companyName),
   };
 }
 
-function toPeopleSearchBody(company: ResolvedCompany, page: number): Record<string, unknown> {
-  const body: Record<string, unknown> = {
+function toPeopleSearchQueryParams(
+  company: ResolvedCompany,
+  page: number,
+  personTitles: string[]
+): Record<string, string | number | boolean | Array<string | number | boolean>> {
+  const params: Record<string, string | number | boolean | Array<string | number | boolean>> = {
     page,
     per_page: APOLLO_PAGE_SIZE,
+    "person_titles[]": personTitles,
+    include_similar_titles: true,
   };
 
-  // Domain is the most reliable identifier when we have it.
-  if (company.domain) {
-    body.q_organization_domains = [company.domain];
-  } else if (company.linkedinUrl) {
-    body.q_organization_linkedin_urls = [company.linkedinUrl];
-  } else {
-    body.q_organization_name = company.companyName;
-  }
+  // Follow the People Search parameter names from Apollo docs.
+  params["q_organization_domains_list[]"] = [company.domain];
 
-  return body;
+  return params;
 }
 
 export async function searchPeople(
   company: ResolvedCompany,
   maxResults = 100,
-  titleKeywords: string[] = DEFAULT_TITLE_KEYWORDS
+  personTitles: string[] = DEFAULT_PERSON_TITLES
 ): Promise<Prospect[]> {
   const normalizedMaxResults = Math.max(1, Math.min(maxResults, 100));
-  const normalizedKeywords = titleKeywords
-    .map((keyword) => keyword.trim().toLowerCase())
-    .filter((keyword) => keyword.length > 0);
+  const normalizedPersonTitles = personTitles
+    .map((title) => title.trim())
+    .filter((title) => title.length > 0);
 
-  if (normalizedKeywords.length === 0) {
-    throw new Error("At least one title keyword is required.");
+  if (normalizedPersonTitles.length === 0) {
+    throw new Error("At least one person title is required.");
   }
 
   const prospects: Prospect[] = [];
   let page = 1;
 
   while (prospects.length < normalizedMaxResults) {
-    const response = await apolloPost<PeopleSearchResponse>(
+    const response = await apolloPostWithQuery<PeopleSearchResponse>(
       "/mixed_people/api_search",
-      toPeopleSearchBody(company, page)
+      toPeopleSearchQueryParams(company, page, normalizedPersonTitles)
     );
 
     const people = response.people ?? [];
@@ -87,16 +77,13 @@ export async function searchPeople(
       break;
     }
 
-    const matchingPeople = people.filter((person) =>
-      personMatchesTitleKeywords(person.title, normalizedKeywords)
-    );
-
-    const matchingProspects = matchingPeople.map((person) => toProspect(person, company.companyName));
+    const matchingProspects = people.map((person) => toProspect(person, company.companyName));
 
     prospects.push(...matchingProspects);
 
     const totalPages = response.pagination?.total_pages;
-    const reachedLastPage = totalPages ? page >= totalPages : people.length < APOLLO_PAGE_SIZE;
+    const reachedLastPage =
+      page >= MAX_APOLLO_PAGES || (totalPages ? page >= totalPages : people.length < APOLLO_PAGE_SIZE);
     if (reachedLastPage) {
       break;
     }
