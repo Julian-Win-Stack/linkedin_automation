@@ -1,10 +1,6 @@
 import { Router } from "express";
 import { getCompany } from "../services/getCompany";
-import {
-  SearchPeopleDebugInfo,
-  searchPeople,
-  searchPeopleWithDiagnostics,
-} from "../services/searchPeople";
+import { searchPeople } from "../services/searchPeople";
 import { Prospect } from "../types/prospect";
 
 const router = Router();
@@ -19,7 +15,6 @@ interface ProspectRequestBody {
   maxResults?: unknown;
   filterPreset?: unknown;
   titleKeywords?: unknown;
-  debug?: unknown;
 }
 
 class BadRequestError extends Error {
@@ -78,14 +73,6 @@ function parseTitleKeywords(
   return keywords;
 }
 
-function parseDebug(rawValue: unknown): boolean {
-  if (rawValue == null) {
-    return false;
-  }
-
-  return rawValue === true;
-}
-
 router.post("/search", async (req, res) => {
   try {
     const body = (req.body ?? {}) as ProspectRequestBody;
@@ -100,19 +87,9 @@ router.post("/search", async (req, res) => {
     const maxResults = parseMaxResults(body.maxResults);
     const filterPreset = parseFilterPreset(body.filterPreset);
     const titleKeywords = parseTitleKeywords(body.titleKeywords, filterPreset);
-    const debugEnabled = parseDebug(body.debug);
 
     const company = await getCompany(companyUrl);
-    let prospects: Prospect[];
-    let debugInfo: SearchPeopleDebugInfo | undefined;
-    if (debugEnabled) {
-      const result = await searchPeopleWithDiagnostics(company, maxResults, titleKeywords);
-      prospects = result.prospects;
-      debugInfo = result.debug;
-    } else {
-      prospects = await searchPeople(company, maxResults, titleKeywords);
-      debugInfo = undefined;
-    }
+    const prospects: Prospect[] = await searchPeople(company, maxResults, titleKeywords);
 
     return res.status(200).json({
       data: prospects,
@@ -122,7 +99,6 @@ router.post("/search", async (req, res) => {
         companyUrl,
         filterPreset,
         titleKeywords,
-        ...(debugEnabled ? { debug: debugInfo } : {}),
       },
     });
   } catch (error) {

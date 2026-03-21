@@ -14,26 +14,6 @@ interface PeopleSearchResponse {
   };
 }
 
-export interface SearchPeoplePageDebug {
-  page: number;
-  rawPeopleCount: number;
-  matchedPeopleCount: number;
-  sampleTitles: string[];
-  apolloRequestBody: Record<string, unknown>;
-}
-
-export interface SearchPeopleDebugInfo {
-  keywordsUsed: string[];
-  totalRawPeople: number;
-  totalMatchedPeople: number;
-  pages: SearchPeoplePageDebug[];
-}
-
-export interface SearchPeopleResult {
-  prospects: Prospect[];
-  debug: SearchPeopleDebugInfo;
-}
-
 function personMatchesTitleKeywords(title: string | undefined, titleKeywords: string[]): boolean {
   if (!title) {
     return false;
@@ -84,15 +64,6 @@ export async function searchPeople(
   maxResults = 100,
   titleKeywords: string[] = DEFAULT_TITLE_KEYWORDS
 ): Promise<Prospect[]> {
-  const result = await searchPeopleWithDiagnostics(company, maxResults, titleKeywords);
-  return result.prospects;
-}
-
-export async function searchPeopleWithDiagnostics(
-  company: ResolvedCompany,
-  maxResults = 100,
-  titleKeywords: string[] = DEFAULT_TITLE_KEYWORDS
-): Promise<SearchPeopleResult> {
   const normalizedMaxResults = Math.max(1, Math.min(maxResults, 100));
   const normalizedKeywords = titleKeywords
     .map((keyword) => keyword.trim().toLowerCase())
@@ -103,45 +74,22 @@ export async function searchPeopleWithDiagnostics(
   }
 
   const prospects: Prospect[] = [];
-  const debug: SearchPeopleDebugInfo = {
-    keywordsUsed: normalizedKeywords,
-    totalRawPeople: 0,
-    totalMatchedPeople: 0,
-    pages: [],
-  };
   let page = 1;
 
   while (prospects.length < normalizedMaxResults) {
-    const requestBody = toPeopleSearchBody(company, page);
-    const response = await apolloPost<PeopleSearchResponse>("/mixed_people/api_search", requestBody);
+    const response = await apolloPost<PeopleSearchResponse>(
+      "/mixed_people/api_search",
+      toPeopleSearchBody(company, page)
+    );
 
     const people = response.people ?? [];
-    debug.totalRawPeople += people.length;
     if (people.length === 0) {
-      debug.pages.push({
-        page,
-        rawPeopleCount: 0,
-        matchedPeopleCount: 0,
-        sampleTitles: [],
-        apolloRequestBody: requestBody,
-      });
       break;
     }
 
     const matchingPeople = people.filter((person) =>
       personMatchesTitleKeywords(person.title, normalizedKeywords)
     );
-    debug.totalMatchedPeople += matchingPeople.length;
-    debug.pages.push({
-      page,
-      rawPeopleCount: people.length,
-      matchedPeopleCount: matchingPeople.length,
-      sampleTitles: people
-        .map((person) => person.title ?? "")
-        .filter((title) => title.length > 0)
-        .slice(0, 10),
-      apolloRequestBody: requestBody,
-    });
 
     const matchingProspects = matchingPeople.map((person) => toProspect(person, company.companyName));
 
@@ -156,8 +104,5 @@ export async function searchPeopleWithDiagnostics(
     page += 1;
   }
 
-  return {
-    prospects: prospects.slice(0, normalizedMaxResults),
-    debug,
-  };
+  return prospects.slice(0, normalizedMaxResults);
 }
