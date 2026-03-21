@@ -1,4 +1,5 @@
 import axios, { AxiosInstance } from "axios";
+import { getRequiredEnv } from "../config/env";
 
 const APOLLO_BASE_URL = "https://api.apollo.io/api/v1";
 const DEFAULT_TIMEOUT_MS = 12_000;
@@ -6,12 +7,7 @@ const DEFAULT_RETRIES = 2;
 type QueryValue = string | number | boolean;
 
 function getApiKey(): string {
-  const apiKey = process.env.APOLLO_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing APOLLO_API_KEY environment variable.");
-  }
-
-  return apiKey;
+  return getRequiredEnv("APOLLO_API_KEY");
 }
 
 export function createApolloClient(): AxiosInstance {

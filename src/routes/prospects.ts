@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { bulkEnrichPeople } from "../services/bulkEnrichPeople";
 import { getCompany } from "../services/getCompany";
+import { pushPeopleToLemlistCampaign } from "../services/lemlistPushQueue";
 import { searchPeople } from "../services/searchPeople";
-import { EnrichedEmployee, Prospect } from "../types/prospect";
+import { EnrichedEmployee, LemlistPushMeta, Prospect } from "../types/prospect";
 
 const router = Router();
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability"];
@@ -42,6 +43,11 @@ router.post("/search", async (req, res) => {
     const prospects: Prospect[] = await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES);
     const dedupedProspects = dedupeProspectsById(prospects);
     const enrichedEmployees: EnrichedEmployee[] = await bulkEnrichPeople(dedupedProspects);
+    const lemlist: LemlistPushMeta = await pushPeopleToLemlistCampaign(
+      enrichedEmployees,
+      company.companyName,
+      company.domain
+    );
 
     return res.status(200).json({
       data: enrichedEmployees,
@@ -52,6 +58,7 @@ router.post("/search", async (req, res) => {
         maxResults: MAX_RESULTS,
         companyUrl,
         personTitles: SRE_PERSON_TITLES,
+        lemlist,
       },
     });
   } catch (error) {

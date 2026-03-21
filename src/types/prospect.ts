@@ -13,6 +13,19 @@ export interface EnrichedEmployee {
   tenure: string | null;
 }
 
+export interface LemlistFailedLead {
+  name: string;
+  error: string;
+}
+
+export interface LemlistPushMeta {
+  attempted: number;
+  successful: number;
+  failed: number;
+  successItems: string[];
+  failedItems: LemlistFailedLead[];
+}
+
 export interface EmploymentHistoryItem {
   organization_name?: string;
   company_name?: string;

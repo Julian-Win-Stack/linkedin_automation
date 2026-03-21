@@ -5,6 +5,7 @@ import prospectsRouter from "../src/routes/prospects";
 
 const bulkEnrichPeopleMock = vi.fn();
 const getCompanyMock = vi.fn();
+const pushPeopleToLemlistCampaignMock = vi.fn();
 const searchPeopleMock = vi.fn();
 
 vi.mock("../src/services/bulkEnrichPeople", () => ({
@@ -13,6 +14,10 @@ vi.mock("../src/services/bulkEnrichPeople", () => ({
 
 vi.mock("../src/services/getCompany", () => ({
   getCompany: (...args: unknown[]) => getCompanyMock(...args),
+}));
+
+vi.mock("../src/services/lemlistPushQueue", () => ({
+  pushPeopleToLemlistCampaign: (...args: unknown[]) => pushPeopleToLemlistCampaignMock(...args),
 }));
 
 vi.mock("../src/services/searchPeople", () => ({
@@ -30,6 +35,7 @@ describe("POST /api/v1/prospects/search", () => {
   beforeEach(() => {
     bulkEnrichPeopleMock.mockReset();
     getCompanyMock.mockReset();
+    pushPeopleToLemlistCampaignMock.mockReset();
     searchPeopleMock.mockReset();
   });
 
@@ -56,6 +62,13 @@ describe("POST /api/v1/prospects/search", () => {
         tenure: "2 years 2 months",
       },
     ]);
+    pushPeopleToLemlistCampaignMock.mockResolvedValue({
+      attempted: 1,
+      successful: 1,
+      failed: 0,
+      successItems: ["A Person"],
+      failedItems: [],
+    });
 
     const app = createTestApp();
     const response = await request(app).post("/api/v1/prospects/search").send({ companyUrl: "acme.com" });
@@ -64,6 +77,13 @@ describe("POST /api/v1/prospects/search", () => {
     expect(response.body.data).toHaveLength(1);
     expect(response.body.meta.searchedCount).toBe(1);
     expect(response.body.meta.enrichedCount).toBe(1);
+    expect(response.body.meta.lemlist).toEqual({
+      attempted: 1,
+      successful: 1,
+      failed: 0,
+      successItems: ["A Person"],
+      failedItems: [],
+    });
     expect(searchPeopleMock).toHaveBeenCalledWith(
       {
         companyName: "Acme",
@@ -80,6 +100,20 @@ describe("POST /api/v1/prospects/search", () => {
       },
     ]);
     expect(getCompanyMock).toHaveBeenCalledWith("acme.com");
+    expect(pushPeopleToLemlistCampaignMock).toHaveBeenCalledWith(
+      [
+        {
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "A Person",
+          linkedinUrl: "https://linkedin.com/in/a",
+          currentTitle: "SRE",
+          tenure: "2 years 2 months",
+        },
+      ],
+      "Acme",
+      "acme.com"
+    );
   });
 
   it("deduplicates prospects by id before enrichment", async () => {
@@ -104,6 +138,13 @@ describe("POST /api/v1/prospects/search", () => {
         tenure: "2 years 2 months",
       },
     ]);
+    pushPeopleToLemlistCampaignMock.mockResolvedValue({
+      attempted: 1,
+      successful: 1,
+      failed: 0,
+      successItems: ["A Person"],
+      failedItems: [],
+    });
 
     const app = createTestApp();
     const response = await request(app).post("/api/v1/prospects/search").send({ companyUrl: "acme.com" });
