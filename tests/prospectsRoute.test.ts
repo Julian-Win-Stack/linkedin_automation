@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import prospectsRouter from "../src/routes/prospects";
 
 const bulkEnrichPeopleMock = vi.fn();
+const countEngineerPeopleMock = vi.fn();
 const getCompanyMock = vi.fn();
 const pushPeopleToLemlistCampaignMock = vi.fn();
 const searchPeopleMock = vi.fn();
@@ -21,6 +22,7 @@ vi.mock("../src/services/lemlistPushQueue", () => ({
 }));
 
 vi.mock("../src/services/searchPeople", () => ({
+  countEngineerPeople: (...args: unknown[]) => countEngineerPeopleMock(...args),
   searchPeople: (...args: unknown[]) => searchPeopleMock(...args),
 }));
 
@@ -34,9 +36,11 @@ function createTestApp() {
 describe("POST /api/v1/prospects/search", () => {
   beforeEach(() => {
     bulkEnrichPeopleMock.mockReset();
+    countEngineerPeopleMock.mockReset();
     getCompanyMock.mockReset();
     pushPeopleToLemlistCampaignMock.mockReset();
     searchPeopleMock.mockReset();
+    delete process.env.LEMLIST_PUSH_ENABLED;
   });
 
   it("returns enriched people for SRE search", async () => {
@@ -44,6 +48,7 @@ describe("POST /api/v1/prospects/search", () => {
       companyName: "Acme",
       domain: "acme.com",
     });
+    countEngineerPeopleMock.mockResolvedValue(42);
 
     searchPeopleMock.mockResolvedValue([
       {
@@ -77,6 +82,7 @@ describe("POST /api/v1/prospects/search", () => {
     expect(response.body.data).toHaveLength(1);
     expect(response.body.meta.searchedCount).toBe(1);
     expect(response.body.meta.enrichedCount).toBe(1);
+    expect(response.body.meta.engineerCount).toBe(42);
     expect(response.body.meta.lemlist).toEqual({
       attempted: 1,
       successful: 1,
@@ -91,6 +97,13 @@ describe("POST /api/v1/prospects/search", () => {
       },
       30,
       ["SRE", "Site Reliability"]
+    );
+    expect(countEngineerPeopleMock).toHaveBeenCalledWith({
+      companyName: "Acme",
+      domain: "acme.com",
+    });
+    expect(countEngineerPeopleMock.mock.invocationCallOrder[0]).toBeLessThan(
+      searchPeopleMock.mock.invocationCallOrder[0]
     );
     expect(bulkEnrichPeopleMock).toHaveBeenCalledWith([
       {
@@ -121,6 +134,7 @@ describe("POST /api/v1/prospects/search", () => {
       companyName: "Acme",
       domain: "acme.com",
     });
+    countEngineerPeopleMock.mockResolvedValue(3);
 
     searchPeopleMock.mockResolvedValue([
       { id: "person_1", name: "A Person", title: "SRE" },
@@ -156,6 +170,7 @@ describe("POST /api/v1/prospects/search", () => {
     ]);
     expect(response.body.meta.searchedCount).toBe(3);
     expect(response.body.meta.enrichedCount).toBe(1);
+    expect(response.body.meta.engineerCount).toBe(3);
   });
 
   it("returns 404 when exact company does not exist in Apollo", async () => {
@@ -192,6 +207,81 @@ describe("POST /api/v1/prospects/search", () => {
     const app = createTestApp();
     const response = await request(app).post("/api/v1/prospects/search").send({});
     expect(response.status).toBe(400);
+  });
+
+  it("skips Lemlist push when request toggle is false", async () => {
+    getCompanyMock.mockResolvedValue({
+      companyName: "Acme",
+      domain: "acme.com",
+    });
+    countEngineerPeopleMock.mockResolvedValue(10);
+    searchPeopleMock.mockResolvedValue([{ id: "person_1", name: "A Person", title: "SRE" }]);
+    bulkEnrichPeopleMock.mockResolvedValue([
+      {
+        startDate: "2024-01-01",
+        endDate: null,
+        name: "A Person",
+        linkedinUrl: "https://linkedin.com/in/a",
+        currentTitle: "SRE",
+        tenure: "2 years 2 months",
+      },
+    ]);
+
+    const app = createTestApp();
+    const response = await request(app)
+      .post("/api/v1/prospects/search")
+      .send({ companyUrl: "acme.com", pushToLemlist: false });
+
+    expect(response.status).toBe(200);
+    expect(pushPeopleToLemlistCampaignMock).not.toHaveBeenCalled();
+    expect(response.body.meta.lemlist).toEqual({
+      attempted: 0,
+      successful: 0,
+      failed: 0,
+      successItems: [],
+      failedItems: [],
+      skipped: true,
+      reason: "Lemlist push disabled by config or request.",
+      enabledByEnv: true,
+      enabledByRequest: false,
+    });
+  });
+
+  it("skips Lemlist push when env toggle is false", async () => {
+    process.env.LEMLIST_PUSH_ENABLED = "false";
+    getCompanyMock.mockResolvedValue({
+      companyName: "Acme",
+      domain: "acme.com",
+    });
+    countEngineerPeopleMock.mockResolvedValue(10);
+    searchPeopleMock.mockResolvedValue([{ id: "person_1", name: "A Person", title: "SRE" }]);
+    bulkEnrichPeopleMock.mockResolvedValue([
+      {
+        startDate: "2024-01-01",
+        endDate: null,
+        name: "A Person",
+        linkedinUrl: "https://linkedin.com/in/a",
+        currentTitle: "SRE",
+        tenure: "2 years 2 months",
+      },
+    ]);
+
+    const app = createTestApp();
+    const response = await request(app).post("/api/v1/prospects/search").send({ companyUrl: "acme.com" });
+
+    expect(response.status).toBe(200);
+    expect(pushPeopleToLemlistCampaignMock).not.toHaveBeenCalled();
+    expect(response.body.meta.lemlist).toEqual({
+      attempted: 0,
+      successful: 0,
+      failed: 0,
+      successItems: [],
+      failedItems: [],
+      skipped: true,
+      reason: "Lemlist push disabled by config or request.",
+      enabledByEnv: false,
+      enabledByRequest: true,
+    });
   });
 
 });

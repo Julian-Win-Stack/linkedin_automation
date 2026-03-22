@@ -7,6 +7,7 @@ const APOLLO_PAGE_SIZE = 100;
 const MAX_APOLLO_PAGES = 500;
 
 interface PeopleSearchResponse {
+  total_entries?: number;
   people?: ApolloPerson[];
   pagination?: {
     page?: number;
@@ -34,19 +35,35 @@ function toProspect(person: ApolloPerson, companyName: string): Prospect {
 function toPeopleSearchQueryParams(
   company: ResolvedCompany,
   page: number,
-  personTitles: string[]
+  personTitles: string[],
+  perPage = APOLLO_PAGE_SIZE,
+  includeSimilarTitles = true
 ): Record<string, string | number | boolean | Array<string | number | boolean>> {
   const params: Record<string, string | number | boolean | Array<string | number | boolean>> = {
     page,
-    per_page: APOLLO_PAGE_SIZE,
+    per_page: perPage,
     "person_titles[]": personTitles,
-    include_similar_titles: true,
+    include_similar_titles: includeSimilarTitles,
   };
 
   // Follow the People Search parameter names from Apollo docs.
   params["q_organization_domains_list[]"] = [company.domain];
 
   return params;
+}
+
+export async function countEngineerPeople(company: ResolvedCompany): Promise<number> {
+  const response = await apolloPostWithQuery<PeopleSearchResponse>(
+    "/mixed_people/api_search",
+    toPeopleSearchQueryParams(company, 1, ["engineer"], 1, true)
+  );
+
+  const totalEntries = response.total_entries;
+  if (typeof totalEntries !== "number" || !Number.isFinite(totalEntries) || totalEntries < 0) {
+    return 0;
+  }
+
+  return totalEntries;
 }
 
 export async function searchPeople(

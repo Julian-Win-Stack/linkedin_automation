@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { searchPeople } from "../src/services/searchPeople";
+import { countEngineerPeople, searchPeople } from "../src/services/searchPeople";
 import { ResolvedCompany } from "../src/services/getCompany";
 
 const apolloPostWithQueryMock = vi.fn();
@@ -67,5 +67,33 @@ describe("searchPeople", () => {
     const result = await searchPeople(company, 25, ["Site Reliability Engineer"]);
     expect(result).toHaveLength(2);
     expect(result[0].title).toBe("Backend Engineer");
+  });
+
+  it("counts engineer people using total_entries", async () => {
+    apolloPostWithQueryMock.mockResolvedValue({
+      total_entries: 321,
+      people: [],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const count = await countEngineerPeople(company);
+    expect(count).toBe(321);
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 1,
+      include_similar_titles: true,
+      "q_organization_domains_list[]": ["acme.com"],
+      "person_titles[]": ["engineer"],
+    });
+  });
+
+  it("returns zero when total_entries is missing", async () => {
+    apolloPostWithQueryMock.mockResolvedValue({
+      people: [],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const count = await countEngineerPeople(company);
+    expect(count).toBe(0);
   });
 });

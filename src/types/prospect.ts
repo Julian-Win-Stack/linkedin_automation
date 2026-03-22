@@ -24,6 +24,10 @@ export interface LemlistPushMeta {
   failed: number;
   successItems: string[];
   failedItems: LemlistFailedLead[];
+  skipped?: boolean;
+  reason?: string;
+  enabledByEnv?: boolean;
+  enabledByRequest?: boolean;
 }
 
 export interface EmploymentHistoryItem {
