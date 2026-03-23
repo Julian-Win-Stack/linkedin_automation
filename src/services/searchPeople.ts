@@ -53,9 +53,67 @@ function toPeopleSearchQueryParams(
 }
 
 export async function countEngineerPeople(company: ResolvedCompany): Promise<number> {
+  const engineerPastTitles = [
+    "engineer",
+    "developer",
+    "builder",
+    "technical lead",
+    "platform",
+    "infrastructure",
+    "SRE",
+    "backend",
+    "cloud",
+    "devops",
+    "Site Reliability",
+    "software",
+    "IOS",
+    "Android",
+    "mobile",
+    "frontend",
+    "backend",
+    "fullstack",
+    "python",
+    "java",
+    "javascript",
+    "typescript",
+    "ruby",
+    "php",
+    "sql",
+    "nosql",
+    "database",
+    "machine learning",
+    "artificial intelligence",
+    "ai",
+    "ml",
+    "dl",
+    "deep learning",  
+    "kubernetes",
+    "docker",
+    "cloud",
+    "aws",
+    "azure",
+    "gcp",
+    "devops",
+    "site reliability",
+    "network engineer",
+    "technical lead",
+    "tech lead",
+    "software architect",
+    "CTO",
+    "platform engineer",
+    "platform architect",
+    "ai"
+  ];
+
   const response = await apolloPostWithQuery<PeopleSearchResponse>(
     "/mixed_people/api_search",
-    toPeopleSearchQueryParams(company, 1, ["engineer"], 1, true)
+    {
+      page: 1,
+      per_page: 1,
+      "person_past_titles[]": engineerPastTitles,
+      include_similar_titles: true,
+      "q_organization_domains_list[]": [company.domain],
+    }
   );
 
   const totalEntries = response.total_entries;

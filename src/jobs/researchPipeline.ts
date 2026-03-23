@@ -188,14 +188,6 @@ export async function runResearchPipeline(
 
     for (const row of rowResults.filter((entry) => !entry.eligible)) {
       const rejectionNotes = row.observability.trim() || REJECTED_REASON;
-      outputRows.push({
-        company_name: row.companyName,
-        company_domain: row.companyDomain,
-        observability_tool_research: row.observability,
-        status: "ChasingPOC",
-        sre_count: 0,
-        engineer_count: 0,
-      });
       rejectedOutputRows.push({
         company_name: row.companyName,
         company_domain: row.companyDomain,
