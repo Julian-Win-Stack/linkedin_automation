@@ -83,6 +83,7 @@ describe("POST /api/v1/prospects/search", () => {
     expect(response.body.meta.searchedCount).toBe(1);
     expect(response.body.meta.enrichedCount).toBe(1);
     expect(response.body.meta.engineerCount).toBe(42);
+    expect(response.body.meta.apolloDomain).toBe("acme.com");
     expect(response.body.meta.lemlist).toEqual({
       attempted: 1,
       successful: 1,
@@ -171,6 +172,7 @@ describe("POST /api/v1/prospects/search", () => {
     expect(response.body.meta.searchedCount).toBe(3);
     expect(response.body.meta.enrichedCount).toBe(1);
     expect(response.body.meta.engineerCount).toBe(3);
+    expect(response.body.meta.apolloDomain).toBe("acme.com");
   });
 
   it("returns 404 when exact company does not exist in Apollo", async () => {

@@ -87,6 +87,7 @@ router.post("/search", async (req, res) => {
         maxResults: MAX_RESULTS,
         engineerCount,
         companyUrl,
+        apolloDomain: company.domain,
         personTitles: SRE_PERSON_TITLES,
         lemlist,
       },

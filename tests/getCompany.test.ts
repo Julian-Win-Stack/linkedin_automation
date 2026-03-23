@@ -10,9 +10,19 @@ describe("getCompany", () => {
     });
   });
 
-  it("rejects linkedin company urls", async () => {
-    await expect(getCompany("https://www.linkedin.com/company/rappi/")).rejects.toMatchObject({
-      name: "InvalidCompanyInputError",
+  it("extracts domain from simple website url", async () => {
+    const result = await getCompany("http://www.storyblocks.com");
+    expect(result).toEqual({
+      companyName: "storyblocks.com",
+      domain: "storyblocks.com",
+    });
+  });
+
+  it("extracts domain from long website url", async () => {
+    const result = await getCompany("https://www.storyblocks.com/audio/search?media-type=music");
+    expect(result).toEqual({
+      companyName: "storyblocks.com",
+      domain: "storyblocks.com",
     });
   });
 
