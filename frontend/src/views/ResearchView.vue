@@ -355,10 +355,10 @@ function restart(): void {
         <a
           v-if="downloadUrl"
           :href="downloadUrl"
-          download="results.csv"
+          download="Passed companies.csv"
           class="inline-block rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
         >
-          Download Results CSV
+          Download Passed Companies
         </a>
         <a
           v-if="rejectsDownloadUrl"

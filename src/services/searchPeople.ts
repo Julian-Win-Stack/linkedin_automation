@@ -5,6 +5,54 @@ import { ApolloPerson, Prospect } from "../types/prospect";
 const DEFAULT_PERSON_TITLES = ["SRE", "Site Reliability"];
 const APOLLO_PAGE_SIZE = 100;
 const MAX_APOLLO_PAGES = 500;
+const ENGINEER_TITLE_KEYWORDS = [
+  "developer",
+  "builder",
+  "technical lead",
+  "platform",
+  "infrastructure",
+  "SRE",
+  "backend",
+  "cloud",
+  "devops",
+  "software",
+  "IOS",
+  "Android",
+  "mobile",
+  "frontend",
+  "backend",
+  "fullstack",
+  "python",
+  "java",
+  "javascript",
+  "typescript",
+  "ruby",
+  "php",
+  "sql",
+  "nosql",
+  "database",
+  "machine learning",
+  "artificial intelligence",
+  "ai",
+  "ml",
+  "dl",
+  "deep learning",
+  "kubernetes",
+  "docker",
+  "cloud",
+  "aws",
+  "azure",
+  "gcp",
+  "devops",
+  "site reliability",
+  "network engineer",
+  "technical lead",
+  "tech lead",
+  "software architect",
+  "CTO",
+  "platform engineer",
+  "platform architect",
+];
 
 interface PeopleSearchResponse {
   total_entries?: number;
@@ -53,75 +101,60 @@ function toPeopleSearchQueryParams(
 }
 
 export async function countEngineerPeople(company: ResolvedCompany): Promise<number> {
-  const engineerPastTitles = [
-    "engineer",
-    "developer",
-    "builder",
-    "technical lead",
-    "platform",
-    "infrastructure",
-    "SRE",
-    "backend",
-    "cloud",
-    "devops",
-    "Site Reliability",
-    "software",
-    "IOS",
-    "Android",
-    "mobile",
-    "frontend",
-    "backend",
-    "fullstack",
-    "python",
-    "java",
-    "javascript",
-    "typescript",
-    "ruby",
-    "php",
-    "sql",
-    "nosql",
-    "database",
-    "machine learning",
-    "artificial intelligence",
-    "ai",
-    "ml",
-    "dl",
-    "deep learning",  
-    "kubernetes",
-    "docker",
-    "cloud",
-    "aws",
-    "azure",
-    "gcp",
-    "devops",
-    "site reliability",
-    "network engineer",
-    "technical lead",
-    "tech lead",
-    "software architect",
-    "CTO",
-    "platform engineer",
-    "platform architect",
-    "ai"
-  ];
+  const queryTitles = [...new Set(ENGINEER_TITLE_KEYWORDS.map((keyword) => keyword.trim()).filter(Boolean))];
 
-  const response = await apolloPostWithQuery<PeopleSearchResponse>(
-    "/mixed_people/api_search",
-    {
-      page: 1,
-      per_page: 1,
-      "person_past_titles[]": engineerPastTitles,
-      include_similar_titles: true,
-      "q_organization_domains_list[]": [company.domain],
+  async function fetchAllPeopleByTitleParam(
+    titleParamKey: "person_past_titles[]" | "person_titles[]"
+  ): Promise<ApolloPerson[]> {
+    const allPeople: ApolloPerson[] = [];
+    let page = 1;
+
+    while (page <= MAX_APOLLO_PAGES) {
+      const response = await apolloPostWithQuery<PeopleSearchResponse>("/mixed_people/api_search", {
+        page,
+        per_page: APOLLO_PAGE_SIZE,
+        [titleParamKey]: queryTitles,
+        include_similar_titles: true,
+        "q_organization_domains_list[]": [company.domain],
+      });
+
+      const people = response.people ?? [];
+      if (people.length === 0) {
+        break;
+      }
+
+      allPeople.push(...people);
+
+      const totalPages = response.pagination?.total_pages;
+      const reachedLastPage =
+        page >= MAX_APOLLO_PAGES || (totalPages ? page >= totalPages : people.length < APOLLO_PAGE_SIZE);
+      if (reachedLastPage) {
+        break;
+      }
+      page += 1;
     }
-  );
 
-  const totalEntries = response.total_entries;
-  if (typeof totalEntries !== "number" || !Number.isFinite(totalEntries) || totalEntries < 0) {
-    return 0;
+    return allPeople;
   }
 
-  return totalEntries;
+  const pastTitlePeople = await fetchAllPeopleByTitleParam("person_past_titles[]");
+  const currentTitlePeople = await fetchAllPeopleByTitleParam("person_titles[]");
+
+  const uniqueEngineerIds = new Set<string>();
+
+  const addPersonToSet = (person: ApolloPerson): void => {
+    const stableId = person.id ?? `${toName(person)}|${person.title ?? ""}`;
+    uniqueEngineerIds.add(stableId);
+  };
+
+  for (const person of pastTitlePeople) {
+    addPersonToSet(person);
+  }
+  for (const person of currentTitlePeople) {
+    addPersonToSet(person);
+  }
+
+  return uniqueEngineerIds.size;
 }
 
 export async function searchPeople(

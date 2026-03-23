@@ -29,6 +29,7 @@ const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability"];
 const MAX_RESULTS = 30;
 const REJECTED_REASON = "rejected because they were using other observability tools";
+const MIN_ENGINEER_COUNT = 20;
 
 interface RowResearchResult {
   companyName: string;
@@ -112,7 +113,9 @@ export async function runResearchPipeline(
 
       const eligible = shouldProcessByObservability(observability);
       if (!eligible) {
-        rejectedCompanies.push(row.companyName);
+        rejectedCompanies.push(
+          `Company ${row.companyName} was rejected because it was using other observability tools`
+        );
       }
 
       rowResults.push({
@@ -122,8 +125,6 @@ export async function runResearchPipeline(
         eligible,
       });
     }
-
-    setRejectedCompanies(jobId, rejectedCompanies, REJECTED_REASON);
 
     const eligibleRows = rowResults.filter((row) => row.eligible);
     setJobMessage(jobId, `Observability stage complete. Processing ${eligibleRows.length} eligible companies.`);
@@ -143,6 +144,21 @@ export async function runResearchPipeline(
       try {
         const company = await getCompany(row.companyDomain);
         const engineerCount = await countEngineerPeople(company);
+        if (engineerCount < MIN_ENGINEER_COUNT) {
+          rejectedCompanies.push(
+            `${row.companyName} was rejected because it has only ${engineerCount} number of software engineers`
+          );
+          rejectedOutputRows.push({
+            company_name: row.companyName,
+            company_domain: row.companyDomain,
+            observability_tool_research: row.observability,
+            sre_count: "",
+            engineer_count: "",
+            status: "NotActionableNow",
+            notes: `Software engineer count: "${engineerCount}"`,
+          });
+          continue;
+        }
         const prospects = await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES);
         const dedupedProspects = dedupeProspectsById(prospects);
         const enrichedEmployees = await bulkEnrichPeople(dedupedProspects);
@@ -198,6 +214,8 @@ export async function runResearchPipeline(
         notes: rejectionNotes,
       });
     }
+
+    setRejectedCompanies(jobId, rejectedCompanies, REJECTED_REASON);
 
     const summary: JobSummary = {
       totalRows,

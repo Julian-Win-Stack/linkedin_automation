@@ -69,26 +69,56 @@ describe("searchPeople", () => {
     expect(result[0].title).toBe("Backend Engineer");
   });
 
-  it("counts engineer people using total_entries", async () => {
-    apolloPostWithQueryMock.mockResolvedValue({
-      total_entries: 321,
-      people: [],
-      pagination: { page: 1, total_pages: 1 },
-    });
+  it("counts engineers as union of past and current title lists", async () => {
+    apolloPostWithQueryMock
+      .mockResolvedValueOnce({
+        people: [
+          { id: "person-1", name: "Past One", title: "Backend Engineer" },
+          { id: "person-2", name: "Past Two", title: "Platform Engineer" },
+        ],
+        pagination: { page: 1, total_pages: 1 },
+      })
+      .mockResolvedValueOnce({
+        people: [
+          { id: "person-2", name: "Past Two", title: "Platform Engineer" },
+          { id: "person-3", name: "Current Three", title: "Technical Lead" },
+          { id: "person-4", name: "Current Four", title: "DevOps Engineer" },
+        ],
+        pagination: { page: 1, total_pages: 1 },
+      });
 
     const count = await countEngineerPeople(company);
-    expect(count).toBe(321);
-    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
-      page: 1,
-      per_page: 1,
-      include_similar_titles: true,
-      "q_organization_domains_list[]": ["acme.com"],
-      "person_titles[]": ["engineer"],
-    });
+    expect(count).toBe(4);
+    expect(apolloPostWithQueryMock).toHaveBeenCalledTimes(2);
+
+    const [firstEndpoint, firstQuery] = apolloPostWithQueryMock.mock.calls[0] as [
+      string,
+      Record<string, unknown>
+    ];
+    const [secondEndpoint, secondQuery] = apolloPostWithQueryMock.mock.calls[1] as [
+      string,
+      Record<string, unknown>
+    ];
+
+    expect(firstEndpoint).toBe("/mixed_people/api_search");
+    expect(secondEndpoint).toBe("/mixed_people/api_search");
+    expect(firstQuery.page).toBe(1);
+    expect(secondQuery.page).toBe(1);
+    expect(firstQuery.per_page).toBe(100);
+    expect(secondQuery.per_page).toBe(100);
+    expect(firstQuery["q_organization_domains_list[]"]).toEqual(["acme.com"]);
+    expect(secondQuery["q_organization_domains_list[]"]).toEqual(["acme.com"]);
+    expect(firstQuery["person_past_titles[]"]).toBeTruthy();
+    expect(secondQuery["person_titles[]"]).toBeTruthy();
   });
 
-  it("returns zero when total_entries is missing", async () => {
-    apolloPostWithQueryMock.mockResolvedValue({
+  it("returns zero when both title searches return no people", async () => {
+    apolloPostWithQueryMock
+      .mockResolvedValueOnce({
+        people: [],
+        pagination: { page: 1, total_pages: 1 },
+      })
+      .mockResolvedValueOnce({
       people: [],
       pagination: { page: 1, total_pages: 1 },
     });
