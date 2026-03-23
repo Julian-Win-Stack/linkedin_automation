@@ -126,4 +126,19 @@ describe("searchPeople", () => {
     const count = await countEngineerPeople(company);
     expect(count).toBe(0);
   });
+
+  it("short-circuits when past-title engineer count is above 20", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: Array.from({ length: 21 }, (_, index) => ({
+        id: `past-${index + 1}`,
+        name: `Past ${index + 1}`,
+        title: "Engineer",
+      })),
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const count = await countEngineerPeople(company);
+    expect(count).toBe(21);
+    expect(apolloPostWithQueryMock).toHaveBeenCalledTimes(1);
+  });
 });

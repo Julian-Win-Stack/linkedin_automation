@@ -102,6 +102,7 @@ function toPeopleSearchQueryParams(
 
 export async function countEngineerPeople(company: ResolvedCompany): Promise<number> {
   const queryTitles = [...new Set(ENGINEER_TITLE_KEYWORDS.map((keyword) => keyword.trim()).filter(Boolean))];
+  const ENGINEER_PAST_TITLE_SHORT_CIRCUIT_THRESHOLD = 20;
 
   async function fetchAllPeopleByTitleParam(
     titleParamKey: "person_past_titles[]" | "person_titles[]"
@@ -138,6 +139,17 @@ export async function countEngineerPeople(company: ResolvedCompany): Promise<num
   }
 
   const pastTitlePeople = await fetchAllPeopleByTitleParam("person_past_titles[]");
+  const pastTitleUniqueEngineerIds = new Set<string>();
+  for (const person of pastTitlePeople) {
+    const stableId = person.id ?? `${toName(person)}|${person.title ?? ""}`;
+    pastTitleUniqueEngineerIds.add(stableId);
+  }
+
+  // Optimization: if past-title count is already high enough, skip current-title search and merging.
+  if (pastTitleUniqueEngineerIds.size > ENGINEER_PAST_TITLE_SHORT_CIRCUIT_THRESHOLD) {
+    return pastTitleUniqueEngineerIds.size;
+  }
+
   const currentTitlePeople = await fetchAllPeopleByTitleParam("person_titles[]");
 
   const uniqueEngineerIds = new Set<string>();
@@ -147,9 +159,7 @@ export async function countEngineerPeople(company: ResolvedCompany): Promise<num
     uniqueEngineerIds.add(stableId);
   };
 
-  for (const person of pastTitlePeople) {
-    addPersonToSet(person);
-  }
+  for (const person of pastTitlePeople) addPersonToSet(person);
   for (const person of currentTitlePeople) {
     addPersonToSet(person);
   }

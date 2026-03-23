@@ -324,10 +324,8 @@ function restart(): void {
       </div>
 
       <div v-if="summary" class="rounded-md border border-zinc-700 bg-zinc-900/50 p-3 text-sm space-y-1">
-        <p><strong>Total rows:</strong> {{ summary.totalRows ?? 0 }}</p>
-        <p><strong>Eligible companies:</strong> {{ summary.eligibleCompanyCount ?? 0 }}</p>
+        <p><strong>Total companies:</strong> {{ summary.totalRows ?? 0 }}</p>
         <p><strong>Rejected companies:</strong> {{ summary.rejectedCompanyCount ?? 0 }}</p>
-        <p><strong>Apollo processed:</strong> {{ summary.apolloProcessedCompanyCount ?? 0 }}</p>
         <p><strong>Total SRE found:</strong> {{ summary.totalSreFound ?? 0 }}</p>
         <p><strong>Lemlist successful:</strong> {{ summary.totalLemlistSuccessful ?? 0 }}</p>
         <p><strong>Lemlist failed:</strong> {{ summary.totalLemlistFailed ?? 0 }}</p>

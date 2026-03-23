@@ -30,6 +30,8 @@ const SRE_PERSON_TITLES = ["SRE", "Site Reliability"];
 const MAX_RESULTS = 30;
 const REJECTED_REASON = "rejected because they were using other observability tools";
 const MIN_ENGINEER_COUNT = 20;
+const MAX_ENGINEER_COUNT = 700;
+const MAX_SRE_COUNT = 15;
 
 interface RowResearchResult {
   companyName: string;
@@ -159,12 +161,41 @@ export async function runResearchPipeline(
           });
           continue;
         }
+        if (engineerCount > MAX_ENGINEER_COUNT) {
+          const rejectionNote = `${row.companyName} got rejected because it has too many software engineers`;
+          rejectedCompanies.push(rejectionNote);
+          rejectedOutputRows.push({
+            company_name: row.companyName,
+            company_domain: row.companyDomain,
+            observability_tool_research: row.observability,
+            sre_count: "",
+            engineer_count: "",
+            status: "NotActionableNow",
+            notes: rejectionNote,
+          });
+          continue;
+        }
         const prospects = await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES);
         const dedupedProspects = dedupeProspectsById(prospects);
+        const rawSreCount = dedupedProspects.length;
+        if (rawSreCount > MAX_SRE_COUNT) {
+          const rejectionNote = `${row.companyName} got rejected because it has ${rawSreCount} number of SREs`;
+          rejectedCompanies.push(rejectionNote);
+          rejectedOutputRows.push({
+            company_name: row.companyName,
+            company_domain: row.companyDomain,
+            observability_tool_research: row.observability,
+            sre_count: rawSreCount,
+            engineer_count: "",
+            status: "NotActionableNow",
+            notes: rejectionNote,
+          });
+          continue;
+        }
         const enrichedEmployees = await bulkEnrichPeople(dedupedProspects);
 
         apolloProcessedCompanyCount += 1;
-        totalSreFound += enrichedEmployees.length;
+        totalSreFound += rawSreCount;
 
         let lemlistSuccessful = 0;
         let lemlistFailed = 0;
@@ -185,7 +216,7 @@ export async function runResearchPipeline(
           company_domain: row.companyDomain,
           observability_tool_research: row.observability,
           status: "ChasingPOC",
-          sre_count: enrichedEmployees.length,
+          sre_count: rawSreCount,
           engineer_count: engineerCount,
         });
       } catch (error) {
