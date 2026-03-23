@@ -4,11 +4,19 @@ export type OutputRow = {
   company_name: string;
   company_domain: string;
   observability_tool_research: string;
-  pipeline_status: string;
+  status: string;
   sre_count: number;
   engineer_count: number;
-  lemlist_successful: number;
-  lemlist_failed: number;
+};
+
+export type RejectedOutputRow = {
+  company_name: string;
+  company_domain: string;
+  observability_tool_research: string;
+  sre_count: "";
+  engineer_count: "";
+  status: "NotActionableNow";
+  notes: string;
 };
 
 export function rowsToCsvString(rows: OutputRow[]): Promise<string> {
@@ -21,11 +29,36 @@ export function rowsToCsvString(rows: OutputRow[]): Promise<string> {
           { key: "company_name", header: "Company Name" },
           { key: "company_domain", header: "Website" },
           { key: "observability_tool_research", header: "observability_tool" },
-          { key: "pipeline_status", header: "pipeline_status" },
-          { key: "sre_count", header: "sre_count" },
-          { key: "engineer_count", header: "engineer_count" },
-          { key: "lemlist_successful", header: "lemlist_successful" },
-          { key: "lemlist_failed", header: "lemlist_failed" },
+          { key: "status", header: "STATUS" },
+          { key: "sre_count", header: "Number of SREs" },
+          { key: "engineer_count", header: "Number of Engineers" },
+        ],
+      },
+      (error, output) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(output ?? "");
+      }
+    );
+  });
+}
+
+export function rejectedRowsToCsvString(rows: RejectedOutputRow[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    stringify(
+      rows,
+      {
+        header: true,
+        columns: [
+          { key: "company_name", header: "Company Name" },
+          { key: "company_domain", header: "Website" },
+          { key: "observability_tool_research", header: "observability_tool" },
+          { key: "sre_count", header: "Number of SREs" },
+          { key: "engineer_count", header: "Number of Engineers" },
+          { key: "status", header: "STATUS" },
+          { key: "notes", header: "Notes" },
         ],
       },
       (error, output) => {

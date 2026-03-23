@@ -19,6 +19,7 @@ export type JobState = {
   currentRow?: number;
   warnings: string[];
   csvBase64?: string;
+  rejectsCsvBase64?: string;
   error?: string;
   rejectedCompanies: string[];
   rejectedReason?: string;
@@ -134,13 +135,14 @@ export function setJobSummary(jobId: string, summary: JobSummary): void {
   job.updatedAtMs = Date.now();
 }
 
-export function markJobDone(jobId: string, csvBase64: string): void {
+export function markJobDone(jobId: string, csvBase64: string, rejectsCsvBase64?: string): void {
   const job = jobs.get(jobId);
   if (!job) {
     return;
   }
   job.status = "done";
   job.csvBase64 = csvBase64;
+  job.rejectsCsvBase64 = rejectsCsvBase64;
   job.updatedAtMs = Date.now();
 }
 

@@ -10,7 +10,9 @@ const error = ref<string | null>(null);
 const warnings = ref<string[]>([]);
 const progressMessage = ref<string | null>(null);
 const resultBlob = ref<Blob | null>(null);
+const rejectsBlob = ref<Blob | null>(null);
 const downloadUrl = ref<string | null>(null);
+const rejectsDownloadUrl = ref<string | null>(null);
 const summary = ref<Record<string, number> | null>(null);
 const rejectedCompanies = ref<string[]>([]);
 const rejectedReason = ref<string | null>(null);
@@ -30,9 +32,22 @@ watch(resultBlob, (blob) => {
   }
 });
 
+watch(rejectsBlob, (blob) => {
+  if (rejectsDownloadUrl.value) {
+    URL.revokeObjectURL(rejectsDownloadUrl.value);
+    rejectsDownloadUrl.value = null;
+  }
+  if (blob) {
+    rejectsDownloadUrl.value = URL.createObjectURL(blob);
+  }
+});
+
 onBeforeUnmount(() => {
   if (downloadUrl.value) {
     URL.revokeObjectURL(downloadUrl.value);
+  }
+  if (rejectsDownloadUrl.value) {
+    URL.revokeObjectURL(rejectsDownloadUrl.value);
   }
 });
 
@@ -41,6 +56,7 @@ function resetState(): void {
   warnings.value = [];
   progressMessage.value = null;
   resultBlob.value = null;
+  rejectsBlob.value = null;
   summary.value = null;
   rejectedCompanies.value = [];
   rejectedReason.value = null;
@@ -137,6 +153,7 @@ async function pollJob(jobId: string): Promise<void> {
         | {
             status: "done";
             csv: string;
+            rejectsCsv?: string;
             warnings?: string[];
             rejectedCompanies?: string[];
             rejectedReason?: string;
@@ -158,6 +175,7 @@ async function pollJob(jobId: string): Promise<void> {
       const donePayload = payload as {
         status: "done";
         csv: string;
+        rejectsCsv?: string;
         warnings?: string[];
         rejectedCompanies?: string[];
         rejectedReason?: string;
@@ -170,6 +188,16 @@ async function pollJob(jobId: string): Promise<void> {
         bytes[i] = binary.charCodeAt(i);
       }
       resultBlob.value = new Blob([bytes], { type: "text/csv" });
+      if (donePayload.rejectsCsv) {
+        const rejectedBinary = atob(donePayload.rejectsCsv);
+        const rejectedBytes = new Uint8Array(rejectedBinary.length);
+        for (let i = 0; i < rejectedBinary.length; i += 1) {
+          rejectedBytes[i] = rejectedBinary.charCodeAt(i);
+        }
+        rejectsBlob.value = new Blob([rejectedBytes], { type: "text/csv" });
+      } else {
+        rejectsBlob.value = null;
+      }
       warnings.value = donePayload.warnings ?? [];
       rejectedCompanies.value = donePayload.rejectedCompanies ?? [];
       rejectedReason.value = donePayload.rejectedReason ?? null;
@@ -234,7 +262,7 @@ function restart(): void {
 
 <template>
   <div
-    class="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_#111a2a_0%,_#090d16_45%,_#05070c_100%)] px-4 text-zinc-200"
+    class="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#111a2a_0%,#090d16_45%,#05070c_100%)] px-4 text-zinc-200"
   >
     <div class="w-full max-w-md rounded-xl border border-[#1d2537] bg-[#0d1320]/90 p-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)] space-y-3">
       <label class="block">
@@ -323,14 +351,24 @@ function restart(): void {
         </ul>
       </div>
 
-      <a
-        v-if="downloadUrl"
-        :href="downloadUrl"
-        download="results.csv"
-        class="inline-block rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-      >
-        Download Results CSV
-      </a>
+      <div class="flex flex-wrap gap-2">
+        <a
+          v-if="downloadUrl"
+          :href="downloadUrl"
+          download="results.csv"
+          class="inline-block rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+        >
+          Download Results CSV
+        </a>
+        <a
+          v-if="rejectsDownloadUrl"
+          :href="rejectsDownloadUrl"
+          download="rejects.csv"
+          class="inline-block rounded-md bg-zinc-700 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-600"
+        >
+          Download Rejects CSV
+        </a>
+      </div>
     </div>
   </div>
 </template>

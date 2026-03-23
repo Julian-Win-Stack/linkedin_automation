@@ -6,7 +6,12 @@ import { pushPeopleToLemlistCampaign } from "../services/lemlistPushQueue";
 import { countEngineerPeople, searchPeople } from "../services/searchPeople";
 import { readCompanies } from "../services/observability/csvReader";
 import { researchCompany } from "../services/observability/openaiClient";
-import { OutputRow, rowsToCsvString } from "../services/observability/csvWriter";
+import {
+  OutputRow,
+  RejectedOutputRow,
+  rejectedRowsToCsvString,
+  rowsToCsvString,
+} from "../services/observability/csvWriter";
 import {
   addJobWarning,
   getJob,
@@ -67,6 +72,7 @@ export async function runResearchPipeline(
 ): Promise<void> {
   const rowResults: RowResearchResult[] = [];
   const outputRows: OutputRow[] = [];
+  const rejectedOutputRows: RejectedOutputRow[] = [];
   const rejectedCompanies: string[] = [];
   let totalRows = 0;
   let apolloProcessedCompanyCount = 0;
@@ -162,11 +168,9 @@ export async function runResearchPipeline(
           company_name: row.companyName,
           company_domain: row.companyDomain,
           observability_tool_research: row.observability,
-          pipeline_status: "processed",
+          status: "ChasingPOC",
           sre_count: enrichedEmployees.length,
           engineer_count: engineerCount,
-          lemlist_successful: lemlistSuccessful,
-          lemlist_failed: lemlistFailed,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown pipeline error";
@@ -175,25 +179,31 @@ export async function runResearchPipeline(
           company_name: row.companyName,
           company_domain: row.companyDomain,
           observability_tool_research: row.observability,
-          pipeline_status: "apollo_error",
+          status: "ChasingPOC",
           sre_count: 0,
           engineer_count: 0,
-          lemlist_successful: 0,
-          lemlist_failed: 0,
         });
       }
     }
 
     for (const row of rowResults.filter((entry) => !entry.eligible)) {
+      const rejectionNotes = row.observability.trim() || REJECTED_REASON;
       outputRows.push({
         company_name: row.companyName,
         company_domain: row.companyDomain,
         observability_tool_research: row.observability,
-        pipeline_status: "rejected_observability",
+        status: "ChasingPOC",
         sre_count: 0,
         engineer_count: 0,
-        lemlist_successful: 0,
-        lemlist_failed: 0,
+      });
+      rejectedOutputRows.push({
+        company_name: row.companyName,
+        company_domain: row.companyDomain,
+        observability_tool_research: row.observability,
+        sre_count: "",
+        engineer_count: "",
+        status: "NotActionableNow",
+        notes: rejectionNotes,
       });
     }
 
@@ -209,8 +219,10 @@ export async function runResearchPipeline(
     setJobSummary(jobId, summary);
 
     const csvString = await rowsToCsvString(outputRows);
+    const rejectsCsvString = await rejectedRowsToCsvString(rejectedOutputRows);
     const csvBase64 = Buffer.from(csvString, "utf8").toString("base64");
-    markJobDone(jobId, csvBase64);
+    const rejectsCsvBase64 = Buffer.from(rejectsCsvString, "utf8").toString("base64");
+    markJobDone(jobId, csvBase64, rejectsCsvBase64);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected job failure";
     markJobError(jobId, message);
