@@ -27,7 +27,7 @@ describe("pushPeopleToLemlistCampaign", () => {
           name: "Jane Doe",
           linkedinUrl: "https://linkedin.com/in/jane",
           currentTitle: "SRE",
-          tenure: "1 year 0 months",
+          tenure: 12,
         },
       ],
       "Acme",
@@ -74,7 +74,7 @@ describe("pushPeopleToLemlistCampaign", () => {
           name: "Jane Doe",
           linkedinUrl: "https://linkedin.com/in/jane",
           currentTitle: "SRE",
-          tenure: "1 year 0 months",
+          tenure: 12,
         },
         {
           startDate: "2024-01-01",
@@ -82,7 +82,7 @@ describe("pushPeopleToLemlistCampaign", () => {
           name: "John Doe",
           linkedinUrl: "https://linkedin.com/in/john",
           currentTitle: "SRE",
-          tenure: "1 year 0 months",
+          tenure: 12,
         },
       ],
       "Acme",
@@ -97,5 +97,37 @@ describe("pushPeopleToLemlistCampaign", () => {
       name: "John Doe",
       error: "Lemlist API error (404): Campaign not found",
     });
+  });
+
+  it("does not apply tenure filtering in queue layer", async () => {
+    createLeadInCampaignMock.mockResolvedValue(undefined);
+    const result = await pushPeopleToLemlistCampaign(
+      [
+        {
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "Short Stay",
+          linkedinUrl: "https://linkedin.com/in/short",
+          currentTitle: "SRE",
+          tenure: 1,
+        },
+        {
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "Eligible Person",
+          linkedinUrl: "https://linkedin.com/in/eligible",
+          currentTitle: "SRE",
+          tenure: 2,
+        },
+      ],
+      "Acme",
+      "acme.com"
+    );
+
+    expect(createLeadInCampaignMock).toHaveBeenCalledTimes(2);
+    expect(result.attempted).toBe(2);
+    expect(result.successful).toBe(2);
+    expect(result.failed).toBe(0);
+    expect(result.successItems).toEqual(["Short Stay", "Eligible Person"]);
   });
 });

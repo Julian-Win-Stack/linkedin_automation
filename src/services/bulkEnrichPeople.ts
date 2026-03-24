@@ -45,15 +45,6 @@ interface MonthRange {
   end: number;
 }
 
-function formatMonths(totalMonths: number): string {
-  const safeMonths = totalMonths >= 0 ? totalMonths : 0;
-  const years = Math.floor(safeMonths / 12);
-  const months = safeMonths % 12;
-  const yearsLabel = years === 1 ? "year" : "years";
-  const monthsLabel = months === 1 ? "month" : "months";
-  return `${years} ${yearsLabel} ${months} ${monthsLabel}`;
-}
-
 function toMonthRange(item: EmploymentHistoryItem, now: Date): MonthRange | null {
   const startDate = parseDate(item.start_date);
   if (!startDate) {
@@ -92,7 +83,7 @@ function mergeRanges(ranges: MonthRange[]): MonthRange[] {
   return merged;
 }
 
-function computeCompanyTenure(record: BulkMatchRecord, now = new Date()): string | null {
+function computeCompanyTenure(record: BulkMatchRecord, now = new Date()): number | null {
   const history = record.employment_history ?? [];
   if (history.length === 0) {
     return null;
@@ -114,7 +105,7 @@ function computeCompanyTenure(record: BulkMatchRecord, now = new Date()): string
 
   const merged = mergeRanges(ranges);
   const totalMonths = merged.reduce((sum, range) => sum + (range.end - range.start), 0);
-  return formatMonths(totalMonths);
+  return totalMonths >= 0 ? totalMonths : 0;
 }
 
 function chunkArray<T>(items: T[], size: number): T[][] {
@@ -141,6 +132,7 @@ function toEnrichedEmployee(record: BulkMatchRecord): EnrichedEmployee | null {
 
   const tenure = computeCompanyTenure(record);
   return {
+    id: record.id,
     startDate: currentRole?.start_date ?? null,
     endDate: currentRole?.end_date ?? null,
     name: record.name ?? "",

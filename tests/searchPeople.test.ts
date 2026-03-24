@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { countEngineerPeople, searchPeople } from "../src/services/searchPeople";
+import {
+  countEngineerPeople,
+  searchCurrentPlatformEngineerPeople,
+  searchPastSrePeople,
+  searchPeople,
+} from "../src/services/searchPeople";
 import { ResolvedCompany } from "../src/services/getCompany";
 
 const apolloPostWithQueryMock = vi.fn();
@@ -41,7 +46,7 @@ describe("searchPeople", () => {
     expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
       page: 1,
       per_page: 100,
-      include_similar_titles: true,
+      include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
       "person_titles[]": ["SRE", "Site Reliability"],
     });
@@ -140,5 +145,39 @@ describe("searchPeople", () => {
     const count = await countEngineerPeople(company);
     expect(count).toBe(21);
     expect(apolloPostWithQueryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("queries targeted past SRE helper with person_past_titles[]", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "past-1", name: "Past One", title: "Principal Engineer" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const result = await searchPastSrePeople(company, 10);
+    expect(result).toHaveLength(1);
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 100,
+      include_similar_titles: false,
+      "q_organization_domains_list[]": ["acme.com"],
+      "person_past_titles[]": ["SRE", "Site Reliability", "Head of Reliability"],
+    });
+  });
+
+  it("queries targeted platform helper with current title param", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "platform-1", name: "Platform One", title: "Platform Engineer" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const result = await searchCurrentPlatformEngineerPeople(company, 10);
+    expect(result).toHaveLength(1);
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 100,
+      include_similar_titles: false,
+      "q_organization_domains_list[]": ["acme.com"],
+      "person_titles[]": ["platform engineer"],
+    });
   });
 });

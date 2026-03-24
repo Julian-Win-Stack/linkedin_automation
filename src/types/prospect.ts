@@ -5,12 +5,13 @@ export interface Prospect {
 }
 
 export interface EnrichedEmployee {
+  id?: string;
   startDate: string | null;
   endDate: string | null;
   name: string;
   linkedinUrl: string | null;
   currentTitle: string;
-  tenure: string | null;
+  tenure: number | null;
 }
 
 export interface LemlistFailedLead {

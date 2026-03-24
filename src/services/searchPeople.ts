@@ -63,6 +63,8 @@ interface PeopleSearchResponse {
   };
 }
 
+type TitleParamKey = "person_titles[]" | "person_past_titles[]";
+
 function toName(person: ApolloPerson): string {
   if (person.name) {
     return person.name;
@@ -84,13 +86,14 @@ function toPeopleSearchQueryParams(
   company: ResolvedCompany,
   page: number,
   personTitles: string[],
+  titleParamKey: TitleParamKey,
   perPage = APOLLO_PAGE_SIZE,
   includeSimilarTitles = true
 ): Record<string, string | number | boolean | Array<string | number | boolean>> {
   const params: Record<string, string | number | boolean | Array<string | number | boolean>> = {
     page,
     per_page: perPage,
-    "person_titles[]": personTitles,
+    [titleParamKey]: personTitles,
     include_similar_titles: includeSimilarTitles,
   };
 
@@ -98,6 +101,49 @@ function toPeopleSearchQueryParams(
   params["q_organization_domains_list[]"] = [company.domain];
 
   return params;
+}
+
+async function searchPeopleByTitleParam(
+  company: ResolvedCompany,
+  maxResults: number,
+  titles: string[],
+  titleParamKey: TitleParamKey,
+  includeSimilarTitles = true
+): Promise<Prospect[]> {
+  const normalizedMaxResults = Math.max(1, Math.min(maxResults, 100));
+  const normalizedTitles = [...new Set(titles.map((title) => title.trim()).filter(Boolean))];
+
+  if (normalizedTitles.length === 0) {
+    throw new Error("At least one person title is required.");
+  }
+
+  const prospects: Prospect[] = [];
+  let page = 1;
+
+  while (prospects.length < normalizedMaxResults) {
+    const response = await apolloPostWithQuery<PeopleSearchResponse>(
+      "/mixed_people/api_search",
+      toPeopleSearchQueryParams(company, page, normalizedTitles, titleParamKey, APOLLO_PAGE_SIZE, includeSimilarTitles)
+    );
+
+    const people = response.people ?? [];
+    if (people.length === 0) {
+      break;
+    }
+
+    prospects.push(...people.map((person) => toProspect(person, company.companyName)));
+
+    const totalPages = response.pagination?.total_pages;
+    const reachedLastPage =
+      page >= MAX_APOLLO_PAGES || (totalPages ? page >= totalPages : people.length < APOLLO_PAGE_SIZE);
+    if (reachedLastPage) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return prospects.slice(0, normalizedMaxResults);
 }
 
 export async function countEngineerPeople(company: ResolvedCompany): Promise<number> {
@@ -172,42 +218,25 @@ export async function searchPeople(
   maxResults = 100,
   personTitles: string[] = DEFAULT_PERSON_TITLES
 ): Promise<Prospect[]> {
-  const normalizedMaxResults = Math.max(1, Math.min(maxResults, 100));
-  const normalizedPersonTitles = personTitles
-    .map((title) => title.trim())
-    .filter((title) => title.length > 0);
+  return searchPeopleByTitleParam(company, maxResults, personTitles, "person_titles[]", false);
+}
 
-  if (normalizedPersonTitles.length === 0) {
-    throw new Error("At least one person title is required.");
-  }
+const BACKFILL_PAST_SRE_TITLES = ["SRE", "Site Reliability", "Head of Reliability"];
+const BACKFILL_PLATFORM_TITLES = ["platform engineer"];
 
-  const prospects: Prospect[] = [];
-  let page = 1;
+export async function searchPastSrePeople(company: ResolvedCompany, maxResults = 30): Promise<Prospect[]> {
+  return searchPeopleByTitleParam(
+    company,
+    maxResults,
+    BACKFILL_PAST_SRE_TITLES,
+    "person_past_titles[]",
+    false
+  );
+}
 
-  while (prospects.length < normalizedMaxResults) {
-    const response = await apolloPostWithQuery<PeopleSearchResponse>(
-      "/mixed_people/api_search",
-      toPeopleSearchQueryParams(company, page, normalizedPersonTitles)
-    );
-
-    const people = response.people ?? [];
-    if (people.length === 0) {
-      break;
-    }
-
-    const matchingProspects = people.map((person) => toProspect(person, company.companyName));
-
-    prospects.push(...matchingProspects);
-
-    const totalPages = response.pagination?.total_pages;
-    const reachedLastPage =
-      page >= MAX_APOLLO_PAGES || (totalPages ? page >= totalPages : people.length < APOLLO_PAGE_SIZE);
-    if (reachedLastPage) {
-      break;
-    }
-
-    page += 1;
-  }
-
-  return prospects.slice(0, normalizedMaxResults);
+export async function searchCurrentPlatformEngineerPeople(
+  company: ResolvedCompany,
+  maxResults = 30
+): Promise<Prospect[]> {
+  return searchPeopleByTitleParam(company, maxResults, BACKFILL_PLATFORM_TITLES, "person_titles[]", false);
 }

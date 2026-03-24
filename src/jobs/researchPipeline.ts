@@ -3,9 +3,15 @@ import { PipelineConfig } from "../config/pipelineConfig";
 import { bulkEnrichPeople } from "../services/bulkEnrichPeople";
 import { getCompany } from "../services/getCompany";
 import { pushPeopleToLemlistCampaign } from "../services/lemlistPushQueue";
-import { countEngineerPeople, searchPeople } from "../services/searchPeople";
+import {
+  countEngineerPeople,
+  searchCurrentPlatformEngineerPeople,
+  searchPastSrePeople,
+  searchPeople,
+} from "../services/searchPeople";
 import { readCompanies } from "../services/observability/csvReader";
 import { researchCompany } from "../services/observability/openaiClient";
+import { fillToMinimumWithBackfill, selectTopSreForLemlist } from "../services/sreSelection";
 import {
   OutputRow,
   RejectedOutputRow,
@@ -26,7 +32,7 @@ import {
 } from "./jobStore";
 
 const MAX_ROWS = 500;
-const SRE_PERSON_TITLES = ["SRE", "Site Reliability"];
+const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Head of Reliability"];
 const MAX_RESULTS = 30;
 const REJECTED_REASON = "rejected because they were using other observability tools";
 const MIN_ENGINEER_COUNT = 20;
@@ -193,15 +199,38 @@ export async function runResearchPipeline(
           continue;
         }
         const enrichedEmployees = await bulkEnrichPeople(dedupedProspects);
+        const selectedCurrentSre = selectTopSreForLemlist(enrichedEmployees, 7);
+        let selectedForLemlist = selectedCurrentSre;
+
+        // Backfill only runs if we have at least one current SRE candidate selected.
+        if (selectedCurrentSre.length > 0 && selectedCurrentSre.length < 5 && rawSreCount > 0) {
+          const pastSreProspects = dedupeProspectsById(await searchPastSrePeople(company, MAX_RESULTS));
+          const pastSreEnriched = await bulkEnrichPeople(pastSreProspects);
+          selectedForLemlist = fillToMinimumWithBackfill(selectedCurrentSre, pastSreEnriched, [], {
+            minimum: 5,
+            max: 7,
+          });
+
+          if (selectedForLemlist.length < 5) {
+            const platformProspects = dedupeProspectsById(
+              await searchCurrentPlatformEngineerPeople(company, MAX_RESULTS)
+            );
+            const platformEnriched = await bulkEnrichPeople(platformProspects);
+            selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, [], platformEnriched, {
+              minimum: 5,
+              max: 7,
+            });
+          }
+        }
 
         apolloProcessedCompanyCount += 1;
         totalSreFound += rawSreCount;
 
         let lemlistSuccessful = 0;
         let lemlistFailed = 0;
-        if (lemlistEnabled && enrichedEmployees.length > 0) {
+        if (lemlistEnabled && selectedForLemlist.length > 0) {
           const lemlistMeta = await pushPeopleToLemlistCampaign(
-            enrichedEmployees,
+            selectedForLemlist,
             company.companyName,
             company.domain
           );

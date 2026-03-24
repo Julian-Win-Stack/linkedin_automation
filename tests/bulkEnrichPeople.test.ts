@@ -51,7 +51,7 @@ describe("bulkEnrichPeople", () => {
       name: "A Person",
       linkedinUrl: "https://linkedin.com/in/a",
       currentTitle: "SRE",
-      tenure: expect.any(String),
+      tenure: expect.any(Number),
     });
   });
 
@@ -88,7 +88,7 @@ describe("bulkEnrichPeople", () => {
 
     const result = await bulkEnrichPeople([{ id: "person_1", name: "A Person", title: "SRE" }]);
     expect(result).toHaveLength(1);
-    expect(result[0].tenure).toBe("2 years 0 months");
+    expect(result[0].tenure).toBe(24);
     vi.useRealTimers();
   });
 
