@@ -17,9 +17,13 @@ router.post("/research", upload.single("csv"), async (req, res) => {
     const config = loadPipelineConfig();
     const firstLine = csvBuffer.split("\n")[0] ?? "";
     const headers = firstLine.split(",").map((header) => header.trim().replace(/^"|"$/g, ""));
-    if (!headers.includes(config.nameColumn) || !headers.includes(config.domainColumn)) {
+    const hasNameColumn = headers.includes(config.nameColumn);
+    const hasDomainColumn = headers.includes(config.domainColumn);
+    const hasApolloAccountIdColumn = headers.includes(config.apolloAccountIdColumn);
+
+    if (!hasNameColumn || (!hasDomainColumn && !hasApolloAccountIdColumn)) {
       return res.status(400).json({
-        error: `CSV must have columns "${config.nameColumn}" and "${config.domainColumn}". Found: ${headers.join(", ")}`,
+        error: `CSV must have "${config.nameColumn}" and at least one of "${config.domainColumn}" or "${config.apolloAccountIdColumn}". Found: ${headers.join(", ")}`,
       });
     }
 
@@ -44,6 +48,7 @@ router.get("/status/:jobId", (req, res) => {
       csv: job.csvBase64 ?? "",
       rejectsCsv: job.rejectsCsvBase64 ?? "",
       warnings: job.warnings,
+      skippedCompanies: job.skippedCompanies,
       rejectedCompanies: job.rejectedCompanies,
       rejectedReason: job.rejectedReason,
       summary: job.summary,

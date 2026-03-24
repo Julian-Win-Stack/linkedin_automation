@@ -64,6 +64,9 @@ interface PeopleSearchResponse {
 }
 
 type TitleParamKey = "person_titles[]" | "person_past_titles[]";
+export interface PeopleSearchFilters {
+  apolloOrganizationId?: string;
+}
 
 function toName(person: ApolloPerson): string {
   if (person.name) {
@@ -87,6 +90,7 @@ function toPeopleSearchQueryParams(
   page: number,
   personTitles: string[],
   titleParamKey: TitleParamKey,
+  filters: PeopleSearchFilters = {},
   perPage = APOLLO_PAGE_SIZE,
   includeSimilarTitles = true
 ): Record<string, string | number | boolean | Array<string | number | boolean>> {
@@ -97,8 +101,16 @@ function toPeopleSearchQueryParams(
     include_similar_titles: includeSimilarTitles,
   };
 
-  // Follow the People Search parameter names from Apollo docs.
-  params["q_organization_domains_list[]"] = [company.domain];
+  const domain = company.domain.trim();
+  if (domain) {
+    // Follow the People Search parameter names from Apollo docs.
+    params["q_organization_domains_list[]"] = [domain];
+  }
+
+  const apolloOrganizationId = filters.apolloOrganizationId?.trim();
+  if (apolloOrganizationId) {
+    params["q_organization_ids[]"] = [apolloOrganizationId];
+  }
 
   return params;
 }
@@ -108,6 +120,7 @@ async function searchPeopleByTitleParam(
   maxResults: number,
   titles: string[],
   titleParamKey: TitleParamKey,
+  filters: PeopleSearchFilters = {},
   includeSimilarTitles = true
 ): Promise<Prospect[]> {
   const normalizedMaxResults = Math.max(1, Math.min(maxResults, 100));
@@ -123,7 +136,15 @@ async function searchPeopleByTitleParam(
   while (prospects.length < normalizedMaxResults) {
     const response = await apolloPostWithQuery<PeopleSearchResponse>(
       "/mixed_people/api_search",
-      toPeopleSearchQueryParams(company, page, normalizedTitles, titleParamKey, APOLLO_PAGE_SIZE, includeSimilarTitles)
+      toPeopleSearchQueryParams(
+        company,
+        page,
+        normalizedTitles,
+        titleParamKey,
+        filters,
+        APOLLO_PAGE_SIZE,
+        includeSimilarTitles
+      )
     );
 
     const people = response.people ?? [];
@@ -146,25 +167,38 @@ async function searchPeopleByTitleParam(
   return prospects.slice(0, normalizedMaxResults);
 }
 
-export async function countEngineerPeople(company: ResolvedCompany): Promise<number> {
+export async function countEngineerPeople(
+  company: ResolvedCompany,
+  filters: PeopleSearchFilters = {}
+): Promise<number> {
   const queryTitles = [...new Set(ENGINEER_TITLE_KEYWORDS.map((keyword) => keyword.trim()).filter(Boolean))];
   const ENGINEER_PAST_TITLE_SHORT_CIRCUIT_THRESHOLD = 20;
 
+  async function fetchEngineerPeoplePage(
+    titleParamKey: "person_past_titles[]" | "person_titles[]",
+    page: number
+  ): Promise<PeopleSearchResponse> {
+    return apolloPostWithQuery<PeopleSearchResponse>("/mixed_people/api_search", {
+      page,
+      per_page: APOLLO_PAGE_SIZE,
+      [titleParamKey]: queryTitles,
+      include_similar_titles: true,
+      ...(company.domain.trim() ? { "q_organization_domains_list[]": [company.domain.trim()] } : {}),
+      ...(filters.apolloOrganizationId?.trim()
+        ? { "q_organization_ids[]": [filters.apolloOrganizationId.trim()] }
+        : {}),
+    });
+  }
+
   async function fetchAllPeopleByTitleParam(
-    titleParamKey: "person_past_titles[]" | "person_titles[]"
+    titleParamKey: "person_past_titles[]" | "person_titles[]",
+    firstResponse?: PeopleSearchResponse
   ): Promise<ApolloPerson[]> {
     const allPeople: ApolloPerson[] = [];
     let page = 1;
+    let response = firstResponse ?? (await fetchEngineerPeoplePage(titleParamKey, page));
 
     while (page <= MAX_APOLLO_PAGES) {
-      const response = await apolloPostWithQuery<PeopleSearchResponse>("/mixed_people/api_search", {
-        page,
-        per_page: APOLLO_PAGE_SIZE,
-        [titleParamKey]: queryTitles,
-        include_similar_titles: true,
-        "q_organization_domains_list[]": [company.domain],
-      });
-
       const people = response.people ?? [];
       if (people.length === 0) {
         break;
@@ -179,12 +213,21 @@ export async function countEngineerPeople(company: ResolvedCompany): Promise<num
         break;
       }
       page += 1;
+      response = await fetchEngineerPeoplePage(titleParamKey, page);
     }
 
     return allPeople;
   }
 
-  const pastTitlePeople = await fetchAllPeopleByTitleParam("person_past_titles[]");
+  const firstPastTitleResponse = await fetchEngineerPeoplePage("person_past_titles[]", 1);
+  if (
+    typeof firstPastTitleResponse.total_entries === "number" &&
+    firstPastTitleResponse.total_entries > ENGINEER_PAST_TITLE_SHORT_CIRCUIT_THRESHOLD
+  ) {
+    return firstPastTitleResponse.total_entries;
+  }
+
+  const pastTitlePeople = await fetchAllPeopleByTitleParam("person_past_titles[]", firstPastTitleResponse);
   const pastTitleUniqueEngineerIds = new Set<string>();
   for (const person of pastTitlePeople) {
     const stableId = person.id ?? `${toName(person)}|${person.title ?? ""}`;
@@ -216,27 +259,34 @@ export async function countEngineerPeople(company: ResolvedCompany): Promise<num
 export async function searchPeople(
   company: ResolvedCompany,
   maxResults = 100,
-  personTitles: string[] = DEFAULT_PERSON_TITLES
+  personTitles: string[] = DEFAULT_PERSON_TITLES,
+  filters: PeopleSearchFilters = {}
 ): Promise<Prospect[]> {
-  return searchPeopleByTitleParam(company, maxResults, personTitles, "person_titles[]", false);
+  return searchPeopleByTitleParam(company, maxResults, personTitles, "person_titles[]", filters, false);
 }
 
 const BACKFILL_PAST_SRE_TITLES = ["SRE", "Site Reliability", "Head of Reliability"];
 const BACKFILL_PLATFORM_TITLES = ["platform engineer"];
 
-export async function searchPastSrePeople(company: ResolvedCompany, maxResults = 30): Promise<Prospect[]> {
+export async function searchPastSrePeople(
+  company: ResolvedCompany,
+  maxResults = 30,
+  filters: PeopleSearchFilters = {}
+): Promise<Prospect[]> {
   return searchPeopleByTitleParam(
     company,
     maxResults,
     BACKFILL_PAST_SRE_TITLES,
     "person_past_titles[]",
+    filters,
     false
   );
 }
 
 export async function searchCurrentPlatformEngineerPeople(
   company: ResolvedCompany,
-  maxResults = 30
+  maxResults = 30,
+  filters: PeopleSearchFilters = {}
 ): Promise<Prospect[]> {
-  return searchPeopleByTitleParam(company, maxResults, BACKFILL_PLATFORM_TITLES, "person_titles[]", false);
+  return searchPeopleByTitleParam(company, maxResults, BACKFILL_PLATFORM_TITLES, "person_titles[]", filters, false);
 }

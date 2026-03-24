@@ -14,7 +14,7 @@ export type RejectedOutputRow = {
   company_domain: string;
   observability_tool_research: string;
   sre_count: "" | number;
-  engineer_count: "" | number;
+  engineer_count: "" | number | "> 1000";
   status: "NotActionableNow";
   notes: string;
 };

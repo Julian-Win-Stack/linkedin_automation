@@ -6,6 +6,7 @@ export interface JobSummary {
   totalRows: number;
   eligibleCompanyCount: number;
   rejectedCompanyCount: number;
+  skippedMissingWebsiteAndApolloAccountIdCount: number;
   apolloProcessedCompanyCount: number;
   totalSreFound: number;
   totalLemlistSuccessful: number;
@@ -18,6 +19,7 @@ export type JobState = {
   totalRows?: number;
   currentRow?: number;
   warnings: string[];
+  skippedCompanies: string[];
   csvBase64?: string;
   rejectsCsvBase64?: string;
   error?: string;
@@ -63,6 +65,7 @@ export function createJob(): string {
   jobs.set(jobId, {
     status: "pending",
     warnings: [],
+    skippedCompanies: [],
     rejectedCompanies: [],
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
@@ -113,6 +116,15 @@ export function addJobWarning(jobId: string, warning: string): void {
     return;
   }
   job.warnings.push(warning);
+  job.updatedAtMs = Date.now();
+}
+
+export function setSkippedCompanies(jobId: string, companies: string[]): void {
+  const job = jobs.get(jobId);
+  if (!job) {
+    return;
+  }
+  job.skippedCompanies = companies;
   job.updatedAtMs = Date.now();
 }
 

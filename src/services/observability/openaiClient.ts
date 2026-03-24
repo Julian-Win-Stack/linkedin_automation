@@ -82,10 +82,17 @@ function cleanDomain(domain: string): string {
 }
 
 function buildQueries(companyName: string, companyDomain: string): string[] {
-  return [
-    `${companyName} ${companyDomain} Datadog OR "Grafana" OR "New Relic" OR "Prometheus" OR "Splunk" OR "Dynatrace" OR "Elastic" OR "PagerDuty" OR "Honeycomb"`,
-    `site:${companyDomain} observability OR monitoring OR tracing OR "Datadog" OR "Grafana" OR "New Relic"`,
-  ];
+  const normalizedDomain = cleanDomain(companyDomain);
+  const baseQuery = `${companyName}${normalizedDomain ? ` ${normalizedDomain}` : ""} Datadog OR "Grafana" OR "New Relic" OR "Prometheus" OR "Splunk" OR "Dynatrace" OR "Elastic" OR "PagerDuty" OR "Honeycomb"`;
+  const queries = [baseQuery];
+
+  if (normalizedDomain) {
+    queries.push(
+      `site:${normalizedDomain} observability OR monitoring OR tracing OR "Datadog" OR "Grafana" OR "New Relic"`
+    );
+  }
+
+  return queries;
 }
 
 async function gatherSearchCandidates(

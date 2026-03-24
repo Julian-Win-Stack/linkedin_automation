@@ -55,6 +55,26 @@ describe("bulkEnrichPeople", () => {
     });
   });
 
+  it("caps enrichment input at 30 people", async () => {
+    const people = Array.from({ length: 35 }).map((_, idx) => ({
+      id: `person_${idx + 1}`,
+      name: `Person ${idx + 1}`,
+      title: "SRE",
+    }));
+
+    apolloPostMock.mockResolvedValue({ matches: [] });
+    await bulkEnrichPeople(people);
+
+    expect(apolloPostMock).toHaveBeenCalledTimes(3);
+    const firstBatch = apolloPostMock.mock.calls[0]?.[1] as { details: Array<{ id: string }> };
+    const secondBatch = apolloPostMock.mock.calls[1]?.[1] as { details: Array<{ id: string }> };
+    const thirdBatch = apolloPostMock.mock.calls[2]?.[1] as { details: Array<{ id: string }> };
+    expect(firstBatch.details).toHaveLength(10);
+    expect(secondBatch.details).toHaveLength(10);
+    expect(thirdBatch.details).toHaveLength(10);
+    expect(thirdBatch.details.at(-1)?.id).toBe("person_30");
+  });
+
   it("merges overlapping roles before summing company tenure", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2022-01-01T00:00:00.000Z"));

@@ -14,6 +14,7 @@ const rejectsBlob = ref<Blob | null>(null);
 const downloadUrl = ref<string | null>(null);
 const rejectsDownloadUrl = ref<string | null>(null);
 const summary = ref<Record<string, number> | null>(null);
+const skippedCompanies = ref<string[]>([]);
 const rejectedCompanies = ref<string[]>([]);
 const rejectedReason = ref<string | null>(null);
 const abortControllerRef = ref<AbortController | null>(null);
@@ -58,6 +59,7 @@ function resetState(): void {
   resultBlob.value = null;
   rejectsBlob.value = null;
   summary.value = null;
+  skippedCompanies.value = [];
   rejectedCompanies.value = [];
   rejectedReason.value = null;
 }
@@ -155,6 +157,7 @@ async function pollJob(jobId: string): Promise<void> {
             csv: string;
             rejectsCsv?: string;
             warnings?: string[];
+            skippedCompanies?: string[];
             rejectedCompanies?: string[];
             rejectedReason?: string;
             summary?: Record<string, number>;
@@ -177,6 +180,7 @@ async function pollJob(jobId: string): Promise<void> {
         csv: string;
         rejectsCsv?: string;
         warnings?: string[];
+        skippedCompanies?: string[];
         rejectedCompanies?: string[];
         rejectedReason?: string;
         summary?: Record<string, number>;
@@ -199,6 +203,7 @@ async function pollJob(jobId: string): Promise<void> {
         rejectsBlob.value = null;
       }
       warnings.value = donePayload.warnings ?? [];
+      skippedCompanies.value = donePayload.skippedCompanies ?? [];
       rejectedCompanies.value = donePayload.rejectedCompanies ?? [];
       rejectedReason.value = donePayload.rejectedReason ?? null;
       summary.value = donePayload.summary ?? null;
@@ -326,6 +331,16 @@ function restart(): void {
       <div v-if="summary" class="rounded-md border border-zinc-700 bg-zinc-900/50 p-3 text-sm space-y-1">
         <p><strong>Total companies:</strong> {{ summary.totalRows ?? 0 }}</p>
         <p><strong>Rejected companies:</strong> {{ summary.rejectedCompanyCount ?? 0 }}</p>
+        <p v-if="skippedCompanies.length > 0" class="text-red-300">
+          {{
+            `Skipped ${skippedCompanies.length} because both Website URL and Apollo Account Id were missing.`
+          }}
+        </p>
+        <ul v-if="skippedCompanies.length > 0" class="list-disc pl-5 text-xs text-red-300 space-y-1">
+          <li v-for="company in skippedCompanies" :key="company">
+            {{ company }}
+          </li>
+        </ul>
         <p><strong>Total SRE found:</strong> {{ summary.totalSreFound ?? 0 }}</p>
         <p><strong>Lemlist successful:</strong> {{ summary.totalLemlistSuccessful ?? 0 }}</p>
         <p><strong>Lemlist failed:</strong> {{ summary.totalLemlistFailed ?? 0 }}</p>

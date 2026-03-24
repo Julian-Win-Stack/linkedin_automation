@@ -4,13 +4,23 @@ import { Readable } from "node:stream";
 export type CompanyRow = {
   companyName: string;
   companyDomain: string;
+  apolloAccountId?: string;
   rowNumber: number;
 };
+
+export type CompanyRowSkipReason = "missing_website_and_apollo_account_id";
+export interface CompanyRowSkipInfo {
+  reason: CompanyRowSkipReason;
+  companyName: string;
+  rowNumber: number;
+}
 
 interface ReadCompaniesOptions {
   csvBuffer: string;
   nameColumn: string;
   domainColumn: string;
+  apolloAccountIdColumn?: string;
+  onSkipRow?: (skipInfo: CompanyRowSkipInfo) => void;
 }
 
 function cleanCell(value: unknown): string {
@@ -37,14 +47,23 @@ export async function* readCompanies(options: ReadCompaniesOptions): AsyncGenera
 
     const companyName = cleanCell(record[options.nameColumn]);
     const companyDomain = cleanCell(record[options.domainColumn]);
+    const apolloAccountId = options.apolloAccountIdColumn
+      ? cleanCell(record[options.apolloAccountIdColumn]) || undefined
+      : undefined;
 
-    if (!companyName || !companyDomain) {
+    if (!companyDomain && !apolloAccountId) {
+      options.onSkipRow?.({
+        reason: "missing_website_and_apollo_account_id",
+        companyName,
+        rowNumber,
+      });
       continue;
     }
 
     yield {
       companyName,
       companyDomain,
+      apolloAccountId,
       rowNumber,
     };
   }

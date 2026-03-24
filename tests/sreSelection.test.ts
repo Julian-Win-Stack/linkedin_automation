@@ -250,15 +250,46 @@ describe("fillToMinimumWithBackfill", () => {
     expect(result.map((item) => item.id)).toEqual(["current-1", "past-known-4m", "past-known-3m"]);
   });
 
-  it("keeps output capped at 7", () => {
-    const currentSelected = Array.from({ length: 6 }, (_, index) =>
-      employee({ id: `current-${index}`, name: `Current ${index}`, currentTitle: "SRE", tenure: 10 + index })
+  it("hard-caps at 7 when current plus backfill exceed limit", () => {
+    const currentSelected = Array.from({ length: 4 }, (_, index) =>
+      employee({ id: `current-${index}`, name: `Current ${index}`, currentTitle: "SRE", tenure: 12 + index })
     );
-    const pastCandidates = Array.from({ length: 4 }, (_, index) =>
-      employee({ id: `past-${index}`, name: `Past ${index}`, currentTitle: "Engineer", tenure: 20 + index })
+    const pastCandidates = Array.from({ length: 6 }, (_, index) =>
+      employee({ id: `past-${index}`, name: `Past ${index}`, currentTitle: "Engineer", tenure: 30 - index })
     );
 
-    const result = fillToMinimumWithBackfill(currentSelected, pastCandidates, [], { minimum: 5, max: 7 });
-    expect(result).toHaveLength(6);
+    const result = fillToMinimumWithBackfill(currentSelected, pastCandidates, [], { minimum: 7, max: 7 });
+    expect(result).toHaveLength(7);
+    expect(new Set(result.map((item) => item.id)).size).toBe(7);
+  });
+
+  it("phase-2 platform backfill respects strict max 5", () => {
+    const currentSelected = [
+      employee({ id: "current-1", name: "Current 1", currentTitle: "SRE Manager", tenure: 12 }),
+      employee({ id: "current-2", name: "Current 2", currentTitle: "SRE", tenure: 10 }),
+      employee({ id: "current-3", name: "Current 3", currentTitle: "Senior SRE", tenure: 9 }),
+    ];
+    const platformCandidates = [
+      employee({ id: "platform-1", name: "Senior Platform 1", currentTitle: "Senior Platform Engineer", tenure: 20 }),
+      employee({ id: "platform-2", name: "Senior Platform 2", currentTitle: "Staff Platform Engineer", tenure: 19 }),
+      employee({ id: "platform-3", name: "Platform 3", currentTitle: "Platform Engineer", tenure: 16 }),
+      employee({ id: "platform-4", name: "Platform 4", currentTitle: "Platform Engineer", tenure: 15 }),
+    ];
+
+    const result = fillToMinimumWithBackfill(currentSelected, [], platformCandidates, { minimum: 5, max: 5 });
+    expect(result).toHaveLength(5);
+    expect(result.map((item) => item.id)).toEqual(["current-1", "current-2", "current-3", "platform-1", "platform-2"]);
+  });
+
+  it("ignores non-platform titles during platform backfill", () => {
+    const currentSelected = [employee({ id: "current-1", name: "Current 1", currentTitle: "SRE", tenure: 12 })];
+    const platformCandidates = [
+      employee({ id: "candidate-a", name: "Non Platform", currentTitle: "Backend Engineer", tenure: 40 }),
+      employee({ id: "candidate-b", name: "Platform One", currentTitle: "Platform Engineer", tenure: 12 }),
+      employee({ id: "candidate-c", name: "Platform Two", currentTitle: "Senior Platform Engineer", tenure: 4 }),
+    ];
+
+    const result = fillToMinimumWithBackfill(currentSelected, [], platformCandidates, { minimum: 3, max: 5 });
+    expect(result.map((item) => item.id)).toEqual(["current-1", "candidate-c", "candidate-b"]);
   });
 });

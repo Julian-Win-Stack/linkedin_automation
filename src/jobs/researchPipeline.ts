@@ -26,6 +26,7 @@ import {
   markJobError,
   setJobMessage,
   setJobProgress,
+  setSkippedCompanies,
   setJobStatus,
   setJobSummary,
   setRejectedCompanies,
@@ -39,10 +40,12 @@ const MIN_ENGINEER_COUNT = 20;
 const MAX_ENGINEER_COUNT = 700;
 const MAX_SRE_COUNT = 15;
 const ENGINEER_RANGE_REJECTION_NOTE = "Engineer count not in BACCA's optimal range";
+const LARGE_ENGINEER_COUNT_MASK = "> 1000";
 
 interface RowResearchResult {
   companyName: string;
   companyDomain: string;
+  apolloAccountId?: string;
   observability: string;
   eligible: boolean;
 }
@@ -75,6 +78,13 @@ function dedupeProspectsById<T extends { id: string }>(items: T[]): T[] {
   return deduped;
 }
 
+function getEngineerCountDisplayValue(engineerCount: number): number | "> 1000" {
+  if (engineerCount > 1000) {
+    return LARGE_ENGINEER_COUNT_MASK;
+  }
+  return engineerCount;
+}
+
 export async function runResearchPipeline(
   jobId: string,
   csvBuffer: string,
@@ -84,7 +94,9 @@ export async function runResearchPipeline(
   const outputRows: OutputRow[] = [];
   const rejectedOutputRows: RejectedOutputRow[] = [];
   const rejectedCompanies: string[] = [];
+  const skippedCompanies: string[] = [];
   let totalRows = 0;
+  let skippedMissingWebsiteAndApolloAccountIdCount = 0;
   let apolloProcessedCompanyCount = 0;
   let totalSreFound = 0;
   let totalLemlistSuccessful = 0;
@@ -98,6 +110,13 @@ export async function runResearchPipeline(
       csvBuffer,
       nameColumn: config.nameColumn,
       domainColumn: config.domainColumn,
+      apolloAccountIdColumn: config.apolloAccountIdColumn,
+      onSkipRow: (skipInfo) => {
+        if (skipInfo.reason === "missing_website_and_apollo_account_id") {
+          skippedMissingWebsiteAndApolloAccountIdCount += 1;
+          skippedCompanies.push(skipInfo.companyName || `Row ${skipInfo.rowNumber}`);
+        }
+      },
     })) {
       if (isCancelled(jobId)) {
         return;
@@ -130,6 +149,7 @@ export async function runResearchPipeline(
       rowResults.push({
         companyName: row.companyName,
         companyDomain: row.companyDomain,
+        apolloAccountId: row.apolloAccountId,
         observability,
         eligible,
       });
@@ -151,18 +171,26 @@ export async function runResearchPipeline(
       setJobMessage(jobId, `Apollo stage ${index + 1}/${eligibleRows.length}: ${row.companyName}`);
 
       try {
-        const company = await getCompany(row.companyDomain);
-        const engineerCount = await countEngineerPeople(company);
+        const company = row.companyDomain
+          ? await getCompany(row.companyDomain)
+          : {
+              companyName: row.companyName,
+              domain: "",
+            };
+        const engineerCount = await countEngineerPeople(company, {
+          apolloOrganizationId: row.apolloAccountId,
+        });
+        const engineerCountDisplayValue = getEngineerCountDisplayValue(engineerCount);
         if (engineerCount < MIN_ENGINEER_COUNT) {
           rejectedCompanies.push(
-            `${row.companyName} was rejected because engineer count (${engineerCount}) is not in BACCA's optimal range`
+            `${row.companyName} was rejected because engineer count (${engineerCountDisplayValue}) is not in BACCA's optimal range`
           );
           rejectedOutputRows.push({
             company_name: row.companyName,
             company_domain: row.companyDomain,
             observability_tool_research: row.observability,
             sre_count: "",
-            engineer_count: engineerCount,
+            engineer_count: engineerCountDisplayValue,
             status: "NotActionableNow",
             notes: ENGINEER_RANGE_REJECTION_NOTE,
           });
@@ -170,20 +198,22 @@ export async function runResearchPipeline(
         }
         if (engineerCount > MAX_ENGINEER_COUNT) {
           rejectedCompanies.push(
-            `${row.companyName} was rejected because engineer count (${engineerCount}) is not in BACCA's optimal range`
+            `${row.companyName} was rejected because engineer count (${engineerCountDisplayValue}) is not in BACCA's optimal range`
           );
           rejectedOutputRows.push({
             company_name: row.companyName,
             company_domain: row.companyDomain,
             observability_tool_research: row.observability,
             sre_count: "",
-            engineer_count: engineerCount,
+            engineer_count: engineerCountDisplayValue,
             status: "NotActionableNow",
             notes: ENGINEER_RANGE_REJECTION_NOTE,
           });
           continue;
         }
-        const prospects = await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES);
+        const prospects = await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES, {
+          apolloOrganizationId: row.apolloAccountId,
+        });
         const dedupedProspects = dedupeProspectsById(prospects);
         const rawSreCount = dedupedProspects.length;
         if (rawSreCount > MAX_SRE_COUNT) {
@@ -206,7 +236,11 @@ export async function runResearchPipeline(
 
         // Backfill only runs if we have at least one current SRE candidate selected.
         if (selectedCurrentSre.length > 0 && selectedCurrentSre.length < 5 && rawSreCount > 0) {
-          const pastSreProspects = dedupeProspectsById(await searchPastSrePeople(company, MAX_RESULTS));
+          const pastSreProspects = dedupeProspectsById(
+            await searchPastSrePeople(company, MAX_RESULTS, {
+              apolloOrganizationId: row.apolloAccountId,
+            })
+          );
           const pastSreEnriched = await bulkEnrichPeople(pastSreProspects);
           selectedForLemlist = fillToMinimumWithBackfill(selectedCurrentSre, pastSreEnriched, [], {
             minimum: 5,
@@ -215,7 +249,9 @@ export async function runResearchPipeline(
 
           if (selectedForLemlist.length < 5) {
             const platformProspects = dedupeProspectsById(
-              await searchCurrentPlatformEngineerPeople(company, MAX_RESULTS)
+              await searchCurrentPlatformEngineerPeople(company, MAX_RESULTS, {
+                apolloOrganizationId: row.apolloAccountId,
+              })
             );
             const platformEnriched = await bulkEnrichPeople(platformProspects);
             selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, [], platformEnriched, {
@@ -278,11 +314,13 @@ export async function runResearchPipeline(
     }
 
     setRejectedCompanies(jobId, rejectedCompanies, REJECTED_REASON);
+    setSkippedCompanies(jobId, skippedCompanies);
 
     const summary: JobSummary = {
       totalRows,
       eligibleCompanyCount: eligibleRows.length,
       rejectedCompanyCount: rejectedCompanies.length,
+      skippedMissingWebsiteAndApolloAccountIdCount,
       apolloProcessedCompanyCount,
       totalSreFound,
       totalLemlistSuccessful,
