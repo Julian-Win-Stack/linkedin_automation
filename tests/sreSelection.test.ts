@@ -202,6 +202,54 @@ describe("fillToMinimumWithBackfill", () => {
     expect(result.map((item) => item.id)).toEqual(["current-1", "past-1", "platform-senior", "platform-junior-11"]);
   });
 
+  it("allows past SRE with unknown tenure and falls back to platform only if still short", () => {
+    const currentSelected = [employee({ id: "current-1", name: "Current 1", currentTitle: "SRE", tenure: 12 })];
+    const pastCandidates = [
+      employee({ id: "past-0m", name: "Past 0m", currentTitle: "Engineer", tenure: 0 }),
+      employee({ id: "past-1m", name: "Past 1m", currentTitle: "Engineer", tenure: 1 }),
+      employee({
+        id: "past-null",
+        name: "Past Null",
+        currentTitle: "Engineer",
+        startDate: null,
+        tenure: null,
+      }),
+    ];
+    const platformCandidates = [
+      employee({ id: "platform-senior", name: "Senior Platform", currentTitle: "Senior Platform Engineer", tenure: 1 }),
+      employee({ id: "platform-junior-11", name: "Platform 11m", currentTitle: "Platform Engineer", tenure: 11 }),
+    ];
+
+    const result = fillToMinimumWithBackfill(currentSelected, pastCandidates, platformCandidates, {
+      minimum: 3,
+      max: 5,
+    });
+
+    expect(result.map((item) => item.id)).toEqual(["current-1", "past-null", "platform-senior"]);
+  });
+
+  it("ranks past SRE with null startDate lower when only some can be taken", () => {
+    const currentSelected = [employee({ id: "current-1", name: "Current 1", currentTitle: "SRE", tenure: 12 })];
+    const pastCandidates = [
+      employee({ id: "past-known-4m", name: "Past Known 4m", currentTitle: "Engineer", tenure: 4 }),
+      employee({ id: "past-known-3m", name: "Past Known 3m", currentTitle: "Engineer", tenure: 3 }),
+      employee({
+        id: "past-null",
+        name: "Past Null",
+        currentTitle: "Engineer",
+        startDate: null,
+        tenure: null,
+      }),
+    ];
+
+    const result = fillToMinimumWithBackfill(currentSelected, pastCandidates, [], {
+      minimum: 3,
+      max: 5,
+    });
+
+    expect(result.map((item) => item.id)).toEqual(["current-1", "past-known-4m", "past-known-3m"]);
+  });
+
   it("keeps output capped at 7", () => {
     const currentSelected = Array.from({ length: 6 }, (_, index) =>
       employee({ id: `current-${index}`, name: `Current ${index}`, currentTitle: "SRE", tenure: 10 + index })

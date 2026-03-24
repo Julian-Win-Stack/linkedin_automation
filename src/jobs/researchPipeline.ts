@@ -38,6 +38,7 @@ const REJECTED_REASON = "rejected because they were using other observability to
 const MIN_ENGINEER_COUNT = 20;
 const MAX_ENGINEER_COUNT = 700;
 const MAX_SRE_COUNT = 15;
+const ENGINEER_RANGE_REJECTION_NOTE = "Engineer count not in BACCA's optimal range";
 
 interface RowResearchResult {
   companyName: string;
@@ -154,30 +155,31 @@ export async function runResearchPipeline(
         const engineerCount = await countEngineerPeople(company);
         if (engineerCount < MIN_ENGINEER_COUNT) {
           rejectedCompanies.push(
-            `${row.companyName} was rejected because it has only ${engineerCount} number of software engineers`
+            `${row.companyName} was rejected because engineer count (${engineerCount}) is not in BACCA's optimal range`
           );
           rejectedOutputRows.push({
             company_name: row.companyName,
             company_domain: row.companyDomain,
             observability_tool_research: row.observability,
             sre_count: "",
-            engineer_count: "",
+            engineer_count: engineerCount,
             status: "NotActionableNow",
-            notes: `Software engineer count: "${engineerCount}"`,
+            notes: ENGINEER_RANGE_REJECTION_NOTE,
           });
           continue;
         }
         if (engineerCount > MAX_ENGINEER_COUNT) {
-          const rejectionNote = `${row.companyName} got rejected because it has too many software engineers`;
-          rejectedCompanies.push(rejectionNote);
+          rejectedCompanies.push(
+            `${row.companyName} was rejected because engineer count (${engineerCount}) is not in BACCA's optimal range`
+          );
           rejectedOutputRows.push({
             company_name: row.companyName,
             company_domain: row.companyDomain,
             observability_tool_research: row.observability,
             sre_count: "",
-            engineer_count: "",
+            engineer_count: engineerCount,
             status: "NotActionableNow",
-            notes: rejectionNote,
+            notes: ENGINEER_RANGE_REJECTION_NOTE,
           });
           continue;
         }
@@ -218,7 +220,7 @@ export async function runResearchPipeline(
             const platformEnriched = await bulkEnrichPeople(platformProspects);
             selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, [], platformEnriched, {
               minimum: 5,
-              max: 7,
+              max: 5,
             });
           }
         }

@@ -6,9 +6,10 @@ const TIER_1_REGEX = /\b(head|director)\b/i;
 const TIER_2_REGEX = /\b(manager|staff)\b/i;
 const TIER_3_REGEX = /\b(senior|sr\.?)\b/i;
 const TIER_4_MIN_TENURE_MONTHS = 2;
+const PAST_SRE_MIN_TENURE_MONTHS = 2;
 const PLATFORM_TITLE_REGEX = /\bplatform engineer\b/i;
 const PLATFORM_SENIOR_REGEX = /\b(senior|staff|principal|lead|manager|head|director)\b/i;
-const PLATFORM_NON_SENIOR_MIN_TENURE_MONTHS = 10;
+const PLATFORM_NON_SENIOR_MIN_TENURE_MONTHS = 11;
 
 type SreTier = 1 | 2 | 3 | 4;
 
@@ -149,6 +150,13 @@ function selectPastSreBackfillCandidates(
   const selectedKeys = new Set(selected.map((employee) => toEmployeeKey(employee)));
   const eligible = dedupeEmployees(candidates)
     .filter((employee) => !selectedKeys.has(toEmployeeKey(employee)))
+    .filter((employee) => {
+      if (employee.startDate === null) {
+        return true;
+      }
+
+      return employee.tenure !== null && employee.tenure >= PAST_SRE_MIN_TENURE_MONTHS;
+    })
     .sort(compareByTrimPriority);
 
   const needed = Math.max(0, minimum - selected.length);
