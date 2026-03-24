@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import axios from "axios";
-import { createLeadInCampaign, toBasicAuthHeader } from "../src/services/lemlistClient";
+import {
+  createLeadInCampaign,
+  getLemlistLinkedinCampaignIds,
+  toBasicAuthHeader,
+} from "../src/services/lemlistClient";
 
 const { postMock, createMock } = vi.hoisted(() => {
   const localPostMock = vi.fn();
@@ -22,7 +26,9 @@ describe("lemlistClient", () => {
     createMock.mockClear();
     postMock.mockClear();
     process.env.LEMLIST_API_KEY = "test_lemlist_key";
-    process.env.LEMLIST_CAMPAIGN_ID = "cam_test";
+    process.env.LEMLIST_LINKEDIN_SRE_CAMPAIGN_ID = "cam_sre";
+    process.env.LEMLIST_LINKEDIN_ENG_LEAD_CAMPAIGN_ID = "cam_eng_lead";
+    process.env.LEMLIST_LINKEDIN_ENG_CAMPAIGN_ID = "cam_eng";
   });
 
   it("builds basic auth header with empty username and api key", () => {
@@ -67,5 +73,20 @@ describe("lemlistClient", () => {
         firstName: "John",
       })
     ).rejects.toThrow("Missing LEMLIST_API_KEY environment variable.");
+  });
+
+  it("returns all three LinkedIn campaign ids from env", () => {
+    expect(getLemlistLinkedinCampaignIds()).toEqual({
+      sreCampaignId: "cam_sre",
+      engLeadCampaignId: "cam_eng_lead",
+      engCampaignId: "cam_eng",
+    });
+  });
+
+  it("fails fast when a LinkedIn campaign id is missing", () => {
+    delete process.env.LEMLIST_LINKEDIN_ENG_CAMPAIGN_ID;
+    expect(() => getLemlistLinkedinCampaignIds()).toThrow(
+      "Missing LEMLIST_LINKEDIN_ENG_CAMPAIGN_ID environment variable."
+    );
   });
 });

@@ -34,8 +34,18 @@ function getLemlistApiKey(): string {
   return getRequiredEnv("LEMLIST_API_KEY");
 }
 
-export function getLemlistCampaignId(): string {
-  return getRequiredEnv("LEMLIST_CAMPAIGN_ID");
+export interface LemlistLinkedinCampaignIds {
+  sreCampaignId: string;
+  engLeadCampaignId: string;
+  engCampaignId: string;
+}
+
+export function getLemlistLinkedinCampaignIds(): LemlistLinkedinCampaignIds {
+  return {
+    sreCampaignId: getRequiredEnv("LEMLIST_LINKEDIN_SRE_CAMPAIGN_ID"),
+    engLeadCampaignId: getRequiredEnv("LEMLIST_LINKEDIN_ENG_LEAD_CAMPAIGN_ID"),
+    engCampaignId: getRequiredEnv("LEMLIST_LINKEDIN_ENG_CAMPAIGN_ID"),
+  };
 }
 
 export function toBasicAuthHeader(apiKey: string): string {
