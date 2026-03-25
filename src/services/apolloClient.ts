@@ -56,6 +56,20 @@ function toApolloErrorMessage(error: unknown): string {
   return `Apollo API error (${status}): ${error.message}`;
 }
 
+function isRetryableApolloError(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) {
+    return false;
+  }
+
+  const status = error.response?.status;
+  if (typeof status !== "number") {
+    // No HTTP response means a transport/network failure.
+    return true;
+  }
+
+  return status === 429 || status >= 500;
+}
+
 export async function apolloPost<TResponse>(
   path: string,
   body: Record<string, unknown>,
@@ -70,7 +84,7 @@ export async function apolloPost<TResponse>(
       return response.data;
     } catch (error) {
       attempt += 1;
-      if (attempt > retries) {
+      if (attempt > retries || !isRetryableApolloError(error)) {
         throw new Error(toApolloErrorMessage(error));
       }
 
@@ -112,7 +126,7 @@ export async function apolloPostWithQuery<TResponse>(
       return response.data;
     } catch (error) {
       attempt += 1;
-      if (attempt > retries) {
+      if (attempt > retries || !isRetryableApolloError(error)) {
         throw new Error(toApolloErrorMessage(error));
       }
 

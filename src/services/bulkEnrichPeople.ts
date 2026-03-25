@@ -32,6 +32,8 @@ interface BulkMatchResponse {
   request_id?: string | number;
 }
 
+export type EnrichmentCache = Map<string, EnrichedEmployee | null>;
+
 function getApolloWebhookUrl(): string {
   const webhookUrl = getRequiredEnv("APOLLO_WEBHOOK_URL");
   if (!webhookUrl.startsWith("https://")) {
@@ -166,15 +168,36 @@ function toEnrichedEmployee(record: BulkMatchRecord): EnrichedEmployee | null {
   };
 }
 
+function cloneEnrichedEmployee(employee: EnrichedEmployee): EnrichedEmployee {
+  return {
+    ...employee,
+  };
+}
+
 export async function bulkEnrichPeople(
-  people: Prospect[]
+  people: Prospect[],
+  cache?: EnrichmentCache
 ): Promise<EnrichedEmployee[]> {
   const MAX_TOTAL = 30;
   const BATCH_SIZE = 10;
   const selected = people.slice(0, MAX_TOTAL);
-  const batches = chunkArray(selected, BATCH_SIZE).slice(0, 3);
   const enriched: EnrichedEmployee[] = [];
 
+  const missingProspects: Prospect[] = [];
+  for (const person of selected) {
+    const cacheKey = person.id?.trim();
+    if (!cache || !cacheKey || !cache.has(cacheKey)) {
+      missingProspects.push(person);
+      continue;
+    }
+
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      enriched.push(cloneEnrichedEmployee(cached));
+    }
+  }
+
+  const batches = chunkArray(missingProspects, BATCH_SIZE).slice(0, 3);
   for (const batch of batches) {
     if (batch.length === 0) {
       continue;
@@ -188,6 +211,24 @@ export async function bulkEnrichPeople(
     const activeEmployees = matches
       .map((record) => toEnrichedEmployee(record))
       .filter((employee): employee is EnrichedEmployee => employee !== null);
+    const activeById = new Map<string, EnrichedEmployee>();
+    for (const employee of activeEmployees) {
+      if (employee.id) {
+        activeById.set(employee.id, employee);
+      }
+    }
+
+    if (cache) {
+      for (const person of batch) {
+        const key = person.id?.trim();
+        if (!key) {
+          continue;
+        }
+        const cachedEmployee = activeById.get(key);
+        cache.set(key, cachedEmployee ? cloneEnrichedEmployee(cachedEmployee) : null);
+      }
+    }
+
     enriched.push(...activeEmployees);
   }
 

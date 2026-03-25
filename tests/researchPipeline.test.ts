@@ -346,7 +346,7 @@ describe("runResearchPipeline orchestration", () => {
 
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
     expect(searchCurrentPlatformEngineerPeopleMock).not.toHaveBeenCalled();
-    expect(bulkEnrichPeopleMock).toHaveBeenNthCalledWith(2, expect.any(Array));
+    expect(bulkEnrichPeopleMock).toHaveBeenNthCalledWith(2, expect.any(Array), expect.any(Map));
     expect(runWaterfallEmailForPersonIdsMock).toHaveBeenCalledWith(["platform-keep"], 20 * 60 * 1000);
     const listA = pushPeopleToLemlistEmailCampaignMock.mock.calls[0]?.[0] as EnrichedEmployee[];
     expect(listA.map((employee) => employee.id)).toEqual(["platform-keep", "lead-keep"]);

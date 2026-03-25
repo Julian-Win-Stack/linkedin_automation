@@ -52,6 +52,43 @@ const ENGINEER_TITLE_KEYWORDS = [
   "platform engineer",
   "platform architect",
   "Chief Technology Officer",
+  "application engineer",
+  "founding engineer",
+  "product engineer",
+  "fullstack engineer",
+  "full stack engineer",
+  "data engineer",
+  "data architect",
+  "data scientist",
+  "systems engineer",
+  "distributed engineer",
+  "reliability engineer",
+  "security engineer",
+  "head of engineering",
+  "vp of engineering",
+  "svp of engineering",
+  "director of engineering",
+  "engineering manager",
+  "software engineering",
+  "head of systems",
+  "engineering director",
+  "engineering lead",
+  "lead engineer",
+  "staff engineer",
+  "principal engineer",
+  "principal software engineer",
+  "principal engineer",
+  "distinguished engineer",
+  "architect",
+  "eng manager",
+  "eng lead",
+  "eng director",
+  "eng manager",
+  "eng lead",
+  "eng director",
+  "eng manager",
+  "eng lead",
+  "eng director",
 ];
 
 interface PeopleSearchResponse {
@@ -172,7 +209,7 @@ export async function countEngineerPeople(
   filters: PeopleSearchFilters = {}
 ): Promise<number> {
   const queryTitles = [...new Set(ENGINEER_TITLE_KEYWORDS.map((keyword) => keyword.trim()).filter(Boolean))];
-  const ENGINEER_PAST_TITLE_SHORT_CIRCUIT_THRESHOLD = 20;
+  const ENGINEER_COUNT_MINIMUM = 18;
 
   async function fetchEngineerPeoplePage(
     titleParamKey: "person_past_titles[]" | "person_titles[]",
@@ -190,70 +227,26 @@ export async function countEngineerPeople(
     });
   }
 
-  async function fetchAllPeopleByTitleParam(
-    titleParamKey: "person_past_titles[]" | "person_titles[]",
-    firstResponse?: PeopleSearchResponse
-  ): Promise<ApolloPerson[]> {
-    const allPeople: ApolloPerson[] = [];
-    let page = 1;
-    let response = firstResponse ?? (await fetchEngineerPeoplePage(titleParamKey, page));
-
-    while (page <= MAX_APOLLO_PAGES) {
-      const people = response.people ?? [];
-      if (people.length === 0) {
-        break;
-      }
-
-      allPeople.push(...people);
-
-      const totalPages = response.pagination?.total_pages;
-      const reachedLastPage =
-        page >= MAX_APOLLO_PAGES || (totalPages ? page >= totalPages : people.length < APOLLO_PAGE_SIZE);
-      if (reachedLastPage) {
-        break;
-      }
-      page += 1;
-      response = await fetchEngineerPeoplePage(titleParamKey, page);
+  function toCountFromFirstPage(response: PeopleSearchResponse): number {
+    if (typeof response.total_entries === "number") {
+      return response.total_entries;
     }
+    return (response.people ?? []).length;
+  }
 
-    return allPeople;
+  const firstCurrentTitleResponse = await fetchEngineerPeoplePage("person_titles[]", 1);
+  const currentTitleCount = toCountFromFirstPage(firstCurrentTitleResponse);
+  if (currentTitleCount >= ENGINEER_COUNT_MINIMUM) {
+    return currentTitleCount;
   }
 
   const firstPastTitleResponse = await fetchEngineerPeoplePage("person_past_titles[]", 1);
-  if (
-    typeof firstPastTitleResponse.total_entries === "number" &&
-    firstPastTitleResponse.total_entries > ENGINEER_PAST_TITLE_SHORT_CIRCUIT_THRESHOLD
-  ) {
-    return firstPastTitleResponse.total_entries;
+  const pastTitleCount = toCountFromFirstPage(firstPastTitleResponse);
+  if (pastTitleCount > ENGINEER_COUNT_MINIMUM) {
+    return pastTitleCount;
   }
 
-  const pastTitlePeople = await fetchAllPeopleByTitleParam("person_past_titles[]", firstPastTitleResponse);
-  const pastTitleUniqueEngineerIds = new Set<string>();
-  for (const person of pastTitlePeople) {
-    const stableId = person.id ?? `${toName(person)}|${person.title ?? ""}`;
-    pastTitleUniqueEngineerIds.add(stableId);
-  }
-
-  // Optimization: if past-title count is already high enough, skip current-title search and merging.
-  if (pastTitleUniqueEngineerIds.size > ENGINEER_PAST_TITLE_SHORT_CIRCUIT_THRESHOLD) {
-    return pastTitleUniqueEngineerIds.size;
-  }
-
-  const currentTitlePeople = await fetchAllPeopleByTitleParam("person_titles[]");
-
-  const uniqueEngineerIds = new Set<string>();
-
-  const addPersonToSet = (person: ApolloPerson): void => {
-    const stableId = person.id ?? `${toName(person)}|${person.title ?? ""}`;
-    uniqueEngineerIds.add(stableId);
-  };
-
-  for (const person of pastTitlePeople) addPersonToSet(person);
-  for (const person of currentTitlePeople) {
-    addPersonToSet(person);
-  }
-
-  return uniqueEngineerIds.size;
+  return pastTitleCount;
 }
 
 export async function searchPeople(
@@ -276,7 +269,6 @@ const EMAIL_CANDIDATE_TITLES = [
   "vp of platform",
   "cto",
   "tech lead",
-  "technical lead",
   "devops",
   "infrastructure",
   "head of engineering",
@@ -293,6 +285,11 @@ const EMAIL_CANDIDATE_TITLES = [
   "director of software engineering",
   "director of backend engineering",
   "lead software engineer",
+  "chief technical officer",
+  "vp of engineering",
+  "vice president engineering",
+  "vice president of engineering",
+  "software engineering",
 ];
 
 export async function searchPastSrePeople(

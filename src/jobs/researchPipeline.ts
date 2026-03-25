@@ -1,6 +1,10 @@
 import { getEnvBoolean } from "../config/env";
 import { PipelineConfig } from "../config/pipelineConfig";
-import { bulkEnrichPeople, runWaterfallEmailForPersonIds } from "../services/bulkEnrichPeople";
+import {
+  bulkEnrichPeople,
+  EnrichmentCache,
+  runWaterfallEmailForPersonIds,
+} from "../services/bulkEnrichPeople";
 import { getCompany } from "../services/getCompany";
 import { pushPeopleToLemlistEmailCampaign } from "../services/lemlistEmailPushQueue";
 import { pushPeopleToLemlistCampaign } from "../services/lemlistPushQueue";
@@ -40,7 +44,7 @@ const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Head of Reliability"];
 const MAX_RESULTS = 30;
 const EMAIL_CANDIDATE_MAX_RESULTS = 100;
 const REJECTED_REASON = "rejected because they were using other observability tools";
-const MIN_ENGINEER_COUNT = 20;
+const MIN_ENGINEER_COUNT = 18;
 const MAX_ENGINEER_COUNT = 700;
 const MAX_SRE_COUNT = 15;
 const ENGINEER_RANGE_REJECTION_NOTE = "Engineer count not in BACCA's optimal range";
@@ -123,6 +127,7 @@ export async function runResearchPipeline(
   const skippedCompanies: string[] = [];
   const pendingEmailPushBatches: PendingEmailPushBatch[] = [];
   const globalMissingEmailPersonIds = new Set<string>();
+  const enrichmentCache: EnrichmentCache = new Map();
   let totalRows = 0;
   let skippedMissingWebsiteAndApolloAccountIdCount = 0;
   let apolloProcessedCompanyCount = 0;
@@ -287,7 +292,7 @@ export async function runResearchPipeline(
           continue;
         }
         logPipelineStage("ENRICH_CURRENT_SRE", "Enriching current SRE candidates.", companyContext);
-        const enrichedEmployees = await bulkEnrichPeople(dedupedProspects);
+        const enrichedEmployees = await bulkEnrichPeople(dedupedProspects, enrichmentCache);
         const selectedCurrentSre = selectTopSreForLemlist(enrichedEmployees, 7);
         logPipelineStage(
           "SELECT_CURRENT_SRE",
@@ -304,7 +309,7 @@ export async function runResearchPipeline(
               apolloOrganizationId: row.apolloAccountId,
             })
           );
-          const pastSreEnriched = await bulkEnrichPeople(pastSreProspects);
+          const pastSreEnriched = await bulkEnrichPeople(pastSreProspects, enrichmentCache);
           selectedForLemlist = fillToMinimumWithBackfill(selectedCurrentSre, pastSreEnriched, [], {
             minimum: 5,
             max: 7,
@@ -322,7 +327,7 @@ export async function runResearchPipeline(
                 apolloOrganizationId: row.apolloAccountId,
               })
             );
-            const platformEnriched = await bulkEnrichPeople(platformProspects);
+            const platformEnriched = await bulkEnrichPeople(platformProspects, enrichmentCache);
             selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, [], platformEnriched, {
               minimum: 5,
               max: 5,
@@ -371,7 +376,7 @@ export async function runResearchPipeline(
               apolloOrganizationId: row.apolloAccountId,
             })
           );
-          const emailEnriched = await bulkEnrichPeople(broadEmailProspects);
+          const emailEnriched = await bulkEnrichPeople(broadEmailProspects, enrichmentCache);
           logPipelineStage(
             "ENRICH_EMAIL_CANDIDATES_DONE",
             `Email candidates enriched. count=${emailEnriched.length}`,

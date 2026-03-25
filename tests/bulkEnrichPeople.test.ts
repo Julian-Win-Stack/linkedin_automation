@@ -165,6 +165,64 @@ describe("bulkEnrichPeople", () => {
     expect(result).toEqual([]);
   });
 
+  it("reuses per-job cache and only enriches uncached person ids", async () => {
+    const cache = new Map();
+    cache.set("person_cached", {
+      id: "person_cached",
+      startDate: "2023-01-01",
+      endDate: null,
+      name: "Cached Person",
+      email: "cached@example.com",
+      linkedinUrl: "https://linkedin.com/in/cached",
+      currentTitle: "SRE",
+      tenure: 12,
+    });
+    cache.set("person_missing", null);
+
+    apolloPostMock.mockResolvedValueOnce({
+      matches: [
+        {
+          id: "person_new",
+          organization_id: "org_1",
+          name: "New Person",
+          email: "new.person@example.com",
+          linkedin_url: "https://linkedin.com/in/new",
+          title: "SRE",
+          employment_history: [
+            {
+              organization_id: "org_1",
+              title: "SRE",
+              start_date: "2024-01-01",
+              end_date: null,
+              current: true,
+            },
+          ],
+        },
+      ],
+    });
+
+    const result = await bulkEnrichPeople(
+      [
+        { id: "person_cached", name: "Cached Person", title: "SRE" },
+        { id: "person_missing", name: "Missing Person", title: "SRE" },
+        { id: "person_new", name: "New Person", title: "SRE" },
+      ],
+      cache
+    );
+
+    expect(apolloPostMock).toHaveBeenCalledTimes(1);
+    expect(apolloPostMock).toHaveBeenCalledWith("/people/bulk_match", {
+      details: [{ id: "person_new" }],
+    });
+    expect(result.map((employee) => employee.id)).toEqual(["person_cached", "person_new"]);
+    expect(cache.get("person_new")).toEqual(
+      expect.objectContaining({
+        id: "person_new",
+        email: "new.person@example.com",
+      })
+    );
+  });
+
 });
 
 describe("runWaterfallEmailForPersonIds", () => {
