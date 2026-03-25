@@ -8,6 +8,7 @@ const SELECTED_USER_STORAGE_KEY = "selected-user";
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedFile = ref<File | null>(null);
+const isDragActive = ref(false);
 const isLoading = ref(false);
 const error = ref<string | null>(null);
 const warnings = ref<string[]>([]);
@@ -24,8 +25,18 @@ const abortControllerRef = ref<AbortController | null>(null);
 const pollingIntervalId = ref<number | null>(null);
 const pollingSwitchTimeoutId = ref<number | null>(null);
 const selectedUser = ref<SelectedUser | null>(null);
+const currentJobId = ref<string | null>(null);
 
 const canRun = computed(() => !isLoading.value && !!selectedFile.value && !!selectedUser.value);
+const zeroEngineerCountRejectedCompanyNames = computed(() =>
+  rejectedCompanies.value
+    .filter((company) => company.toLowerCase().includes("engineer count (0)"))
+    .map((company) => company.split(" was rejected because")[0]?.trim() ?? "")
+    .filter((companyName) => companyName.length > 0)
+);
+const hasZeroEngineerCountRejectedCompany = computed(
+  () => zeroEngineerCountRejectedCompanyNames.value.length > 0
+);
 const selectedUserLabel = computed(() => {
   if (!selectedUser.value) {
     return null;
@@ -90,15 +101,42 @@ function resetState(): void {
   rejectedReason.value = null;
 }
 
-function onFileChange(event: Event): void {
-  const target = event.target as HTMLInputElement;
-  const file = target.files?.[0] ?? null;
+function setSelectedCsvFile(file: File | null): void {
   if (file && !file.name.endsWith(".csv")) {
     error.value = "Please select a .csv file.";
     return;
   }
   selectedFile.value = file;
   resetState();
+}
+
+function onFileChange(event: Event): void {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0] ?? null;
+  setSelectedCsvFile(file);
+}
+
+function onDragOver(event: DragEvent): void {
+  if (!selectedUser.value || isLoading.value) {
+    return;
+  }
+  event.preventDefault();
+  isDragActive.value = true;
+}
+
+function onDragLeave(event: DragEvent): void {
+  event.preventDefault();
+  isDragActive.value = false;
+}
+
+function onDrop(event: DragEvent): void {
+  if (!selectedUser.value || isLoading.value) {
+    return;
+  }
+  event.preventDefault();
+  isDragActive.value = false;
+  const file = event.dataTransfer?.files?.[0] ?? null;
+  setSelectedCsvFile(file);
 }
 
 function clearPolling(): void {
@@ -145,6 +183,7 @@ async function runResearch(): Promise<void> {
     if (!startPayload.jobId) {
       throw new Error("Job ID missing in start response.");
     }
+    currentJobId.value = startPayload.jobId;
 
     await pollJob(startPayload.jobId);
   } catch (unknownError) {
@@ -155,6 +194,7 @@ async function runResearch(): Promise<void> {
     clearPolling();
     isLoading.value = false;
     progressMessage.value = null;
+    currentJobId.value = null;
   }
 }
 
@@ -279,15 +319,20 @@ async function pollJob(jobId: string): Promise<void> {
   });
 }
 
-function cancelCurrentJob(): void {
+async function cancelAndReset(): Promise<void> {
+  const activeJobId = currentJobId.value;
+  if (activeJobId) {
+    try {
+      await fetch(`${API_URL}/cancel/${activeJobId}`, { method: "POST" });
+    } catch {
+      // Best effort cancel; local reset still runs.
+    }
+  }
   abortControllerRef.value?.abort();
   clearPolling();
   isLoading.value = false;
   progressMessage.value = null;
-}
-
-function restart(): void {
-  cancelCurrentJob();
+  currentJobId.value = null;
   selectedFile.value = null;
   resetState();
   if (fileInput.value) {
@@ -311,37 +356,48 @@ function restart(): void {
       class="w-full max-w-md rounded-xl border border-[#1d2537] bg-[#0d1320]/90 p-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)] space-y-3"
       :class="!selectedUser ? 'pointer-events-none opacity-40 select-none blur-[1px]' : ''"
     >
-      <label class="block">
+      <label
+        class="block rounded-lg border border-dashed px-4 py-4 transition"
+        :class="
+          !selectedUser || isLoading
+            ? 'border-zinc-700 bg-zinc-900/50 opacity-60 cursor-not-allowed'
+            : isDragActive
+              ? 'border-indigo-400 bg-indigo-500/10'
+              : 'border-zinc-600 bg-zinc-900/40 hover:border-indigo-400/70 hover:bg-indigo-500/5 cursor-pointer'
+        "
+        @dragover="onDragOver"
+        @dragleave="onDragLeave"
+        @drop="onDrop"
+      >
         <span class="sr-only">Choose csv</span>
         <input
           ref="fileInput"
           type="file"
           accept=".csv"
-          class="block w-full text-sm text-zinc-300 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-600 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-indigo-500"
+          class="sr-only"
           :disabled="!selectedUser || isLoading"
           @change="onFileChange"
         />
+        <p class="text-sm font-medium text-zinc-200">
+          Drag and drop your CSV file here, or click to browse.
+        </p>
+        <p class="mt-1 text-xs text-zinc-400">
+          {{ selectedFile ? `Selected: ${selectedFile.name}` : "Only .csv files are supported." }}
+        </p>
       </label>
 
-      <div class="grid grid-cols-3 gap-2">
+      <div class="grid grid-cols-2 gap-2">
         <button
-          class="rounded-md border border-zinc-600 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800/50 disabled:opacity-40"
-          :disabled="!selectedUser"
-          @click="restart"
-        >
-          Restart
-        </button>
-        <button
-          class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-40"
+          class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-40"
           :disabled="!canRun"
           @click="runResearch"
         >
           Research
         </button>
         <button
-          class="rounded-md border border-red-700 px-3 py-1.5 text-xs text-red-300 disabled:opacity-40"
-          :disabled="!selectedUser || !isLoading"
-          @click="cancelCurrentJob"
+          class="rounded-md border border-red-600/70 bg-red-950/20 px-3 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-900/35 disabled:opacity-40"
+          :disabled="!selectedUser"
+          @click="cancelAndReset"
         >
           Cancel
         </button>
@@ -402,6 +458,13 @@ function restart(): void {
             "Rejected because they were using other observability tools."
           }}
         </p>
+        <p
+          v-if="hasZeroEngineerCountRejectedCompany"
+          class="rounded-md border border-amber-700/70 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-200"
+        >
+          Warning: Engineer count is 0 for {{ zeroEngineerCountRejectedCompanyNames.join(", ") }}. Please manually
+          check the company's information.
+        </p>
         <ul class="list-disc pl-5 text-xs text-zinc-300 space-y-1">
           <li v-for="company in rejectedCompanies" :key="company">
             {{ company }}
@@ -413,10 +476,10 @@ function restart(): void {
         <a
           v-if="downloadUrl"
           :href="downloadUrl"
-          download="Passed companies.csv"
+          download="Results to import to Apollo.csv"
           class="inline-block rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
         >
-          Download Passed Companies
+          Download Results to import to Apollo
         </a>
         <a
           v-if="rejectsDownloadUrl"

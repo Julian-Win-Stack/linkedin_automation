@@ -4,9 +4,10 @@ export type OutputRow = {
   company_name: string;
   company_domain: string;
   observability_tool_research: string;
-  status: string;
-  sre_count: number;
-  engineer_count: number;
+  stage: "ChasingPOC" | "NotActionableNow";
+  sre_count: "" | number;
+  engineer_count: "" | number | "> 1000";
+  notes: string;
 };
 
 export type RejectedOutputRow = {
@@ -29,9 +30,10 @@ export function rowsToCsvString(rows: OutputRow[]): Promise<string> {
           { key: "company_name", header: "Company Name" },
           { key: "company_domain", header: "Website" },
           { key: "observability_tool_research", header: "observability_tool" },
-          { key: "status", header: "STATUS" },
+          { key: "stage", header: "Stage" },
           { key: "sre_count", header: "Number of SREs" },
           { key: "engineer_count", header: "Number of Engineers" },
+          { key: "notes", header: "Notes" },
         ],
       },
       (error, output) => {
@@ -57,7 +59,7 @@ export function rejectedRowsToCsvString(rows: RejectedOutputRow[]): Promise<stri
           { key: "observability_tool_research", header: "observability_tool" },
           { key: "sre_count", header: "Number of SREs" },
           { key: "engineer_count", header: "Number of Engineers" },
-          { key: "status", header: "STATUS" },
+          { key: "status", header: "Stage" },
           { key: "notes", header: "Notes" },
         ],
       },

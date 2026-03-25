@@ -458,6 +458,48 @@ describe("runResearchPipeline orchestration", () => {
     expect(job?.rejectedCompanies[0]).toContain("> 1000");
   });
 
+  it("builds combined import csv with passed rows first and rejected rows last", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([
+        { companyName: "PassCo", companyDomain: "pass.co", apolloAccountId: "org_1", rowNumber: 2 },
+        { companyName: "RejectCo", companyDomain: "reject.co", apolloAccountId: "org_2", rowNumber: 3 },
+      ])
+    );
+    researchCompanyMock.mockResolvedValueOnce("Datadog").mockResolvedValueOnce("Other observability tool");
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+
+    const jobId = createJob();
+    await runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian"
+    );
+
+    const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(combinedRowsArg).toHaveLength(2);
+    expect(combinedRowsArg[0]).toMatchObject({
+      company_name: "PassCo",
+      stage: "ChasingPOC",
+      notes: "",
+    });
+    expect(combinedRowsArg[1]).toMatchObject({
+      company_name: "RejectCo",
+      stage: "NotActionableNow",
+      notes: "Other observability tool",
+    });
+  });
+
   it("captures skipped companies and skip summary from csv reader callback", async () => {
     readCompaniesMock.mockImplementationOnce((options: { onSkipRow?: (info: { reason: string; companyName: string; rowNumber: number }) => void }) => {
       options.onSkipRow?.({

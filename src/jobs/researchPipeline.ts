@@ -419,9 +419,10 @@ export async function runResearchPipeline(
           company_name: row.companyName,
           company_domain: row.companyDomain,
           observability_tool_research: row.observability,
-          status: "ChasingPOC",
+          stage: "ChasingPOC",
           sre_count: rawSreCount,
           engineer_count: engineerCount,
+          notes: "",
         });
         logPipelineStage("COMPANY_DONE", "Company processing complete.", companyContext);
       } catch (error) {
@@ -432,9 +433,10 @@ export async function runResearchPipeline(
           company_name: row.companyName,
           company_domain: row.companyDomain,
           observability_tool_research: row.observability,
-          status: "ChasingPOC",
+          stage: "ChasingPOC",
           sre_count: 0,
           engineer_count: 0,
+          notes: "",
         });
       }
     }
@@ -577,7 +579,20 @@ export async function runResearchPipeline(
     };
     setJobSummary(jobId, summary);
 
-    const csvString = await rowsToCsvString(outputRows);
+    const combinedOutputRows: OutputRow[] = [
+      ...outputRows,
+      ...rejectedOutputRows.map((row) => ({
+        company_name: row.company_name,
+        company_domain: row.company_domain,
+        observability_tool_research: row.observability_tool_research,
+        stage: row.status,
+        sre_count: row.sre_count,
+        engineer_count: row.engineer_count,
+        notes: row.notes,
+      })),
+    ];
+
+    const csvString = await rowsToCsvString(combinedOutputRows);
     const rejectsCsvString = await rejectedRowsToCsvString(rejectedOutputRows);
     const csvBase64 = Buffer.from(csvString, "utf8").toString("base64");
     const rejectsCsvBase64 = Buffer.from(rejectsCsvString, "utf8").toString("base64");
