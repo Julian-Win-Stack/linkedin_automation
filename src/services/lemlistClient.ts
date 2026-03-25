@@ -26,6 +26,25 @@ export interface LemlistCreateLeadQuery {
   findPhone?: boolean;
 }
 
+export interface LemlistBulkEnrichmentRequest {
+  input: {
+    firstName?: string;
+    lastName?: string;
+    companyName?: string;
+    companyDomain?: string;
+    linkedinUrl?: string;
+    email?: string;
+  };
+  enrichmentRequests: Array<"find_email" | "find_phone" | "verify" | "linkedin_enrichment">;
+  metadata?: string | Record<string, unknown>;
+}
+
+export interface LemlistBulkEnrichmentResponseItem {
+  id?: string;
+  error?: string;
+  metadata?: string | Record<string, unknown>;
+}
+
 interface LemlistError extends Error {
   status?: number;
 }
@@ -130,6 +149,49 @@ export async function createLeadInCampaign(
     try {
       await client.post(path, payload);
       return;
+    } catch (error) {
+      attempt += 1;
+      if (attempt > retries) {
+        throw toLemlistError(error);
+      }
+      await sleep(300 * attempt);
+    }
+  }
+}
+
+export async function bulkEnrichData(
+  requests: LemlistBulkEnrichmentRequest[],
+  webhookUrl?: string,
+  retries = DEFAULT_RETRIES
+): Promise<LemlistBulkEnrichmentResponseItem[]> {
+  const client = createLemlistClient();
+  const path = webhookUrl?.trim().length
+    ? `/v2/enrichments/bulk?${new URLSearchParams({ webhookUrl: webhookUrl.trim() }).toString()}`
+    : "/v2/enrichments/bulk";
+
+  let attempt = 0;
+  while (true) {
+    try {
+      const response = await client.post<LemlistBulkEnrichmentResponseItem[]>(path, requests);
+      return response.data;
+    } catch (error) {
+      attempt += 1;
+      if (attempt > retries) {
+        throw toLemlistError(error);
+      }
+      await sleep(300 * attempt);
+    }
+  }
+}
+
+export async function getEnrichmentResult(enrichId: string, retries = DEFAULT_RETRIES): Promise<unknown> {
+  const client = createLemlistClient();
+  let attempt = 0;
+
+  while (true) {
+    try {
+      const response = await client.get<unknown>(`/enrich/${encodeURIComponent(enrichId)}`);
+      return response.data;
     } catch (error) {
       attempt += 1;
       if (attempt > retries) {

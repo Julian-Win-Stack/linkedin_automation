@@ -6,6 +6,7 @@ import {
   runWaterfallEmailForPersonIds,
 } from "../services/bulkEnrichPeople";
 import { getCompany } from "../services/getCompany";
+import { enrichMissingEmailsWithLemlist } from "../services/lemlistBulkEmailEnrichment";
 import { pushPeopleToLemlistEmailCampaign } from "../services/lemlistEmailPushQueue";
 import { pushPeopleToLemlistCampaign } from "../services/lemlistPushQueue";
 import {
@@ -198,6 +199,7 @@ export async function runResearchPipeline(
 
     const lemlistEnabled = getEnvBoolean("LEMLIST_PUSH_ENABLED", true);
     const waterfallEnabled = getEnvBoolean("APOLLO_WATERFALL_ENABLED", false);
+    const lemlistBulkFindEmailEnabled = getEnvBoolean("LEMLIST_BULK_FIND_EMAIL_ENABLED", true);
 
     for (let index = 0; index < eligibleRows.length; index += 1) {
       if (isCancelled(jobId)) {
@@ -447,7 +449,36 @@ export async function runResearchPipeline(
     }
 
     let recoveredEmailsByPersonId = new Map<string, string>();
-    if (lemlistEnabled && waterfallEnabled && globalMissingEmailPersonIds.size > 0) {
+    if (lemlistEnabled && lemlistBulkFindEmailEnabled && pendingEmailPushBatches.length > 0) {
+      const missingEmailCandidates = pendingEmailPushBatches.flatMap((batch) =>
+        batch.employees
+          .filter((employee) => !employee.email || employee.email.trim().length === 0)
+          .map((employee) => ({
+            employee,
+            companyName: batch.companyName,
+            companyDomain: batch.companyDomain,
+          }))
+      );
+
+      if (missingEmailCandidates.length > 0) {
+        logPipelineStage(
+          "LEMLIST_EMAIL_ENRICH_START",
+          `Lemlist bulk find_email started. candidates=${missingEmailCandidates.length}`
+        );
+        const summary = await enrichMissingEmailsWithLemlist(missingEmailCandidates);
+        logPipelineStage(
+          "LEMLIST_EMAIL_ENRICH_DONE",
+          `Lemlist bulk find_email complete. attempted=${summary.attempted} accepted=${summary.accepted} recovered=${summary.recovered} not_found=${summary.notFound}`
+        );
+      }
+    }
+
+    if (lemlistEnabled && lemlistBulkFindEmailEnabled && waterfallEnabled && globalMissingEmailPersonIds.size > 0) {
+      logPipelineStage(
+        "GLOBAL_WATERFALL_SKIPPED",
+        `Global waterfall skipped because LEMLIST_BULK_FIND_EMAIL_ENABLED is true. missing_people=${globalMissingEmailPersonIds.size}`
+      );
+    } else if (lemlistEnabled && waterfallEnabled && globalMissingEmailPersonIds.size > 0) {
       logPipelineStage(
         "GLOBAL_WATERFALL_START",
         `Global waterfall started: missing_people=${globalMissingEmailPersonIds.size} wait_ms=${EMAIL_WATERFALL_WAIT_MS}`

@@ -13,6 +13,7 @@ const searchCurrentPlatformEngineerPeopleMock = vi.fn();
 const searchCurrentEngineeringEmailCandidatesMock = vi.fn();
 const bulkEnrichPeopleMock = vi.fn();
 const runWaterfallEmailForPersonIdsMock = vi.fn();
+const enrichMissingEmailsWithLemlistMock = vi.fn();
 const selectTopSreForLemlistMock = vi.fn();
 const fillToMinimumWithBackfillMock = vi.fn();
 const pushPeopleToLemlistCampaignMock = vi.fn();
@@ -43,6 +44,10 @@ vi.mock("../src/services/searchPeople", () => ({
 vi.mock("../src/services/bulkEnrichPeople", () => ({
   bulkEnrichPeople: (...args: unknown[]) => bulkEnrichPeopleMock(...args),
   runWaterfallEmailForPersonIds: (...args: unknown[]) => runWaterfallEmailForPersonIdsMock(...args),
+}));
+
+vi.mock("../src/services/lemlistBulkEmailEnrichment", () => ({
+  enrichMissingEmailsWithLemlist: (...args: unknown[]) => enrichMissingEmailsWithLemlistMock(...args),
 }));
 
 vi.mock("../src/services/sreSelection", () => ({
@@ -105,6 +110,7 @@ describe("runResearchPipeline orchestration", () => {
     searchCurrentEngineeringEmailCandidatesMock.mockReset();
     bulkEnrichPeopleMock.mockReset();
     runWaterfallEmailForPersonIdsMock.mockReset();
+    enrichMissingEmailsWithLemlistMock.mockReset();
     selectTopSreForLemlistMock.mockReset();
     fillToMinimumWithBackfillMock.mockReset();
     pushPeopleToLemlistCampaignMock.mockReset();
@@ -132,6 +138,12 @@ describe("runResearchPipeline orchestration", () => {
     searchCurrentPlatformEngineerPeopleMock.mockResolvedValue([]);
     bulkEnrichPeopleMock.mockResolvedValue([]);
     runWaterfallEmailForPersonIdsMock.mockResolvedValue(new Map());
+    enrichMissingEmailsWithLemlistMock.mockResolvedValue({
+      attempted: 0,
+      accepted: 0,
+      recovered: 0,
+      notFound: 0,
+    });
     researchCompanyMock.mockResolvedValue("Not found");
     getCompanyMock.mockResolvedValue({ companyName: "Acme", domain: "acme.com" });
     countEngineerPeopleMock.mockResolvedValue(120);
@@ -328,9 +340,18 @@ describe("runResearchPipeline orchestration", () => {
       successItems: [],
       failedItems: [],
     });
-    runWaterfallEmailForPersonIdsMock.mockResolvedValueOnce(
-      new Map([["platform-keep", "platform.keep@example.com"]])
-    );
+    enrichMissingEmailsWithLemlistMock.mockImplementationOnce(async (candidates: Array<{ employee: EnrichedEmployee }>) => {
+      const target = candidates.find((candidate) => candidate.employee.id === "platform-keep");
+      if (target) {
+        target.employee.email = "platform.keep@example.com";
+      }
+      return {
+        attempted: 1,
+        accepted: 1,
+        recovered: 1,
+        notFound: 0,
+      };
+    });
 
     const jobId = createJob();
     await runResearchPipeline(jobId, "csv", {
@@ -347,7 +368,8 @@ describe("runResearchPipeline orchestration", () => {
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
     expect(searchCurrentPlatformEngineerPeopleMock).not.toHaveBeenCalled();
     expect(bulkEnrichPeopleMock).toHaveBeenNthCalledWith(2, expect.any(Array), expect.any(Map));
-    expect(runWaterfallEmailForPersonIdsMock).toHaveBeenCalledWith(["platform-keep"], 20 * 60 * 1000);
+    expect(enrichMissingEmailsWithLemlistMock).toHaveBeenCalledTimes(1);
+    expect(runWaterfallEmailForPersonIdsMock).not.toHaveBeenCalled();
     const listA = pushPeopleToLemlistEmailCampaignMock.mock.calls[0]?.[0] as EnrichedEmployee[];
     expect(listA.map((employee) => employee.id)).toEqual(["platform-keep", "lead-keep"]);
     expect(listA.find((employee) => employee.id === "platform-keep")?.email).toBe("platform.keep@example.com");

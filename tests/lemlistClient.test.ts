@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import axios from "axios";
 import {
+  bulkEnrichData,
   createLeadInCampaign,
+  getEnrichmentResult,
   getLemlistEmailCampaignIds,
   getLemlistLinkedinCampaignIds,
   toBasicAuthHeader,
 } from "../src/services/lemlistClient";
 
-const { postMock, createMock } = vi.hoisted(() => {
+const { postMock, getMock, createMock } = vi.hoisted(() => {
   const localPostMock = vi.fn();
-  const localCreateMock = vi.fn(() => ({ post: localPostMock }));
-  return { postMock: localPostMock, createMock: localCreateMock };
+  const localGetMock = vi.fn();
+  const localCreateMock = vi.fn(() => ({ post: localPostMock, get: localGetMock }));
+  return { postMock: localPostMock, getMock: localGetMock, createMock: localCreateMock };
 });
 
 vi.mock("axios", () => ({
@@ -26,6 +29,7 @@ describe("lemlistClient", () => {
   beforeEach(() => {
     createMock.mockClear();
     postMock.mockClear();
+    getMock.mockClear();
     process.env.LEMLIST_API_KEY = "test_lemlist_key";
     process.env.LEMLIST_LINKEDIN_SRE_CAMPAIGN_ID = "cam_sre";
     process.env.LEMLIST_LINKEDIN_ENG_LEAD_CAMPAIGN_ID = "cam_eng_lead";
@@ -66,6 +70,65 @@ describe("lemlistClient", () => {
         companyName: "Acme",
       }
     );
+  });
+
+  it("calls bulk enrich endpoint with find_email payload", async () => {
+    postMock.mockResolvedValueOnce({
+      data: [{ id: "enr_1", metadata: { metadataId: "m1" } }],
+    });
+
+    const response = await bulkEnrichData([
+      {
+        input: {
+          firstName: "John",
+          lastName: "Doe",
+          companyName: "Acme",
+          companyDomain: "acme.com",
+        },
+        enrichmentRequests: ["find_email"],
+        metadata: { metadataId: "m1" },
+      },
+    ]);
+
+    expect(postMock).toHaveBeenCalledWith("/v2/enrichments/bulk", [
+      {
+        input: {
+          firstName: "John",
+          lastName: "Doe",
+          companyName: "Acme",
+          companyDomain: "acme.com",
+        },
+        enrichmentRequests: ["find_email"],
+        metadata: { metadataId: "m1" },
+      },
+    ]);
+    expect(response).toEqual([{ id: "enr_1", metadata: { metadataId: "m1" } }]);
+  });
+
+  it("fetches enrichment result by id", async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        enrichmentStatus: "done",
+        data: {
+          email: {
+            email: "john@acme.com",
+            notFound: false,
+          },
+        },
+      },
+    });
+
+    const result = await getEnrichmentResult("enr_123");
+    expect(getMock).toHaveBeenCalledWith("/enrich/enr_123");
+    expect(result).toEqual({
+      enrichmentStatus: "done",
+      data: {
+        email: {
+          email: "john@acme.com",
+          notFound: false,
+        },
+      },
+    });
   });
 
   it("fails with clear error when lemlist key is missing", async () => {
