@@ -8,7 +8,6 @@ const SELECTED_USER_STORAGE_KEY = "selected-user";
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedFile = ref<File | null>(null);
-const isDragActive = ref(false);
 const isLoading = ref(false);
 const error = ref<string | null>(null);
 const warnings = ref<string[]>([]);
@@ -116,27 +115,11 @@ function onFileChange(event: Event): void {
   setSelectedCsvFile(file);
 }
 
-function onDragOver(event: DragEvent): void {
+function openFilePicker(): void {
   if (!selectedUser.value || isLoading.value) {
     return;
   }
-  event.preventDefault();
-  isDragActive.value = true;
-}
-
-function onDragLeave(event: DragEvent): void {
-  event.preventDefault();
-  isDragActive.value = false;
-}
-
-function onDrop(event: DragEvent): void {
-  if (!selectedUser.value || isLoading.value) {
-    return;
-  }
-  event.preventDefault();
-  isDragActive.value = false;
-  const file = event.dataTransfer?.files?.[0] ?? null;
-  setSelectedCsvFile(file);
+  fileInput.value?.click();
 }
 
 function clearPolling(): void {
@@ -356,19 +339,7 @@ async function cancelAndReset(): Promise<void> {
       class="w-full max-w-md rounded-xl border border-[#1d2537] bg-[#0d1320]/90 p-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)] space-y-3"
       :class="!selectedUser ? 'pointer-events-none opacity-40 select-none blur-[1px]' : ''"
     >
-      <label
-        class="block rounded-lg border border-dashed px-4 py-4 transition"
-        :class="
-          !selectedUser || isLoading
-            ? 'border-zinc-700 bg-zinc-900/50 opacity-60 cursor-not-allowed'
-            : isDragActive
-              ? 'border-indigo-400 bg-indigo-500/10'
-              : 'border-zinc-600 bg-zinc-900/40 hover:border-indigo-400/70 hover:bg-indigo-500/5 cursor-pointer'
-        "
-        @dragover="onDragOver"
-        @dragleave="onDragLeave"
-        @drop="onDrop"
-      >
+      <div class="flex items-center gap-2">
         <span class="sr-only">Choose csv</span>
         <input
           ref="fileInput"
@@ -378,17 +349,25 @@ async function cancelAndReset(): Promise<void> {
           :disabled="!selectedUser || isLoading"
           @change="onFileChange"
         />
-        <p class="text-sm font-medium text-zinc-200">
-          Drag and drop your CSV file here, or click to browse.
-        </p>
-        <p class="mt-1 text-xs text-zinc-400">
-          {{ selectedFile ? `Selected: ${selectedFile.name}` : "Only .csv files are supported." }}
-        </p>
-      </label>
+        <button
+          type="button"
+          class="rounded-md bg-indigo-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+          :disabled="!selectedUser || isLoading"
+          @click="openFilePicker"
+        >
+          Choose File
+        </button>
+        <div
+          class="min-w-0 flex-1 rounded-md border border-dotted border-zinc-500/80 bg-[#0a1220]/65 px-3 py-2 text-sm text-zinc-300"
+          :class="!selectedUser || isLoading ? 'opacity-60' : ''"
+        >
+          <span class="block truncate">{{ selectedFile?.name ?? "No file chosen" }}</span>
+        </div>
+      </div>
 
       <div class="grid grid-cols-2 gap-2">
         <button
-          class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-40"
+          class="rounded-md bg-indigo-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40"
           :disabled="!canRun"
           @click="runResearch"
         >
