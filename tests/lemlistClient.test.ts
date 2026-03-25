@@ -3,9 +3,10 @@ import axios from "axios";
 import {
   bulkEnrichData,
   createLeadInCampaign,
+  getCampaignIdsForUser,
   getEnrichmentResult,
-  getLemlistEmailCampaignIds,
-  getLemlistLinkedinCampaignIds,
+  getLemlistEmailCampaignIdsForUser,
+  getLemlistLinkedinCampaignIdsForUser,
   toBasicAuthHeader,
 } from "../src/services/lemlistClient";
 
@@ -31,11 +32,11 @@ describe("lemlistClient", () => {
     postMock.mockClear();
     getMock.mockClear();
     process.env.LEMLIST_API_KEY = "test_lemlist_key";
-    process.env.LEMLIST_LINKEDIN_SRE_CAMPAIGN_ID = "cam_sre";
-    process.env.LEMLIST_LINKEDIN_ENG_LEAD_CAMPAIGN_ID = "cam_eng_lead";
-    process.env.LEMLIST_LINKEDIN_ENG_CAMPAIGN_ID = "cam_eng";
-    process.env.LEMLIST_ENG_LEAD_EMAIL_CAMPAIGN_ID = "cam_eng_lead_email";
-    process.env.LEMLIST_ENG_EMAIL_CAMPAIGN_ID = "cam_eng_email";
+    process.env.JULIAN_LINKEDIN_SRE_CAMPAIGN_ID = "cam_sre";
+    process.env.JULIAN_LINKEDIN_ENG_LEAD_CAMPAIGN_ID = "cam_eng_lead";
+    process.env.JULIAN_LINKEDIN_ENG_CAMPAIGN_ID = "cam_eng";
+    process.env.JULIAN_ENG_LEAD_EMAIL_CAMPAIGN_ID = "cam_eng_lead_email";
+    process.env.JULIAN_ENG_EMAIL_CAMPAIGN_ID = "cam_eng_email";
   });
 
   it("builds basic auth header with empty username and api key", () => {
@@ -141,8 +142,22 @@ describe("lemlistClient", () => {
     ).rejects.toThrow("Missing LEMLIST_API_KEY environment variable.");
   });
 
-  it("returns all three LinkedIn campaign ids from env", () => {
-    expect(getLemlistLinkedinCampaignIds()).toEqual({
+  it("returns all campaign ids from one resolver", () => {
+    expect(getCampaignIdsForUser("julian")).toEqual({
+      linkedin: {
+        sreCampaignId: "cam_sre",
+        engLeadCampaignId: "cam_eng_lead",
+        engCampaignId: "cam_eng",
+      },
+      email: {
+        engLeadEmailCampaignId: "cam_eng_lead_email",
+        engEmailCampaignId: "cam_eng_email",
+      },
+    });
+  });
+
+  it("returns LinkedIn campaign ids from resolver wrappers", () => {
+    expect(getLemlistLinkedinCampaignIdsForUser("julian")).toEqual({
       sreCampaignId: "cam_sre",
       engLeadCampaignId: "cam_eng_lead",
       engCampaignId: "cam_eng",
@@ -150,23 +165,23 @@ describe("lemlistClient", () => {
   });
 
   it("fails fast when a LinkedIn campaign id is missing", () => {
-    delete process.env.LEMLIST_LINKEDIN_ENG_CAMPAIGN_ID;
-    expect(() => getLemlistLinkedinCampaignIds()).toThrow(
-      "Missing LEMLIST_LINKEDIN_ENG_CAMPAIGN_ID environment variable."
+    delete process.env.JULIAN_LINKEDIN_ENG_CAMPAIGN_ID;
+    expect(() => getLemlistLinkedinCampaignIdsForUser("julian")).toThrow(
+      "Missing JULIAN_LINKEDIN_ENG_CAMPAIGN_ID environment variable."
     );
   });
 
   it("returns both email campaign ids from env", () => {
-    expect(getLemlistEmailCampaignIds()).toEqual({
+    expect(getLemlistEmailCampaignIdsForUser("julian")).toEqual({
       engLeadEmailCampaignId: "cam_eng_lead_email",
       engEmailCampaignId: "cam_eng_email",
     });
   });
 
   it("fails fast when an email campaign id is missing", () => {
-    delete process.env.LEMLIST_ENG_EMAIL_CAMPAIGN_ID;
-    expect(() => getLemlistEmailCampaignIds()).toThrow(
-      "Missing LEMLIST_ENG_EMAIL_CAMPAIGN_ID environment variable."
+    delete process.env.JULIAN_ENG_EMAIL_CAMPAIGN_ID;
+    expect(() => getLemlistEmailCampaignIdsForUser("julian")).toThrow(
+      "Missing JULIAN_ENG_EMAIL_CAMPAIGN_ID environment variable."
     );
   });
 });

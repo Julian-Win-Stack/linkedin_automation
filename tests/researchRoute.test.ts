@@ -58,11 +58,18 @@ describe("research job routes", () => {
     const csv = "Company Name,Website\nAcme,acme.com\n";
     const response = await request(app)
       .post("/research")
+      .field("selectedUser", "julian")
       .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
 
     expect(response.status).toBe(200);
     expect(typeof response.body.jobId).toBe("string");
     expect(runResearchPipelineMock).toHaveBeenCalledTimes(1);
+    expect(runResearchPipelineMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.any(Object),
+      "julian"
+    );
   });
 
   it("starts a job when website column is missing but apollo account id column exists", async () => {
@@ -70,6 +77,7 @@ describe("research job routes", () => {
     const csv = "Company Name,Apollo Account Id\nAcme,apollo-123\n";
     const response = await request(app)
       .post("/research")
+      .field("selectedUser", "cherry")
       .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
 
     expect(response.status).toBe(200);
@@ -82,6 +90,7 @@ describe("research job routes", () => {
     const csv = "Website,Apollo Account Id\nacme.com,apollo-123\n";
     const response = await request(app)
       .post("/research")
+      .field("selectedUser", "raihan")
       .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
 
     expect(response.status).toBe(400);
@@ -93,10 +102,34 @@ describe("research job routes", () => {
     const csv = "Company Name\nAcme\n";
     const response = await request(app)
       .post("/research")
+      .field("selectedUser", "julian")
       .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
 
     expect(response.status).toBe(400);
     expect(response.body.error).toContain('at least one of "Website" or "Apollo Account Id"');
+  });
+
+  it("returns 400 when selectedUser is missing", async () => {
+    const app = createTestApp();
+    const csv = "Company Name,Website\nAcme,acme.com\n";
+    const response = await request(app)
+      .post("/research")
+      .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("selectedUser is required");
+  });
+
+  it("returns 400 when selectedUser is invalid", async () => {
+    const app = createTestApp();
+    const csv = "Company Name,Website\nAcme,acme.com\n";
+    const response = await request(app)
+      .post("/research")
+      .field("selectedUser", "someoneelse")
+      .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("selectedUser is required");
   });
 
   it("returns done status with summary and rejected companies", async () => {

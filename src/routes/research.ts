@@ -3,6 +3,7 @@ import multer from "multer";
 import { loadPipelineConfig } from "../config/pipelineConfig";
 import { createJob, getJob, markJobCancelled } from "../jobs/jobStore";
 import { runResearchPipeline } from "../jobs/researchPipeline";
+import { isSelectedUser, SelectedUser } from "../shared/selectedUser";
 
 const upload = multer({ storage: multer.memoryStorage() });
 const router = Router();
@@ -13,6 +14,15 @@ router.post("/research", upload.single("csv"), async (req, res) => {
   }
 
   try {
+    const selectedUserRaw = typeof req.body?.selectedUser === "string" ? req.body.selectedUser : "";
+    const normalizedSelectedUser = selectedUserRaw.trim().toLowerCase();
+    if (!isSelectedUser(normalizedSelectedUser)) {
+      return res.status(400).json({
+        error: "selectedUser is required and must be one of: raihan, cherry, julian.",
+      });
+    }
+    const selectedUser: SelectedUser = normalizedSelectedUser;
+
     const csvBuffer = req.file.buffer.toString("utf8");
     const config = loadPipelineConfig();
     const firstLine = csvBuffer.split("\n")[0] ?? "";
@@ -28,7 +38,7 @@ router.post("/research", upload.single("csv"), async (req, res) => {
     }
 
     const jobId = createJob();
-    void runResearchPipeline(jobId, csvBuffer, config);
+    void runResearchPipeline(jobId, csvBuffer, config, selectedUser);
     return res.status(200).json({ jobId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected server error.";

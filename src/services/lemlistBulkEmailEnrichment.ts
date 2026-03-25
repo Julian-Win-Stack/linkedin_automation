@@ -19,9 +19,11 @@ export interface LemlistEmailEnrichmentSummary {
   notFound: number;
 }
 
-interface PendingEnrichment {
-  enrichId: string;
-  candidate: MissingEmailCandidate;
+export interface LemlistEmailEnrichmentProgress {
+  attempted: number;
+  recovered: number;
+  notFound: number;
+  pending: number;
 }
 
 function splitName(name: string): { firstName: string; lastName: string } | null {
@@ -96,7 +98,8 @@ function extractFoundEmail(payload: unknown): { email: string | null; done: bool
 }
 
 export async function enrichMissingEmailsWithLemlist(
-  candidates: MissingEmailCandidate[]
+  candidates: MissingEmailCandidate[],
+  onProgress?: (progress: LemlistEmailEnrichmentProgress) => void
 ): Promise<LemlistEmailEnrichmentSummary> {
   const pendingByMetadata = new Map<string, MissingEmailCandidate>();
   const pendingByEnrichId = new Map<string, MissingEmailCandidate>();
@@ -135,6 +138,12 @@ export async function enrichMissingEmailsWithLemlist(
   if (requests.length === 0) {
     return { attempted: 0, accepted: 0, recovered: 0, notFound: 0 };
   }
+  onProgress?.({
+    attempted,
+    recovered,
+    notFound,
+    pending: attempted,
+  });
 
   for (const requestBatch of chunkArray(requests, BULK_MAX_REQUESTS)) {
     const responseItems = await bulkEnrichData(requestBatch);
@@ -155,6 +164,12 @@ export async function enrichMissingEmailsWithLemlist(
 
       if (item.error || !item.id) {
         notFound += 1;
+        onProgress?.({
+          attempted,
+          recovered,
+          notFound,
+          pending: Math.max(0, attempted - recovered - notFound),
+        });
         continue;
       }
 
@@ -179,11 +194,23 @@ export async function enrichMissingEmailsWithLemlist(
           if (extracted.email) {
             candidate.employee.email = extracted.email;
             recovered += 1;
+            onProgress?.({
+              attempted,
+              recovered,
+              notFound,
+              pending: Math.max(0, attempted - recovered - notFound),
+            });
             return;
           }
 
           if (extracted.notFound) {
             notFound += 1;
+            onProgress?.({
+              attempted,
+              recovered,
+              notFound,
+              pending: Math.max(0, attempted - recovered - notFound),
+            });
           }
         } catch {
           // Keep pending and retry until timeout window.
@@ -197,5 +224,11 @@ export async function enrichMissingEmailsWithLemlist(
   }
 
   notFound += pendingByEnrichId.size;
+  onProgress?.({
+    attempted,
+    recovered,
+    notFound,
+    pending: Math.max(0, attempted - recovered - notFound),
+  });
   return { attempted, accepted, recovered, notFound };
 }

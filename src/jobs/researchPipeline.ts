@@ -39,6 +39,7 @@ import {
   setRejectedCompanies,
 } from "./jobStore";
 import { EnrichedEmployee } from "../types/prospect";
+import { SelectedUser } from "../shared/selectedUser";
 
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Head of Reliability"];
@@ -119,7 +120,8 @@ function logPipelineStage(
 export async function runResearchPipeline(
   jobId: string,
   csvBuffer: string,
-  config: PipelineConfig
+  config: PipelineConfig,
+  selectedUser: SelectedUser
 ): Promise<void> {
   const rowResults: RowResearchResult[] = [];
   const outputRows: OutputRow[] = [];
@@ -139,6 +141,7 @@ export async function runResearchPipeline(
 
   try {
     setJobStatus(jobId, "processing");
+    logPipelineStage("JOB_START", `Job started. selected_user=${selectedUser}`);
     setJobMessage(jobId, "Starting observability research...");
 
     for await (const row of readCompanies({
@@ -356,7 +359,8 @@ export async function runResearchPipeline(
           const lemlistMeta = await pushPeopleToLemlistCampaign(
             selectedForLemlist,
             company.companyName,
-            company.domain
+            company.domain,
+            selectedUser
           );
           lemlistSuccessful = lemlistMeta.successful;
           lemlistFailed = lemlistMeta.failed;
@@ -465,7 +469,16 @@ export async function runResearchPipeline(
           "LEMLIST_EMAIL_ENRICH_START",
           `Lemlist bulk find_email started. candidates=${missingEmailCandidates.length}`
         );
-        const summary = await enrichMissingEmailsWithLemlist(missingEmailCandidates);
+        setJobMessage(
+          jobId,
+          `Missing ${missingEmailCandidates.length} emails. Started an additional search for missing emails.`
+        );
+        const summary = await enrichMissingEmailsWithLemlist(missingEmailCandidates, (progress) => {
+          setJobMessage(
+            jobId,
+            `Missing email search update: found=${progress.recovered}, not found=${progress.notFound}, pending=${progress.pending}.`
+          );
+        });
         logPipelineStage(
           "LEMLIST_EMAIL_ENRICH_DONE",
           `Lemlist bulk find_email complete. attempted=${summary.attempted} accepted=${summary.accepted} recovered=${summary.recovered} not_found=${summary.notFound}`
@@ -531,7 +544,8 @@ export async function runResearchPipeline(
         const emailPushMeta = await pushPeopleToLemlistEmailCampaign(
           batch.employees,
           batch.companyName,
-          batch.companyDomain
+          batch.companyDomain,
+          selectedUser
         );
         totalLemlistSuccessful += emailPushMeta.successful;
         totalLemlistFailed += emailPushMeta.failed;

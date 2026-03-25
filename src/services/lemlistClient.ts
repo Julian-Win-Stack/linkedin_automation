@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from "axios";
 import { getRequiredEnv } from "../config/env";
+import { SelectedUser } from "../shared/selectedUser";
 
 const LEMLIST_BASE_URL = "https://api.lemlist.com/api";
 const DEFAULT_TIMEOUT_MS = 12_000;
@@ -64,19 +65,42 @@ export interface LemlistEmailCampaignIds {
   engEmailCampaignId: string;
 }
 
-export function getLemlistLinkedinCampaignIds(): LemlistLinkedinCampaignIds {
+export interface LemlistCampaignIdsForUser {
+  linkedin: LemlistLinkedinCampaignIds;
+  email: LemlistEmailCampaignIds;
+}
+
+function toUserPrefix(selectedUser: SelectedUser): string {
+  if (selectedUser === "raihan") {
+    return "RAIHAN";
+  }
+  if (selectedUser === "cherry") {
+    return "CHERRY";
+  }
+  return "JULIAN";
+}
+
+export function getCampaignIdsForUser(selectedUser: SelectedUser): LemlistCampaignIdsForUser {
+  const prefix = toUserPrefix(selectedUser);
   return {
-    sreCampaignId: getRequiredEnv("LEMLIST_LINKEDIN_SRE_CAMPAIGN_ID"),
-    engLeadCampaignId: getRequiredEnv("LEMLIST_LINKEDIN_ENG_LEAD_CAMPAIGN_ID"),
-    engCampaignId: getRequiredEnv("LEMLIST_LINKEDIN_ENG_CAMPAIGN_ID"),
+    linkedin: {
+      sreCampaignId: getRequiredEnv(`${prefix}_LINKEDIN_SRE_CAMPAIGN_ID`),
+      engLeadCampaignId: getRequiredEnv(`${prefix}_LINKEDIN_ENG_LEAD_CAMPAIGN_ID`),
+      engCampaignId: getRequiredEnv(`${prefix}_LINKEDIN_ENG_CAMPAIGN_ID`),
+    },
+    email: {
+      engLeadEmailCampaignId: getRequiredEnv(`${prefix}_ENG_LEAD_EMAIL_CAMPAIGN_ID`),
+      engEmailCampaignId: getRequiredEnv(`${prefix}_ENG_EMAIL_CAMPAIGN_ID`),
+    },
   };
 }
 
-export function getLemlistEmailCampaignIds(): LemlistEmailCampaignIds {
-  return {
-    engLeadEmailCampaignId: getRequiredEnv("LEMLIST_ENG_LEAD_EMAIL_CAMPAIGN_ID"),
-    engEmailCampaignId: getRequiredEnv("LEMLIST_ENG_EMAIL_CAMPAIGN_ID"),
-  };
+export function getLemlistLinkedinCampaignIdsForUser(selectedUser: SelectedUser): LemlistLinkedinCampaignIds {
+  return getCampaignIdsForUser(selectedUser).linkedin;
+}
+
+export function getLemlistEmailCampaignIdsForUser(selectedUser: SelectedUser): LemlistEmailCampaignIds {
+  return getCampaignIdsForUser(selectedUser).email;
 }
 
 export function toBasicAuthHeader(apiKey: string): string {

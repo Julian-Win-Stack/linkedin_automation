@@ -176,7 +176,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    });
+    }, "julian");
 
     expect(fillToMinimumWithBackfillMock).toHaveBeenCalledTimes(2);
     expect(fillToMinimumWithBackfillMock).toHaveBeenNthCalledWith(
@@ -213,7 +213,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    });
+    }, "julian");
 
     expect(searchPastSrePeopleMock).not.toHaveBeenCalled();
     expect(fillToMinimumWithBackfillMock).not.toHaveBeenCalled();
@@ -363,13 +363,25 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    });
+    }, "julian");
 
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
     expect(searchCurrentPlatformEngineerPeopleMock).not.toHaveBeenCalled();
     expect(bulkEnrichPeopleMock).toHaveBeenNthCalledWith(2, expect.any(Array), expect.any(Map));
     expect(enrichMissingEmailsWithLemlistMock).toHaveBeenCalledTimes(1);
     expect(runWaterfallEmailForPersonIdsMock).not.toHaveBeenCalled();
+    expect(pushPeopleToLemlistCampaignMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      "Acme",
+      "acme.com",
+      "julian"
+    );
+    expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledWith(
+      expect.any(Array),
+      "Acme",
+      "acme.com",
+      "julian"
+    );
     const listA = pushPeopleToLemlistEmailCampaignMock.mock.calls[0]?.[0] as EnrichedEmployee[];
     expect(listA.map((employee) => employee.id)).toEqual(["platform-keep", "lead-keep"]);
     expect(listA.find((employee) => employee.id === "platform-keep")?.email).toBe("platform.keep@example.com");
@@ -412,7 +424,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    });
+    }, "julian");
 
     expect(runWaterfallEmailForPersonIdsMock).not.toHaveBeenCalled();
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
@@ -436,7 +448,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    });
+    }, "julian");
 
     const rejectedRowsArg = rejectedRowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
     expect(rejectedRowsArg).toHaveLength(1);
@@ -466,7 +478,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    });
+    }, "julian");
 
     const job = getJob(jobId);
     expect(job?.skippedCompanies).toEqual(["Skipped Co"]);

@@ -2,18 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pushPeopleToLemlistEmailCampaign } from "../src/services/lemlistEmailPushQueue";
 
 const createLeadInCampaignMock = vi.fn();
-const getLemlistEmailCampaignIdsMock = vi.fn();
+const getLemlistEmailCampaignIdsForUserMock = vi.fn();
 
 vi.mock("../src/services/lemlistClient", () => ({
   createLeadInCampaign: (...args: unknown[]) => createLeadInCampaignMock(...args),
-  getLemlistEmailCampaignIds: (...args: unknown[]) => getLemlistEmailCampaignIdsMock(...args),
+  getLemlistEmailCampaignIdsForUser: (...args: unknown[]) =>
+    getLemlistEmailCampaignIdsForUserMock(...args),
 }));
 
 describe("pushPeopleToLemlistEmailCampaign", () => {
   beforeEach(() => {
     createLeadInCampaignMock.mockReset();
-    getLemlistEmailCampaignIdsMock.mockReset();
-    getLemlistEmailCampaignIdsMock.mockReturnValue({
+    getLemlistEmailCampaignIdsForUserMock.mockReset();
+    getLemlistEmailCampaignIdsForUserMock.mockReturnValue({
       engLeadEmailCampaignId: "cam_eng_lead_email",
       engEmailCampaignId: "cam_eng_email",
     });
@@ -37,7 +38,8 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
         },
       ],
       "Acme",
-      "acme.com"
+      "acme.com",
+      "julian"
     );
 
     expect(createLeadInCampaignMock).toHaveBeenCalledWith(
@@ -72,7 +74,8 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
         },
       ],
       "Acme",
-      "acme.com"
+      "acme.com",
+      "julian"
     );
 
     expect(createLeadInCampaignMock).toHaveBeenCalledWith(
@@ -103,7 +106,8 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
         },
       ],
       "Acme",
-      "acme.com"
+      "acme.com",
+      "julian"
     );
 
     expect(createLeadInCampaignMock).not.toHaveBeenCalled();

@@ -2,18 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pushPeopleToLemlistCampaign } from "../src/services/lemlistPushQueue";
 
 const createLeadInCampaignMock = vi.fn();
-const getLemlistLinkedinCampaignIdsMock = vi.fn();
+const getLemlistLinkedinCampaignIdsForUserMock = vi.fn();
 
 vi.mock("../src/services/lemlistClient", () => ({
   createLeadInCampaign: (...args: unknown[]) => createLeadInCampaignMock(...args),
-  getLemlistLinkedinCampaignIds: (...args: unknown[]) => getLemlistLinkedinCampaignIdsMock(...args),
+  getLemlistLinkedinCampaignIdsForUser: (...args: unknown[]) =>
+    getLemlistLinkedinCampaignIdsForUserMock(...args),
 }));
 
 describe("pushPeopleToLemlistCampaign", () => {
   beforeEach(() => {
     createLeadInCampaignMock.mockReset();
-    getLemlistLinkedinCampaignIdsMock.mockReset();
-    getLemlistLinkedinCampaignIdsMock.mockReturnValue({
+    getLemlistLinkedinCampaignIdsForUserMock.mockReset();
+    getLemlistLinkedinCampaignIdsForUserMock.mockReturnValue({
       sreCampaignId: "cam_sre",
       engLeadCampaignId: "cam_eng_lead",
       engCampaignId: "cam_eng",
@@ -35,7 +36,8 @@ describe("pushPeopleToLemlistCampaign", () => {
         },
       ],
       "Acme",
-      "acme.com"
+      "acme.com",
+      "julian"
     );
 
     expect(createLeadInCampaignMock).toHaveBeenCalledWith(
@@ -80,7 +82,8 @@ describe("pushPeopleToLemlistCampaign", () => {
         },
       ],
       "Acme",
-      "acme.com"
+      "acme.com",
+      "julian"
     );
 
     expect(createLeadInCampaignMock).toHaveBeenCalledWith(
@@ -112,7 +115,8 @@ describe("pushPeopleToLemlistCampaign", () => {
         },
       ],
       "Acme",
-      "acme.com"
+      "acme.com",
+      "julian"
     );
 
     expect(createLeadInCampaignMock).toHaveBeenCalledWith(
@@ -144,7 +148,8 @@ describe("pushPeopleToLemlistCampaign", () => {
         },
       ],
       "Acme",
-      "acme.com"
+      "acme.com",
+      "julian"
     );
 
     expect(createLeadInCampaignMock).toHaveBeenCalledWith(
@@ -181,7 +186,8 @@ describe("pushPeopleToLemlistCampaign", () => {
         },
       ],
       "Acme",
-      "acme.com"
+      "acme.com",
+      "julian"
     );
 
     expect(result.attempted).toBe(2);
@@ -228,7 +234,8 @@ describe("pushPeopleToLemlistCampaign", () => {
         },
       ],
       "Acme",
-      "acme.com"
+      "acme.com",
+      "julian"
     );
 
     expect(createLeadInCampaignMock).toHaveBeenCalledTimes(2);

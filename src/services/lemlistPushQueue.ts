@@ -1,9 +1,10 @@
 import { EnrichedEmployee, LemlistFailedLead, LemlistPushMeta } from "../types/prospect";
 import {
   createLeadInCampaign,
-  getLemlistLinkedinCampaignIds,
+  getLemlistLinkedinCampaignIdsForUser,
   LemlistCreateLeadPayload,
 } from "./lemlistClient";
+import { SelectedUser } from "../shared/selectedUser";
 
 const RATE_LIMIT_REQUESTS = 20;
 const RATE_LIMIT_WINDOW_MS = 2_000;
@@ -95,12 +96,13 @@ function splitEmployeesByCampaignTitle(employees: EnrichedEmployee[]): Record<Le
 export async function pushPeopleToLemlistCampaign(
   employees: EnrichedEmployee[],
   companyName: string,
-  companyDomain: string
+  companyDomain: string,
+  selectedUser: SelectedUser
 ): Promise<LemlistPushMeta> {
   return new Promise<LemlistPushMeta>((resolve, reject) => {
     void enqueue(async () => {
       try {
-        const campaignIds = getLemlistLinkedinCampaignIds();
+        const campaignIds = getLemlistLinkedinCampaignIdsForUser(selectedUser);
         const bucketedEmployees = splitEmployeesByCampaignTitle(employees);
         const failedItems: LemlistFailedLead[] = [];
         const successItems: string[] = [];
@@ -109,7 +111,7 @@ export async function pushPeopleToLemlistCampaign(
         let windowStartedAt = Date.now();
 
         console.log(
-          `[Lemlist] Campaign routing (${companyName}): SRE=${bucketedEmployees.sre.length}, ENG_LEAD=${bucketedEmployees.engLead.length}, ENG=${bucketedEmployees.eng.length}`
+          `[Lemlist] Campaign routing (${companyName}) user=${selectedUser}: SRE=${bucketedEmployees.sre.length}, ENG_LEAD=${bucketedEmployees.engLead.length}, ENG=${bucketedEmployees.eng.length}`
         );
 
         const bucketOrder: Array<{ campaignId: string; people: EnrichedEmployee[] }> = [

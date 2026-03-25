@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { isSelectedUser } from "../../../src/shared/selectedUser";
+import type { SelectedUser } from "../../../src/shared/selectedUser";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+const API_URL = import.meta.env.VITE_API_URL?.trim() || "";
+const SELECTED_USER_STORAGE_KEY = "selected-user";
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedFile = ref<File | null>(null);
@@ -20,8 +23,31 @@ const rejectedReason = ref<string | null>(null);
 const abortControllerRef = ref<AbortController | null>(null);
 const pollingIntervalId = ref<number | null>(null);
 const pollingSwitchTimeoutId = ref<number | null>(null);
+const selectedUser = ref<SelectedUser | null>(null);
 
-const canRun = computed(() => !isLoading.value && !!selectedFile.value);
+const canRun = computed(() => !isLoading.value && !!selectedFile.value && !!selectedUser.value);
+const selectedUserLabel = computed(() => {
+  if (!selectedUser.value) {
+    return null;
+  }
+  if (selectedUser.value === "raihan") {
+    return "Raihan";
+  }
+  if (selectedUser.value === "cherry") {
+    return "Cherry";
+  }
+  return "Julian";
+});
+
+const storedUser = localStorage.getItem(SELECTED_USER_STORAGE_KEY);
+if (isSelectedUser(storedUser)) {
+  selectedUser.value = storedUser;
+}
+
+function setSelectedUser(user: SelectedUser): void {
+  selectedUser.value = user;
+  localStorage.setItem(SELECTED_USER_STORAGE_KEY, user);
+}
 
 watch(resultBlob, (blob) => {
   if (downloadUrl.value) {
@@ -87,6 +113,10 @@ function clearPolling(): void {
 }
 
 async function runResearch(): Promise<void> {
+  if (!selectedUser.value) {
+    error.value = "Please select a user before using the app.";
+    return;
+  }
   if (!selectedFile.value) {
     error.value = "Please select a CSV file.";
     return;
@@ -98,6 +128,7 @@ async function runResearch(): Promise<void> {
 
   const formData = new FormData();
   formData.append("csv", selectedFile.value);
+  formData.append("selectedUser", selectedUser.value);
 
   try {
     const startResponse = await fetch(`${API_URL}/research`, {
@@ -267,9 +298,19 @@ function restart(): void {
 
 <template>
   <div
-    class="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#111a2a_0%,#090d16_45%,#05070c_100%)] px-4 text-zinc-200"
+    class="relative flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#111a2a_0%,#090d16_45%,#05070c_100%)] px-4 text-zinc-200"
   >
-    <div class="w-full max-w-md rounded-xl border border-[#1d2537] bg-[#0d1320]/90 p-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)] space-y-3">
+    <div
+      v-if="selectedUserLabel"
+      class="absolute right-4 top-4 rounded-full border border-indigo-400/40 bg-[#121a2c]/90 px-3 py-1.5 text-xs font-semibold tracking-wide text-indigo-200 shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+    >
+      User: {{ selectedUserLabel }}
+    </div>
+
+    <div
+      class="w-full max-w-md rounded-xl border border-[#1d2537] bg-[#0d1320]/90 p-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)] space-y-3"
+      :class="!selectedUser ? 'pointer-events-none opacity-40 select-none blur-[1px]' : ''"
+    >
       <label class="block">
         <span class="sr-only">Choose csv</span>
         <input
@@ -277,6 +318,7 @@ function restart(): void {
           type="file"
           accept=".csv"
           class="block w-full text-sm text-zinc-300 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-600 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-indigo-500"
+          :disabled="!selectedUser || isLoading"
           @change="onFileChange"
         />
       </label>
@@ -284,6 +326,7 @@ function restart(): void {
       <div class="grid grid-cols-3 gap-2">
         <button
           class="rounded-md border border-zinc-600 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:bg-zinc-800/50 disabled:opacity-40"
+          :disabled="!selectedUser"
           @click="restart"
         >
           Restart
@@ -297,7 +340,7 @@ function restart(): void {
         </button>
         <button
           class="rounded-md border border-red-700 px-3 py-1.5 text-xs text-red-300 disabled:opacity-40"
-          :disabled="!isLoading"
+          :disabled="!selectedUser || !isLoading"
           @click="cancelCurrentJob"
         >
           Cancel
@@ -383,6 +426,38 @@ function restart(): void {
         >
           Download Rejects CSV
         </a>
+      </div>
+    </div>
+
+    <div
+      v-if="!selectedUser"
+      class="absolute inset-0 z-20 flex items-center justify-center bg-[#05070c]/65 backdrop-blur-[2px]"
+    >
+      <div class="w-full max-w-sm rounded-2xl border border-[#2a3550] bg-[#0e1728]/95 p-5 shadow-[0_22px_60px_rgba(0,0,0,0.5)]">
+        <h2 class="text-base font-semibold text-zinc-100">Select User</h2>
+        <p class="mt-1 text-sm text-zinc-400">
+          Choose a user to unlock the app and route to the correct Lemlist campaigns.
+        </p>
+        <div class="mt-4 grid grid-cols-3 gap-2">
+          <button
+            class="rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-3 py-2 text-sm font-semibold text-indigo-100 transition hover:bg-indigo-500/20"
+            @click="setSelectedUser('raihan')"
+          >
+            Raihan
+          </button>
+          <button
+            class="rounded-lg border border-fuchsia-400/30 bg-fuchsia-500/10 px-3 py-2 text-sm font-semibold text-fuchsia-100 transition hover:bg-fuchsia-500/20"
+            @click="setSelectedUser('cherry')"
+          >
+            Cherry
+          </button>
+          <button
+            class="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20"
+            @click="setSelectedUser('julian')"
+          >
+            Julian
+          </button>
+        </div>
       </div>
     </div>
   </div>

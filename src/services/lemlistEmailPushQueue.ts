@@ -1,9 +1,10 @@
 import { EnrichedEmployee, LemlistFailedLead, LemlistPushMeta } from "../types/prospect";
 import {
   createLeadInCampaign,
-  getLemlistEmailCampaignIds,
+  getLemlistEmailCampaignIdsForUser,
   LemlistCreateLeadPayload,
 } from "./lemlistClient";
+import { SelectedUser } from "../shared/selectedUser";
 
 const RATE_LIMIT_REQUESTS = 20;
 const RATE_LIMIT_WINDOW_MS = 2_000;
@@ -89,12 +90,13 @@ function splitByCampaign(employees: EnrichedEmployee[]): { lead: EnrichedEmploye
 export async function pushPeopleToLemlistEmailCampaign(
   employees: EnrichedEmployee[],
   companyName: string,
-  companyDomain: string
+  companyDomain: string,
+  selectedUser: SelectedUser
 ): Promise<LemlistPushMeta> {
   return new Promise<LemlistPushMeta>((resolve, reject) => {
     void enqueue(async () => {
       try {
-        const campaignIds = getLemlistEmailCampaignIds();
+        const campaignIds = getLemlistEmailCampaignIdsForUser(selectedUser);
         const { lead, eng } = splitByCampaign(employees);
         const failedItems: LemlistFailedLead[] = [];
         const successItems: string[] = [];
@@ -103,7 +105,7 @@ export async function pushPeopleToLemlistEmailCampaign(
         let windowStartedAt = Date.now();
 
         console.log(
-          `[Lemlist][Email] Campaign routing (${companyName}): ENG_LEAD=${lead.length}, ENG=${eng.length}`
+          `[Lemlist][Email] Campaign routing (${companyName}) user=${selectedUser}: ENG_LEAD=${lead.length}, ENG=${eng.length}`
         );
 
         const buckets: Array<{ campaignId: string; people: EnrichedEmployee[] }> = [
