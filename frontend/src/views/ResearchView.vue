@@ -8,6 +8,7 @@ const SELECTED_USER_STORAGE_KEY = "selected-user";
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedFile = ref<File | null>(null);
+const isDragActive = ref(false);
 const isLoading = ref(false);
 const error = ref<string | null>(null);
 const warnings = ref<string[]>([]);
@@ -27,6 +28,7 @@ const selectedUser = ref<SelectedUser | null>(null);
 const currentJobId = ref<string | null>(null);
 
 const canRun = computed(() => !isLoading.value && !!selectedFile.value && !!selectedUser.value);
+const workflowSignal = "Upload → Qualify → Enrich → Outreach";
 const zeroEngineerCountRejectedCompanyNames = computed(() =>
   rejectedCompanies.value
     .filter((company) => company.toLowerCase().includes("engineer count (0)"))
@@ -120,6 +122,36 @@ function openFilePicker(): void {
     return;
   }
   fileInput.value?.click();
+}
+
+function onDropZoneDragOver(event: DragEvent): void {
+  if (!selectedUser.value || isLoading.value) {
+    return;
+  }
+  event.preventDefault();
+  isDragActive.value = true;
+}
+
+function onDropZoneDragLeave(event: DragEvent): void {
+  event.preventDefault();
+  isDragActive.value = false;
+}
+
+function onDropZoneDrop(event: DragEvent): void {
+  if (!selectedUser.value || isLoading.value) {
+    return;
+  }
+  event.preventDefault();
+  isDragActive.value = false;
+  const droppedFile = event.dataTransfer?.files?.[0] ?? null;
+  setSelectedCsvFile(droppedFile);
+}
+
+function onDropZoneKeydown(event: KeyboardEvent): void {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    openFilePicker();
+  }
 }
 
 function clearPolling(): void {
@@ -326,7 +358,7 @@ async function cancelAndReset(): Promise<void> {
 
 <template>
   <div
-    class="relative flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,#111a2a_0%,#090d16_45%,#05070c_100%)] px-4 text-zinc-200"
+    class="relative min-h-screen bg-[radial-gradient(circle_at_top,#111a2a_0%,#090d16_45%,#05070c_100%)] px-4 text-zinc-200"
   >
     <div
       v-if="selectedUserLabel"
@@ -335,139 +367,157 @@ async function cancelAndReset(): Promise<void> {
       User: {{ selectedUserLabel }}
     </div>
 
-    <div
-      class="w-full max-w-md rounded-xl border border-[#1d2537] bg-[#0d1320]/90 p-3 shadow-[0_18px_50px_rgba(0,0,0,0.45)] space-y-3"
-      :class="!selectedUser ? 'pointer-events-none opacity-40 select-none blur-[1px]' : ''"
-    >
-      <div class="flex items-center gap-2">
-        <span class="sr-only">Choose csv</span>
-        <input
-          ref="fileInput"
-          type="file"
-          accept=".csv"
-          class="sr-only"
-          :disabled="!selectedUser || isLoading"
-          @change="onFileChange"
-        />
-        <button
-          type="button"
-          class="rounded-md bg-indigo-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
-          :disabled="!selectedUser || isLoading"
-          @click="openFilePicker"
-        >
-          Choose File
-        </button>
+    <div class="mx-auto flex min-h-screen w-full max-w-2xl items-center py-12">
+      <div class="w-full space-y-3">
+        <h1 class="text-2xl font-semibold tracking-tight text-zinc-100">Upload list. Start outbound.</h1>
+
         <div
-          class="min-w-0 flex-1 rounded-md border border-dotted border-zinc-500/80 bg-[#0a1220]/65 px-3 py-2 text-sm text-zinc-300"
-          :class="!selectedUser || isLoading ? 'opacity-60' : ''"
+          class="rounded-xl border border-[#1d2537] bg-[#0d1320]/90 p-4 shadow-[0_18px_50px_rgba(0,0,0,0.45)] space-y-2.5"
+          :class="!selectedUser ? 'pointer-events-none opacity-40 select-none blur-[1px]' : ''"
         >
-          <span class="block truncate">{{ selectedFile?.name ?? "No file chosen" }}</span>
+          <p class="text-[11px] font-medium tracking-wide text-zinc-500">{{ workflowSignal }}</p>
+
+          <div
+            class="rounded-lg border border-dashed bg-[#0a1220]/50 p-3 transition"
+            :class="
+              isDragActive
+                ? 'border-indigo-400/70 bg-indigo-500/10'
+                : selectedFile
+                  ? 'border-zinc-500/90 bg-zinc-900/40'
+                  : 'border-zinc-600/80 hover:border-zinc-500/90'
+            "
+            role="button"
+            tabindex="0"
+            @click="openFilePicker"
+            @keydown="onDropZoneKeydown"
+            @dragover="onDropZoneDragOver"
+            @dragleave="onDropZoneDragLeave"
+            @drop="onDropZoneDrop"
+          >
+            <span class="sr-only">Choose csv</span>
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".csv"
+              class="sr-only"
+              :disabled="!selectedUser || isLoading"
+              @change="onFileChange"
+            />
+            <template v-if="selectedFile">
+              <p class="truncate text-sm font-medium text-zinc-200">{{ selectedFile.name }}</p>
+              <p class="mt-1 text-xs text-zinc-500">CSV only</p>
+            </template>
+            <template v-else>
+              <p class="text-sm font-medium text-zinc-200">Drop CSV here or click to upload</p>
+              <p class="mt-1 text-xs text-zinc-500">CSV only</p>
+            </template>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              class="rounded-md bg-indigo-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40"
+              :disabled="!canRun"
+              @click="runResearch"
+            >
+              Start Outbound
+            </button>
+            <button
+              class="rounded-md border border-zinc-700 bg-zinc-900/60 px-3 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-zinc-800/70 disabled:opacity-40"
+              :disabled="!selectedUser"
+              @click="cancelAndReset"
+            >
+              Cancel
+            </button>
+          </div>
+
+          <div
+            v-if="isLoading"
+            class="rounded-lg border border-[#1f2a44] bg-[#0a1220] px-3 py-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.28)]"
+          >
+            <div class="flex items-center gap-3 text-zinc-300">
+              <span
+                class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-indigo-400/40 border-t-indigo-400"
+                aria-hidden="true"
+              />
+              <p class="text-sm font-medium tracking-tight text-zinc-300">Building pipeline...</p>
+            </div>
+            <p class="mt-2 text-sm font-normal tracking-tight text-zinc-400">
+              {{ progressMessage ?? "Processing..." }}
+            </p>
+          </div>
+          <p v-if="error" class="text-sm text-red-400">{{ error }}</p>
+
+          <div v-if="warnings.length > 0" class="rounded-md border border-amber-800 bg-amber-950/40 p-3">
+            <p class="text-sm font-medium text-amber-300 mb-2">Warnings</p>
+            <p v-for="(warning, index) in warnings" :key="index" class="text-xs text-amber-200">
+              {{ warning }}
+            </p>
+          </div>
+
+          <div v-if="summary" class="rounded-md border border-zinc-700 bg-zinc-900/50 p-3 text-sm space-y-1">
+            <p><strong>Total companies:</strong> {{ summary.totalRows ?? 0 }}</p>
+            <p><strong>Rejected companies:</strong> {{ summary.rejectedCompanyCount ?? 0 }}</p>
+            <p v-if="skippedCompanies.length > 0" class="text-red-300">
+              {{
+                `Skipped ${skippedCompanies.length} because both Website URL and Apollo Account Id were missing.`
+              }}
+            </p>
+            <ul v-if="skippedCompanies.length > 0" class="list-disc pl-5 text-xs text-red-300 space-y-1">
+              <li v-for="company in skippedCompanies" :key="company">
+                {{ company }}
+              </li>
+            </ul>
+            <p>
+              <strong>LinkedIn campaign pushed:</strong> {{ summary.totalLinkedinCampaignSuccessful ?? 0 }}
+            </p>
+            <p><strong>Lemlist successful:</strong> {{ summary.totalLemlistSuccessful ?? 0 }}</p>
+            <p><strong>Lemlist failed:</strong> {{ summary.totalLemlistFailed ?? 0 }}</p>
+          </div>
+
+          <div
+            v-if="rejectedCompanies.length > 0"
+            class="rounded-md border border-zinc-700 bg-zinc-900/50 p-3 text-sm space-y-2"
+          >
+            <p class="font-medium">Rejected Companies</p>
+            <p class="text-xs text-zinc-400">
+              {{
+                rejectedReason ??
+                "Rejected because they were using other observability tools."
+              }}
+            </p>
+            <p
+              v-if="hasZeroEngineerCountRejectedCompany"
+              class="rounded-md border border-amber-700/70 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-200"
+            >
+              Warning: Engineer count is 0 for {{ zeroEngineerCountRejectedCompanyNames.join(", ") }}. Please manually
+              check the company's information.
+            </p>
+            <ul class="list-disc pl-5 text-xs text-zinc-300 space-y-1">
+              <li v-for="company in rejectedCompanies" :key="company">
+                {{ company }}
+              </li>
+            </ul>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <a
+              v-if="downloadUrl"
+              :href="downloadUrl"
+              download="Results to import to Apollo.csv"
+              class="inline-block rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600"
+            >
+              Download Results to import to Apollo
+            </a>
+            <a
+              v-if="rejectsDownloadUrl"
+              :href="rejectsDownloadUrl"
+              download="rejects.csv"
+              class="inline-block rounded-md bg-zinc-700 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-600"
+            >
+              Download Rejects CSV
+            </a>
+          </div>
         </div>
-      </div>
-
-      <div class="grid grid-cols-2 gap-2">
-        <button
-          class="rounded-md bg-indigo-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40"
-          :disabled="!canRun"
-          @click="runResearch"
-        >
-          Research
-        </button>
-        <button
-          class="rounded-md border border-red-600/70 bg-red-950/20 px-3 py-2 text-sm font-semibold text-red-200 transition hover:bg-red-900/35 disabled:opacity-40"
-          :disabled="!selectedUser"
-          @click="cancelAndReset"
-        >
-          Cancel
-        </button>
-      </div>
-
-      <div
-        v-if="isLoading"
-        class="rounded-lg border border-[#1f2a44] bg-[#0a1220] px-3 py-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.28)]"
-      >
-        <div class="flex items-center gap-3 text-zinc-300">
-          <span
-            class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-indigo-400/40 border-t-indigo-400"
-            aria-hidden="true"
-          />
-          <p class="text-sm font-medium tracking-tight text-zinc-300">Researching...</p>
-        </div>
-        <p class="mt-2 text-sm font-normal tracking-tight text-zinc-400">
-          {{ progressMessage ?? "Processing..." }}
-        </p>
-      </div>
-      <p v-if="error" class="text-sm text-red-400">{{ error }}</p>
-
-      <div v-if="warnings.length > 0" class="rounded-md border border-amber-800 bg-amber-950/40 p-3">
-        <p class="text-sm font-medium text-amber-300 mb-2">Warnings</p>
-        <p v-for="(warning, index) in warnings" :key="index" class="text-xs text-amber-200">
-          {{ warning }}
-        </p>
-      </div>
-
-      <div v-if="summary" class="rounded-md border border-zinc-700 bg-zinc-900/50 p-3 text-sm space-y-1">
-        <p><strong>Total companies:</strong> {{ summary.totalRows ?? 0 }}</p>
-        <p><strong>Rejected companies:</strong> {{ summary.rejectedCompanyCount ?? 0 }}</p>
-        <p v-if="skippedCompanies.length > 0" class="text-red-300">
-          {{
-            `Skipped ${skippedCompanies.length} because both Website URL and Apollo Account Id were missing.`
-          }}
-        </p>
-        <ul v-if="skippedCompanies.length > 0" class="list-disc pl-5 text-xs text-red-300 space-y-1">
-          <li v-for="company in skippedCompanies" :key="company">
-            {{ company }}
-          </li>
-        </ul>
-        <p>
-          <strong>LinkedIn campaign pushed:</strong> {{ summary.totalLinkedinCampaignSuccessful ?? 0 }}
-        </p>
-        <p><strong>Lemlist successful:</strong> {{ summary.totalLemlistSuccessful ?? 0 }}</p>
-        <p><strong>Lemlist failed:</strong> {{ summary.totalLemlistFailed ?? 0 }}</p>
-      </div>
-
-      <div
-        v-if="rejectedCompanies.length > 0"
-        class="rounded-md border border-zinc-700 bg-zinc-900/50 p-3 text-sm space-y-2"
-      >
-        <p class="font-medium">Rejected Companies</p>
-        <p class="text-xs text-zinc-400">
-          {{
-            rejectedReason ??
-            "Rejected because they were using other observability tools."
-          }}
-        </p>
-        <p
-          v-if="hasZeroEngineerCountRejectedCompany"
-          class="rounded-md border border-amber-700/70 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-200"
-        >
-          Warning: Engineer count is 0 for {{ zeroEngineerCountRejectedCompanyNames.join(", ") }}. Please manually
-          check the company's information.
-        </p>
-        <ul class="list-disc pl-5 text-xs text-zinc-300 space-y-1">
-          <li v-for="company in rejectedCompanies" :key="company">
-            {{ company }}
-          </li>
-        </ul>
-      </div>
-
-      <div class="flex flex-wrap gap-2">
-        <a
-          v-if="downloadUrl"
-          :href="downloadUrl"
-          download="Results to import to Apollo.csv"
-          class="inline-block rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
-        >
-          Download Results to import to Apollo
-        </a>
-        <a
-          v-if="rejectsDownloadUrl"
-          :href="rejectsDownloadUrl"
-          download="rejects.csv"
-          class="inline-block rounded-md bg-zinc-700 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-600"
-        >
-          Download Rejects CSV
-        </a>
       </div>
     </div>
 
