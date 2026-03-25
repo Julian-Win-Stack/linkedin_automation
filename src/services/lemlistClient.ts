@@ -40,11 +40,23 @@ export interface LemlistLinkedinCampaignIds {
   engCampaignId: string;
 }
 
+export interface LemlistEmailCampaignIds {
+  engLeadEmailCampaignId: string;
+  engEmailCampaignId: string;
+}
+
 export function getLemlistLinkedinCampaignIds(): LemlistLinkedinCampaignIds {
   return {
     sreCampaignId: getRequiredEnv("LEMLIST_LINKEDIN_SRE_CAMPAIGN_ID"),
     engLeadCampaignId: getRequiredEnv("LEMLIST_LINKEDIN_ENG_LEAD_CAMPAIGN_ID"),
     engCampaignId: getRequiredEnv("LEMLIST_LINKEDIN_ENG_CAMPAIGN_ID"),
+  };
+}
+
+export function getLemlistEmailCampaignIds(): LemlistEmailCampaignIds {
+  return {
+    engLeadEmailCampaignId: getRequiredEnv("LEMLIST_ENG_LEAD_EMAIL_CAMPAIGN_ID"),
+    engEmailCampaignId: getRequiredEnv("LEMLIST_ENG_EMAIL_CAMPAIGN_ID"),
   };
 }
 

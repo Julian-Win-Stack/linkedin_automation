@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   countEngineerPeople,
+  searchCurrentEngineeringEmailCandidates,
   searchCurrentPlatformEngineerPeople,
   searchPastSrePeople,
   searchPeople,
@@ -335,6 +336,48 @@ describe("searchPeople", () => {
       "q_organization_domains_list[]": ["acme.com"],
       "q_organization_ids[]": ["org_789"],
       "person_titles[]": ["platform engineer"],
+    });
+  });
+
+  it("queries engineering email candidates helper with current title param", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "eng-1", name: "Eng One", title: "Head of Engineering" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const result = await searchCurrentEngineeringEmailCandidates(company, 10);
+    expect(result).toHaveLength(1);
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 100,
+      include_similar_titles: false,
+      "q_organization_domains_list[]": ["acme.com"],
+      "person_titles[]": expect.arrayContaining([
+        "platform engineer",
+        "SRE",
+        "Site Reliability",
+        "staff engineer",
+        "principal engineer",
+        "chief technology officer",
+      ]),
+    });
+  });
+
+  it("includes q_organization_ids[] for engineering email candidates helper when provided", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "eng-1", name: "Eng One", title: "Head of Engineering" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    await searchCurrentEngineeringEmailCandidates(company, 10, { apolloOrganizationId: "org_eng_123" });
+
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 100,
+      include_similar_titles: false,
+      "q_organization_domains_list[]": ["acme.com"],
+      "q_organization_ids[]": ["org_eng_123"],
+      "person_titles[]": expect.any(Array),
     });
   });
 });

@@ -2,9 +2,11 @@ import { getEnvBoolean } from "../config/env";
 import { PipelineConfig } from "../config/pipelineConfig";
 import { bulkEnrichPeople } from "../services/bulkEnrichPeople";
 import { getCompany } from "../services/getCompany";
+import { pushPeopleToLemlistEmailCampaign } from "../services/lemlistEmailPushQueue";
 import { pushPeopleToLemlistCampaign } from "../services/lemlistPushQueue";
 import {
   countEngineerPeople,
+  searchCurrentEngineeringEmailCandidates,
   searchCurrentPlatformEngineerPeople,
   searchPastSrePeople,
   searchPeople,
@@ -31,10 +33,12 @@ import {
   setJobSummary,
   setRejectedCompanies,
 } from "./jobStore";
+import { EnrichedEmployee } from "../types/prospect";
 
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Head of Reliability"];
 const MAX_RESULTS = 30;
+const EMAIL_CANDIDATE_MAX_RESULTS = 100;
 const REJECTED_REASON = "rejected because they were using other observability tools";
 const MIN_ENGINEER_COUNT = 20;
 const MAX_ENGINEER_COUNT = 700;
@@ -83,6 +87,10 @@ function getEngineerCountDisplayValue(engineerCount: number): number | "> 1000" 
     return LARGE_ENGINEER_COUNT_MASK;
   }
   return engineerCount;
+}
+
+function toEmployeeKey(employee: EnrichedEmployee): string {
+  return employee.id ?? `${employee.name}|${employee.currentTitle}|${employee.linkedinUrl ?? ""}`;
 }
 
 export async function runResearchPipeline(
@@ -276,6 +284,32 @@ export async function runResearchPipeline(
           lemlistFailed = lemlistMeta.failed;
           totalLemlistSuccessful += lemlistSuccessful;
           totalLemlistFailed += lemlistFailed;
+        }
+
+        if (lemlistEnabled) {
+          const attemptedLinkedinKeys = new Set(selectedForLemlist.map((employee) => toEmployeeKey(employee)));
+          const broadEmailProspects = dedupeProspectsById(
+            await searchCurrentEngineeringEmailCandidates(company, EMAIL_CANDIDATE_MAX_RESULTS, {
+              apolloOrganizationId: row.apolloAccountId,
+            })
+          );
+          const emailEnriched = await bulkEnrichPeople(broadEmailProspects);
+          const listA = emailEnriched.filter((employee) => {
+            if (attemptedLinkedinKeys.has(toEmployeeKey(employee))) {
+              return false;
+            }
+            return employee.tenure !== null && employee.tenure >= 11;
+          });
+
+          if (listA.length > 0) {
+            const emailPushMeta = await pushPeopleToLemlistEmailCampaign(
+              listA,
+              company.companyName,
+              company.domain
+            );
+            totalLemlistSuccessful += emailPushMeta.successful;
+            totalLemlistFailed += emailPushMeta.failed;
+          }
         }
 
         outputRows.push({

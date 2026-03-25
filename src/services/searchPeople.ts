@@ -8,7 +8,6 @@ const MAX_APOLLO_PAGES = 500;
 const ENGINEER_TITLE_KEYWORDS = [
   "developer",
   "builder",
-  "technical lead",
   "platform",
   "infrastructure",
   "SRE",
@@ -52,6 +51,7 @@ const ENGINEER_TITLE_KEYWORDS = [
   "CTO",
   "platform engineer",
   "platform architect",
+  "Chief Technology Officer",
 ];
 
 interface PeopleSearchResponse {
@@ -267,6 +267,33 @@ export async function searchPeople(
 
 const BACKFILL_PAST_SRE_TITLES = ["SRE", "Site Reliability", "Head of Reliability"];
 const BACKFILL_PLATFORM_TITLES = ["platform engineer"];
+const EMAIL_CANDIDATE_TITLES = [
+  "platform engineer",
+  "SRE",
+  "Site Reliability",
+  "staff engineer",
+  "principal engineer",
+  "vp of platform",
+  "cto",
+  "tech lead",
+  "technical lead",
+  "devops",
+  "infrastructure",
+  "head of engineering",
+  "vp of engineering",
+  "svp of engineering",
+  "chief technology officer",
+  "vice president of engineering",
+  "vp of software engineering",
+  "vp of technology",
+  "head of backend",
+  "head of infrastructure",
+  "head of systems",
+  "director of engineering",
+  "director of software engineering",
+  "director of backend engineering",
+  "lead software engineer",
+];
 
 export async function searchPastSrePeople(
   company: ResolvedCompany,
@@ -289,4 +316,12 @@ export async function searchCurrentPlatformEngineerPeople(
   filters: PeopleSearchFilters = {}
 ): Promise<Prospect[]> {
   return searchPeopleByTitleParam(company, maxResults, BACKFILL_PLATFORM_TITLES, "person_titles[]", filters, false);
+}
+
+export async function searchCurrentEngineeringEmailCandidates(
+  company: ResolvedCompany,
+  maxResults = 100,
+  filters: PeopleSearchFilters = {}
+): Promise<Prospect[]> {
+  return searchPeopleByTitleParam(company, maxResults, EMAIL_CANDIDATE_TITLES, "person_titles[]", filters, false);
 }

@@ -25,6 +25,7 @@ describe("bulkEnrichPeople", () => {
           {
             organization_id: "org_1",
             name: "A Person",
+            email: "a.person@example.com",
             linkedin_url: "https://linkedin.com/in/a",
             title: "SRE",
             employment_history: [
@@ -45,10 +46,19 @@ describe("bulkEnrichPeople", () => {
     const result = await bulkEnrichPeople(people);
 
     expect(apolloPostMock).toHaveBeenCalledTimes(3);
+    expect(apolloPostMock).toHaveBeenNthCalledWith(
+      1,
+      "/people/bulk_match",
+      expect.objectContaining({
+        run_waterfall_email: true,
+        details: expect.any(Array),
+      })
+    );
     expect(result[0]).toEqual({
       startDate: "2024-01-01",
       endDate: null,
       name: "A Person",
+      email: "a.person@example.com",
       linkedinUrl: "https://linkedin.com/in/a",
       currentTitle: "SRE",
       tenure: expect.any(Number),

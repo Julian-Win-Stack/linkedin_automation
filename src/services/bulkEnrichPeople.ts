@@ -14,6 +14,7 @@ interface BulkMatchRecord {
   id?: string;
   organization_id?: string;
   name?: string;
+  email?: string | null;
   linkedin_url?: string | null;
   title?: string;
   employment_history?: EmploymentHistoryItem[];
@@ -136,6 +137,7 @@ function toEnrichedEmployee(record: BulkMatchRecord): EnrichedEmployee | null {
     startDate: currentRole?.start_date ?? null,
     endDate: currentRole?.end_date ?? null,
     name: record.name ?? "",
+    email: record.email ?? null,
     linkedinUrl: record.linkedin_url ?? null,
     currentTitle: currentRole?.title ?? record.title ?? "",
     tenure,
@@ -156,6 +158,7 @@ export async function bulkEnrichPeople(people: Prospect[]): Promise<EnrichedEmpl
 
     const response = await apolloPost<BulkMatchResponse>("/people/bulk_match", {
       details: batch.map((person) => ({ id: person.id })),
+      run_waterfall_email: true,
     });
 
     const matches = response.matches ?? [];
