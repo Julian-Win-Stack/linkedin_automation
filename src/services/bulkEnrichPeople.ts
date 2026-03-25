@@ -1,5 +1,12 @@
 import { apolloPost } from "./apolloClient";
+import { randomUUID } from "node:crypto";
+import { getRequiredEnv } from "../config/env";
 import { EnrichedEmployee, Prospect } from "../types/prospect";
+import {
+  getRecoveredEmailsForRequests,
+  registerPendingWaterfallRequest,
+  waitForWaterfallRequests,
+} from "./apolloWaterfallStore";
 
 interface EmploymentHistoryItem {
   organization_id?: string | null;
@@ -22,6 +29,21 @@ interface BulkMatchRecord {
 
 interface BulkMatchResponse {
   matches?: BulkMatchRecord[];
+  request_id?: string | number;
+}
+
+function getApolloWebhookUrl(): string {
+  const webhookUrl = getRequiredEnv("APOLLO_WEBHOOK_URL");
+  if (!webhookUrl.startsWith("https://")) {
+    throw new Error("APOLLO_WEBHOOK_URL must be a publicly reachable HTTPS URL.");
+  }
+  return webhookUrl;
+}
+
+function buildTrackedWebhookUrl(baseWebhookUrl: string, clientRequestId: string): string {
+  const parsed = new URL(baseWebhookUrl);
+  parsed.searchParams.set("client_req_id", clientRequestId);
+  return parsed.toString();
 }
 
 function toMonthIndex(date: Date): number {
@@ -144,7 +166,9 @@ function toEnrichedEmployee(record: BulkMatchRecord): EnrichedEmployee | null {
   };
 }
 
-export async function bulkEnrichPeople(people: Prospect[]): Promise<EnrichedEmployee[]> {
+export async function bulkEnrichPeople(
+  people: Prospect[]
+): Promise<EnrichedEmployee[]> {
   const MAX_TOTAL = 30;
   const BATCH_SIZE = 10;
   const selected = people.slice(0, MAX_TOTAL);
@@ -158,7 +182,6 @@ export async function bulkEnrichPeople(people: Prospect[]): Promise<EnrichedEmpl
 
     const response = await apolloPost<BulkMatchResponse>("/people/bulk_match", {
       details: batch.map((person) => ({ id: person.id })),
-      run_waterfall_email: true,
     });
 
     const matches = response.matches ?? [];
@@ -169,4 +192,61 @@ export async function bulkEnrichPeople(people: Prospect[]): Promise<EnrichedEmpl
   }
 
   return enriched;
+}
+
+export async function runWaterfallEmailForPersonIds(
+  personIds: string[],
+  waitMs: number
+): Promise<Map<string, string>> {
+  const BATCH_SIZE = 10;
+  const dedupedPersonIds = [...new Set(personIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+  if (dedupedPersonIds.length === 0) {
+    return new Map();
+  }
+
+  const webhookUrl = getApolloWebhookUrl();
+  const batches = chunkArray(dedupedPersonIds, BATCH_SIZE);
+  const pendingWaterfallRequestIds: string[] = [];
+
+  for (const batch of batches) {
+    const clientRequestId = randomUUID();
+    const trackedWebhookUrl = buildTrackedWebhookUrl(webhookUrl, clientRequestId);
+    const waterfallResponse = await apolloPost<BulkMatchResponse>("/people/bulk_match", {
+      details: batch.map((personId) => ({ id: personId })),
+      run_waterfall_email: true,
+      webhook_url: trackedWebhookUrl,
+    });
+
+    const requestIdRaw = waterfallResponse.request_id;
+    const requestId =
+      typeof requestIdRaw === "string" || typeof requestIdRaw === "number"
+        ? String(requestIdRaw)
+        : null;
+    if (!requestId) {
+      continue;
+    }
+
+    const registration = registerPendingWaterfallRequest(clientRequestId, batch);
+    console.log(
+      `[ApolloWaterfall] Registered request. request_id=${clientRequestId} apollo_request_id=${requestId} people=${batch.length} buffered_applied=${registration.appliedBufferedCallback} buffered_recovered=${registration.recoveredEmailCount}`
+    );
+    pendingWaterfallRequestIds.push(clientRequestId);
+  }
+
+  if (pendingWaterfallRequestIds.length === 0) {
+    return new Map();
+  }
+
+  const waitResult = await waitForWaterfallRequests(pendingWaterfallRequestIds, waitMs);
+  if (waitResult.timedOut) {
+    console.log(
+      `[ApolloWaterfall] Timeout reached after ${waitMs}ms. completed=${waitResult.completedRequestCount}/${pendingWaterfallRequestIds.length}`
+    );
+  } else {
+    console.log(
+      `[ApolloWaterfall] Completed all requests. completed=${waitResult.completedRequestCount}/${pendingWaterfallRequestIds.length}`
+    );
+  }
+
+  return getRecoveredEmailsForRequests(pendingWaterfallRequestIds);
 }

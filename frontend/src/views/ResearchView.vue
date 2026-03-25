@@ -341,7 +341,9 @@ function restart(): void {
             {{ company }}
           </li>
         </ul>
-        <p><strong>Total SRE found:</strong> {{ summary.totalSreFound ?? 0 }}</p>
+        <p>
+          <strong>LinkedIn campaign pushed:</strong> {{ summary.totalLinkedinCampaignSuccessful ?? 0 }}
+        </p>
         <p><strong>Lemlist successful:</strong> {{ summary.totalLemlistSuccessful ?? 0 }}</p>
         <p><strong>Lemlist failed:</strong> {{ summary.totalLemlistFailed ?? 0 }}</p>
       </div>

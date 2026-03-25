@@ -9,6 +9,7 @@ export interface JobSummary {
   skippedMissingWebsiteAndApolloAccountIdCount: number;
   apolloProcessedCompanyCount: number;
   totalSreFound: number;
+  totalLinkedinCampaignSuccessful: number;
   totalLemlistSuccessful: number;
   totalLemlistFailed: number;
 }

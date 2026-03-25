@@ -111,6 +111,7 @@ describe("research job routes", () => {
       skippedMissingWebsiteAndApolloAccountIdCount: 0,
       apolloProcessedCompanyCount: 1,
       totalSreFound: 3,
+      totalLinkedinCampaignSuccessful: 1,
       totalLemlistSuccessful: 2,
       totalLemlistFailed: 1,
     });
@@ -123,6 +124,7 @@ describe("research job routes", () => {
     expect(response.body.rejectedCompanies).toEqual(["Company X", "Company Y"]);
     expect(response.body.summary.apolloProcessedCompanyCount).toBe(1);
     expect(response.body.summary.skippedMissingWebsiteAndApolloAccountIdCount).toBe(0);
+    expect(response.body.summary.totalLinkedinCampaignSuccessful).toBe(1);
   });
 
   it("returns 404 when status job does not exist", async () => {
