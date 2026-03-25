@@ -135,6 +135,7 @@ describe("runResearchPipeline orchestration", () => {
     researchCompanyMock.mockResolvedValue("Not found");
     getCompanyMock.mockResolvedValue({ companyName: "Acme", domain: "acme.com" });
     countEngineerPeopleMock.mockResolvedValue(120);
+    delete process.env.APOLLO_WATERFALL_ENABLED;
   });
 
   it("uses backfill in two phases with max 7 then max 5", async () => {
@@ -207,6 +208,7 @@ describe("runResearchPipeline orchestration", () => {
   });
 
   it("builds list A by excluding attempted linkedin pushes and filtering tenure >= 11", async () => {
+    process.env.APOLLO_WATERFALL_ENABLED = "true";
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
     );
@@ -352,6 +354,48 @@ describe("runResearchPipeline orchestration", () => {
     const job = getJob(jobId);
     expect(job?.summary?.totalLinkedinCampaignSuccessful).toBe(2);
     expect(job?.summary?.totalLemlistSuccessful).toBe(3);
+  });
+
+  it("skips global waterfall when APOLLO_WATERFALL_ENABLED is false by default", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce(makeProspects(1, "current"));
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+    searchCurrentEngineeringEmailCandidatesMock.mockResolvedValueOnce([
+      { id: "platform-missing", name: "Platform Missing", title: "Platform Engineer" },
+    ]);
+    bulkEnrichPeopleMock
+      .mockResolvedValueOnce(makeEmployees(1, "current"))
+      .mockResolvedValueOnce([
+        {
+          id: "platform-missing",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Platform Missing",
+          email: null,
+          linkedinUrl: "https://linkedin.com/in/platform-missing",
+          currentTitle: "Platform Engineer",
+          tenure: 12,
+        },
+      ]);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    });
+
+    expect(runWaterfallEmailForPersonIdsMock).not.toHaveBeenCalled();
+    expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
+    const listA = pushPeopleToLemlistEmailCampaignMock.mock.calls[0]?.[0] as EnrichedEmployee[];
+    expect(listA[0]?.email).toBeNull();
   });
 
   it("masks engineer count above 1000 in rejected outputs", async () => {

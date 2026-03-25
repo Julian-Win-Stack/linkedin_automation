@@ -192,6 +192,7 @@ export async function runResearchPipeline(
     );
 
     const lemlistEnabled = getEnvBoolean("LEMLIST_PUSH_ENABLED", true);
+    const waterfallEnabled = getEnvBoolean("APOLLO_WATERFALL_ENABLED", false);
 
     for (let index = 0; index < eligibleRows.length; index += 1) {
       if (isCancelled(jobId)) {
@@ -441,7 +442,7 @@ export async function runResearchPipeline(
     }
 
     let recoveredEmailsByPersonId = new Map<string, string>();
-    if (lemlistEnabled && globalMissingEmailPersonIds.size > 0) {
+    if (lemlistEnabled && waterfallEnabled && globalMissingEmailPersonIds.size > 0) {
       logPipelineStage(
         "GLOBAL_WATERFALL_START",
         `Global waterfall started: missing_people=${globalMissingEmailPersonIds.size} wait_ms=${EMAIL_WATERFALL_WAIT_MS}`
@@ -464,6 +465,11 @@ export async function runResearchPipeline(
         addJobWarning(jobId, `Apollo waterfall batch failed: ${message}`);
         logPipelineStage("GLOBAL_WATERFALL_FAILED", `Global waterfall failed. error=${message}`);
       }
+    } else if (lemlistEnabled && !waterfallEnabled && globalMissingEmailPersonIds.size > 0) {
+      logPipelineStage(
+        "GLOBAL_WATERFALL_SKIPPED",
+        `Global waterfall skipped because APOLLO_WATERFALL_ENABLED is false. missing_people=${globalMissingEmailPersonIds.size}`
+      );
     }
 
     if (lemlistEnabled && pendingEmailPushBatches.length > 0) {
