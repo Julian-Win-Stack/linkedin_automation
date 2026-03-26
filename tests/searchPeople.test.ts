@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   countEngineerPeople,
+  getCurrentEngineeringEmailCandidateTotalEntries,
+  searchCurrentEngineeringEmailCandidatesCompact,
   searchCurrentEngineeringEmailCandidates,
   searchCurrentPlatformEngineerPeople,
   searchPastSrePeople,
@@ -347,6 +349,68 @@ describe("searchPeople", () => {
       "q_organization_domains_list[]": ["acme.com"],
       "q_organization_ids[]": ["org_eng_123"],
       "person_titles[]": expect.any(Array),
+    });
+  });
+
+  it("returns total_entries for broad email candidate probe", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      total_entries: 44,
+      people: [{ id: "eng-1", name: "Eng One", title: "Head of Engineering" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const totalEntries = await getCurrentEngineeringEmailCandidateTotalEntries(company, {
+      apolloOrganizationId: "org_eng_123",
+    });
+
+    expect(totalEntries).toBe(44);
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 100,
+      include_similar_titles: false,
+      "q_organization_domains_list[]": ["acme.com"],
+      "q_organization_ids[]": ["org_eng_123"],
+      "person_titles[]": expect.any(Array),
+    });
+  });
+
+  it("falls back to people length when total_entries is missing in probe", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [
+        { id: "eng-1", name: "Eng One", title: "Head of Engineering" },
+        { id: "eng-2", name: "Eng Two", title: "Staff Engineer" },
+      ],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const totalEntries = await getCurrentEngineeringEmailCandidateTotalEntries(company);
+    expect(totalEntries).toBe(2);
+  });
+
+  it("queries compact email candidate helper with safeguard titles", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "eng-compact-1", name: "Compact One", title: "Platform Engineer" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const result = await searchCurrentEngineeringEmailCandidatesCompact(company, 10);
+    expect(result).toHaveLength(1);
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 100,
+      include_similar_titles: false,
+      "q_organization_domains_list[]": ["acme.com"],
+      "person_titles[]": [
+        "platform engineer",
+        "SRE",
+        "Site Reliability",
+        "staff engineer",
+        "principal engineer",
+        "tech lead",
+        "devops",
+        "infrastructure",
+        "lead software engineer",
+      ],
     });
   });
 });

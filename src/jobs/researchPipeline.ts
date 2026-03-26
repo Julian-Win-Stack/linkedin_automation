@@ -11,7 +11,9 @@ import { pushPeopleToLemlistEmailCampaign } from "../services/lemlistEmailPushQu
 import { pushPeopleToLemlistCampaign } from "../services/lemlistPushQueue";
 import {
   countEngineerPeople,
+  getCurrentEngineeringEmailCandidateTotalEntries,
   searchCurrentEngineeringEmailCandidates,
+  searchCurrentEngineeringEmailCandidatesCompact,
   searchCurrentPlatformEngineerPeople,
   searchPastSrePeople,
   searchPeople,
@@ -45,6 +47,7 @@ const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Head of Reliability"];
 const MAX_RESULTS = 30;
 const EMAIL_CANDIDATE_MAX_RESULTS = 100;
+const EMAIL_CANDIDATE_SAFEGUARD_THRESHOLD = 60;
 const REJECTED_REASON = "rejected because they were using other observability tools";
 const MIN_ENGINEER_COUNT = 18;
 const MAX_ENGINEER_COUNT = 700;
@@ -375,14 +378,35 @@ export async function runResearchPipeline(
         }
 
         if (lemlistEnabled) {
-          logPipelineStage("SEARCH_EMAIL_CANDIDATES", "Searching broad email candidates.", companyContext);
           const attemptedLinkedinKeys = new Set(selectedForLemlist.map((employee) => toEmployeeKey(employee)));
-          const broadEmailProspects = dedupeProspectsById(
-            await searchCurrentEngineeringEmailCandidates(company, EMAIL_CANDIDATE_MAX_RESULTS, {
-              apolloOrganizationId: row.apolloAccountId,
-            })
+          const emailCandidateTotalEntries = await getCurrentEngineeringEmailCandidateTotalEntries(company, {
+            apolloOrganizationId: row.apolloAccountId,
+          });
+          logPipelineStage(
+            "SEARCH_EMAIL_CANDIDATES_PROBE_DONE",
+            `Email candidate probe complete. total_entries=${emailCandidateTotalEntries}`,
+            companyContext
           );
-          const emailEnriched = await bulkEnrichPeople(broadEmailProspects, enrichmentCache);
+
+          const shouldUseCompactEmailSearch = emailCandidateTotalEntries > EMAIL_CANDIDATE_SAFEGUARD_THRESHOLD;
+          const emailProspects = dedupeProspectsById(
+            shouldUseCompactEmailSearch
+              ? await searchCurrentEngineeringEmailCandidatesCompact(company, EMAIL_CANDIDATE_MAX_RESULTS, {
+                  apolloOrganizationId: row.apolloAccountId,
+                })
+              : await searchCurrentEngineeringEmailCandidates(company, EMAIL_CANDIDATE_MAX_RESULTS, {
+                  apolloOrganizationId: row.apolloAccountId,
+                })
+          );
+          logPipelineStage(
+            "SEARCH_EMAIL_CANDIDATES_DONE",
+            `Email candidates fetched with ${
+              shouldUseCompactEmailSearch ? "compact" : "broad"
+            } titles. count=${emailProspects.length}`,
+            companyContext
+          );
+
+          const emailEnriched = await bulkEnrichPeople(emailProspects, enrichmentCache);
           logPipelineStage(
             "ENRICH_EMAIL_CANDIDATES_DONE",
             `Email candidates enriched. count=${emailEnriched.length}`,

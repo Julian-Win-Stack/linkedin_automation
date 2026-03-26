@@ -291,6 +291,17 @@ const EMAIL_CANDIDATE_TITLES = [
   "vice president of engineering",
   "software engineering",
 ];
+const EMAIL_CANDIDATE_COMPACT_TITLES = [
+  "platform engineer",
+  "SRE",
+  "Site Reliability",
+  "staff engineer",
+  "principal engineer",
+  "tech lead",
+  "devops",
+  "infrastructure",
+  "lead software engineer",
+];
 
 export async function searchPastSrePeople(
   company: ResolvedCompany,
@@ -321,4 +332,35 @@ export async function searchCurrentEngineeringEmailCandidates(
   filters: PeopleSearchFilters = {}
 ): Promise<Prospect[]> {
   return searchPeopleByTitleParam(company, maxResults, EMAIL_CANDIDATE_TITLES, "person_titles[]", filters, false);
+}
+
+export async function getCurrentEngineeringEmailCandidateTotalEntries(
+  company: ResolvedCompany,
+  filters: PeopleSearchFilters = {}
+): Promise<number> {
+  const response = await apolloPostWithQuery<PeopleSearchResponse>(
+    "/mixed_people/api_search",
+    toPeopleSearchQueryParams(company, 1, EMAIL_CANDIDATE_TITLES, "person_titles[]", filters, APOLLO_PAGE_SIZE, false)
+  );
+
+  if (typeof response.total_entries === "number") {
+    return response.total_entries;
+  }
+
+  return (response.people ?? []).length;
+}
+
+export async function searchCurrentEngineeringEmailCandidatesCompact(
+  company: ResolvedCompany,
+  maxResults = 100,
+  filters: PeopleSearchFilters = {}
+): Promise<Prospect[]> {
+  return searchPeopleByTitleParam(
+    company,
+    maxResults,
+    EMAIL_CANDIDATE_COMPACT_TITLES,
+    "person_titles[]",
+    filters,
+    false
+  );
 }
