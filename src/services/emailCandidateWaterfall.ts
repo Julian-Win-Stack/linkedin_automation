@@ -80,13 +80,37 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
     campaignBucket: "eng",
   },
   {
-    currentTitles: ["DevOps", "Dev Ops", "Principal engineer", "Staff engineer", "Tech lead", "Lead software engineer"],
+    currentTitles: ["DevOps", "Dev Ops"],
     notTitles: ["data"],
     minTenureMonths: 11,
     campaignBucket: "eng",
   },
   {
-    currentTitles: ["Vp", "Head of", "Svp", "vice president", "Director", "Senior vice president", "Manager"],
+    currentTitles: ["Principal engineer", "Staff engineer", "Tech lead", "Lead software engineer", "Technical Lead", "Lead Engineer"],
+    pastTitles: ["engineer"],
+    notTitles: ["data"],
+    minTenureMonths: 11,
+    campaignBucket: "eng",
+  },
+  {
+    currentTitles: [
+      "VP of Engineering",
+      "Vice President of Engineering",
+      "VP Engineering",
+      "Vice President Engineering",
+      "Head of Engineering",
+      "Director of Engineering",
+      "Senior Director of Engineering",
+      "Director, Engineering",
+      "Engineering Director",
+      "Engineering Manager",
+      "Senior Engineering Manager",
+      "Manager, Engineering",
+      "Head of Software Engineering",
+      "VP of Software Engineering",
+      "Director of Software Engineering",
+      "Manager of Software Engineering",
+    ],
     pastTitles: ["engineer"],
     notTitles: ["data"],
     minTenureMonths: 11,
@@ -99,6 +123,7 @@ const STAGE_LABELS = [
   "Past SRE Search",
   "Infrastructure Search",
   "Platform Search",
+  "DevOps Search",
   "Normal Engineer Search",
   "Eng Leader Search",
 ];
@@ -179,7 +204,7 @@ function rankAndSelectCandidates(
 
 function printStageHeader(stageIndex: number): void {
   const label = STAGE_LABELS[stageIndex];
-  const tag = `Stage ${stageIndex + 1}/6: ${label}`;
+  const tag = `Stage ${stageIndex + 1}/7: ${label}`;
   const padding = LIGHT_LINE.length - tag.length - 5;
   print("");
   print(`─── ${tag} ${"─".repeat(Math.max(1, padding))}`);

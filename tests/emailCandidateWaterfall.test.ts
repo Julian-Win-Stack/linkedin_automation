@@ -56,7 +56,7 @@ describe("runEmailCandidateWaterfall", () => {
     );
 
     expect(result.candidates).toEqual([]);
-    expect(searchEmailCandidatePeopleMock).toHaveBeenCalledTimes(6);
+    expect(searchEmailCandidatePeopleMock).toHaveBeenCalledTimes(7);
   });
 
   it("selects SRE candidates from stage 1 with sre bucket", async () => {
@@ -229,6 +229,7 @@ describe("runEmailCandidateWaterfall", () => {
       .mockResolvedValueOnce([makeProspect("infra-1", "Infrastructure")])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([makeProspect("devops-1", "DevOps")])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
     bulkEnrichPeopleMock
       .mockResolvedValueOnce([makeEmployee("sre-1", "SRE", 5)])
@@ -257,8 +258,9 @@ describe("runEmailCandidateWaterfall", () => {
     });
   });
 
-  it("assigns engLead bucket for stage 6 candidates", async () => {
+  it("assigns engLead bucket for stage 7 candidates", async () => {
     searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
@@ -365,6 +367,7 @@ describe("runEmailCandidateWaterfall", () => {
 
   it("passes updated SRE keywords for stage 1 and stage 2", async () => {
     searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
