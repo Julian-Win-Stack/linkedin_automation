@@ -137,6 +137,8 @@ export async function runResearchPipeline(
   let totalLinkedinCampaignSuccessful = 0;
   let totalLemlistSuccessful = 0;
   let totalLemlistFailed = 0;
+  let totalEmailCampaignSuccessful = 0;
+  let totalEmailCampaignFailed = 0;
 
   try {
     // TEMPORARY: suppress non-waterfall logs for clean debugging output.
@@ -185,7 +187,7 @@ export async function runResearchPipeline(
       const eligible = shouldProcessByObservability(observability);
       if (!eligible) {
         rejectedCompanies.push(
-          `Company ${row.companyName} was rejected because it was using other observability tools`
+          `Company ${row.companyName} was rejected because it was using ${observability.trim() || "other observability tools"}`
         );
       }
 
@@ -557,6 +559,8 @@ export async function runResearchPipeline(
         );
         totalLemlistSuccessful += emailPushMeta.successful;
         totalLemlistFailed += emailPushMeta.failed;
+        totalEmailCampaignSuccessful += emailPushMeta.successful;
+        totalEmailCampaignFailed += emailPushMeta.failed;
         logPipelineStage(
           "EMAIL_PUSH_COMPANY_DONE",
           `Email push complete. successful=${emailPushMeta.successful} failed=${emailPushMeta.failed}`,
@@ -582,6 +586,8 @@ export async function runResearchPipeline(
       totalLinkedinCampaignSuccessful,
       totalLemlistSuccessful,
       totalLemlistFailed,
+      totalEmailCampaignSuccessful,
+      totalEmailCampaignFailed,
     };
     setJobSummary(jobId, summary);
 

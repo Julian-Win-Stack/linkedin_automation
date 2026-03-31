@@ -12,6 +12,8 @@ export interface JobSummary {
   totalLinkedinCampaignSuccessful: number;
   totalLemlistSuccessful: number;
   totalLemlistFailed: number;
+  totalEmailCampaignSuccessful: number;
+  totalEmailCampaignFailed: number;
 }
 
 export type JobState = {

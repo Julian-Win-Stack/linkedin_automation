@@ -28,7 +28,7 @@ const selectedUser = ref<SelectedUser | null>(null);
 const currentJobId = ref<string | null>(null);
 
 const canRun = computed(() => !isLoading.value && !!selectedFile.value && !!selectedUser.value);
-const workflowSignal = "Upload → Qualify → Enrich → Outreach";
+const workflowSignal = "Upload → Qualify → Outreach";
 const zeroEngineerCountRejectedCompanyNames = computed(() =>
   rejectedCompanies.value
     .filter((company) => company.toLowerCase().includes("engineer count (0)"))
@@ -369,7 +369,7 @@ async function cancelAndReset(): Promise<void> {
 
     <div class="mx-auto flex min-h-screen w-full max-w-2xl items-center py-12">
       <div class="w-full space-y-3">
-        <h1 class="text-2xl font-semibold tracking-tight text-zinc-100">Upload list. Start outbound.</h1>
+        <h1 class="text-2xl font-semibold tracking-tight text-zinc-100">Start outbound</h1>
 
         <div
           class="rounded-xl border border-[#1d2537] bg-[#0d1320]/90 p-4 shadow-[0_18px_50px_rgba(0,0,0,0.45)] space-y-2.5"
@@ -455,8 +455,6 @@ async function cancelAndReset(): Promise<void> {
           </div>
 
           <div v-if="summary" class="rounded-md border border-zinc-700 bg-zinc-900/50 p-3 text-sm space-y-1">
-            <p><strong>Total companies:</strong> {{ summary.totalRows ?? 0 }}</p>
-            <p><strong>Rejected companies:</strong> {{ summary.rejectedCompanyCount ?? 0 }}</p>
             <p v-if="skippedCompanies.length > 0" class="text-red-300">
               {{
                 `Skipped ${skippedCompanies.length} because both Website URL and Apollo Account Id were missing.`
@@ -470,8 +468,12 @@ async function cancelAndReset(): Promise<void> {
             <p>
               <strong>LinkedIn campaign pushed:</strong> {{ summary.totalLinkedinCampaignSuccessful ?? 0 }}
             </p>
-            <p><strong>Lemlist successful:</strong> {{ summary.totalLemlistSuccessful ?? 0 }}</p>
-            <p><strong>Lemlist failed:</strong> {{ summary.totalLemlistFailed ?? 0 }}</p>
+            <p>
+              <strong>Email campaign pushed:</strong> {{ summary.totalEmailCampaignSuccessful ?? 0 }}
+            </p>
+            <p>
+              <strong>Failed to push to email campaigns:</strong> {{ summary.totalEmailCampaignFailed ?? 0 }}
+            </p>
           </div>
 
           <div
@@ -479,12 +481,6 @@ async function cancelAndReset(): Promise<void> {
             class="rounded-md border border-zinc-700 bg-zinc-900/50 p-3 text-sm space-y-2"
           >
             <p class="font-medium">Rejected Companies</p>
-            <p class="text-xs text-zinc-400">
-              {{
-                rejectedReason ??
-                "Rejected because they were using other observability tools."
-              }}
-            </p>
             <p
               v-if="hasZeroEngineerCountRejectedCompany"
               class="rounded-md border border-amber-700/70 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-200"
@@ -506,7 +502,7 @@ async function cancelAndReset(): Promise<void> {
               download="Results to import to Apollo.csv"
               class="inline-block rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600"
             >
-              Download Results to import to Apollo
+              Download passed & rejected companies for Apollo
             </a>
             <a
               v-if="rejectsDownloadUrl"
@@ -514,7 +510,7 @@ async function cancelAndReset(): Promise<void> {
               download="rejects.csv"
               class="inline-block rounded-md bg-zinc-700 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-600"
             >
-              Download Rejects CSV
+              Download rejected companies
             </a>
           </div>
         </div>

@@ -147,6 +147,8 @@ describe("research job routes", () => {
       totalLinkedinCampaignSuccessful: 1,
       totalLemlistSuccessful: 2,
       totalLemlistFailed: 1,
+      totalEmailCampaignSuccessful: 1,
+      totalEmailCampaignFailed: 0,
     });
     markJobDone(jobId, Buffer.from("a,b\n1,2\n", "utf8").toString("base64"));
 
