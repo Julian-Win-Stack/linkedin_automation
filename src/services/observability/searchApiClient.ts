@@ -23,7 +23,7 @@ export async function searchGoogle(query: string, apiKey: string): Promise<Searc
   const response = await fetch(url.toString(), {
     method: "GET",
     headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(60_000),
   });
 
   if (!response.ok) {

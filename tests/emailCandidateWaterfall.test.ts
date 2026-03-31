@@ -1,0 +1,418 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { runEmailCandidateWaterfall } from "../src/services/emailCandidateWaterfall";
+import { EnrichedEmployee, Prospect } from "../src/types/prospect";
+import { EnrichmentCache } from "../src/services/bulkEnrichPeople";
+
+const searchEmailCandidatePeopleMock = vi.fn();
+const bulkEnrichPeopleMock = vi.fn();
+
+vi.mock("../src/services/searchPeople", () => ({
+  searchEmailCandidatePeople: (...args: unknown[]) => searchEmailCandidatePeopleMock(...args),
+}));
+
+vi.mock("../src/services/bulkEnrichPeople", () => ({
+  bulkEnrichPeople: (...args: unknown[]) => bulkEnrichPeopleMock(...args),
+}));
+
+const COMPANY = { companyName: "Acme", domain: "acme.com" };
+const FILTERS = { apolloOrganizationId: "org_1" };
+
+function makeProspect(id: string, title: string): Prospect {
+  return { id, name: `Person ${id}`, title };
+}
+
+function makeEmployee(
+  id: string,
+  title: string,
+  tenure: number | null,
+  startDate: string | null = "2022-01-01"
+): EnrichedEmployee {
+  return {
+    id,
+    startDate,
+    endDate: null,
+    name: `Person ${id}`,
+    email: null,
+    linkedinUrl: null,
+    currentTitle: title,
+    tenure,
+  };
+}
+
+describe("runEmailCandidateWaterfall", () => {
+  beforeEach(() => {
+    searchEmailCandidatePeopleMock.mockReset();
+    bulkEnrichPeopleMock.mockReset();
+    searchEmailCandidatePeopleMock.mockResolvedValue([]);
+    bulkEnrichPeopleMock.mockResolvedValue([]);
+  });
+
+  it("returns empty when all stages produce no results", async () => {
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    expect(result.candidates).toEqual([]);
+    expect(searchEmailCandidatePeopleMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("selects SRE candidates from stage 1 with sre bucket", async () => {
+    searchEmailCandidatePeopleMock.mockResolvedValueOnce([
+      makeProspect("sre-1", "SRE"),
+      makeProspect("sre-2", "Site Reliability Engineer"),
+    ]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("sre-1", "SRE", 6),
+      makeEmployee("sre-2", "Site Reliability Engineer", 3),
+    ]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates[0].campaignBucket).toBe("sre");
+    expect(result.candidates[1].campaignBucket).toBe("sre");
+    expect(result.candidates[0].employee.id).toBe("sre-1");
+    expect(result.candidates[1].employee.id).toBe("sre-2");
+  });
+
+  it("stops after reaching 7 candidates", async () => {
+    const prospects = Array.from({ length: 8 }, (_, i) =>
+      makeProspect(`sre-${i + 1}`, "SRE")
+    );
+    const employees = Array.from({ length: 8 }, (_, i) =>
+      makeEmployee(`sre-${i + 1}`, "SRE", 20 - i)
+    );
+
+    searchEmailCandidatePeopleMock.mockResolvedValueOnce(prospects);
+    bulkEnrichPeopleMock.mockResolvedValueOnce(employees);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    expect(result.candidates).toHaveLength(7);
+    expect(searchEmailCandidatePeopleMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("deduplicates against LinkedIn attempted keys", async () => {
+    searchEmailCandidatePeopleMock.mockResolvedValueOnce([
+      makeProspect("linkedin-1", "SRE"),
+      makeProspect("sre-new", "SRE"),
+    ]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("sre-new", "SRE", 5),
+    ]);
+
+    const linkedinKeys = new Set(["linkedin-1"]);
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      linkedinKeys,
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].employee.id).toBe("sre-new");
+  });
+
+  it("deduplicates across stages", async () => {
+    searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([makeProspect("shared-1", "SRE")])
+      .mockResolvedValueOnce([makeProspect("shared-1", "SRE"), makeProspect("past-1", "SRE")]);
+    bulkEnrichPeopleMock
+      .mockResolvedValueOnce([makeEmployee("shared-1", "SRE", 5)])
+      .mockResolvedValueOnce([makeEmployee("past-1", "SRE", 4)]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates[0].employee.id).toBe("shared-1");
+    expect(result.candidates[1].employee.id).toBe("past-1");
+  });
+
+  it("drops people with tenure below minimum for SRE stages (2 months)", async () => {
+    searchEmailCandidatePeopleMock.mockResolvedValueOnce([
+      makeProspect("short-1", "SRE"),
+      makeProspect("ok-1", "SRE"),
+    ]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("short-1", "SRE", 1),
+      makeEmployee("ok-1", "SRE", 2),
+    ]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    const stage1Candidates = result.candidates.filter((c) => c.employee.id === "ok-1");
+    expect(stage1Candidates).toHaveLength(1);
+    expect(result.candidates.find((c) => c.employee.id === "short-1")).toBeUndefined();
+  });
+
+  it("uses null tenure people as fillers when not enough qualified", async () => {
+    searchEmailCandidatePeopleMock.mockResolvedValueOnce([
+      makeProspect("qualified-1", "SRE"),
+      makeProspect("null-1", "SRE"),
+      makeProspect("null-2", "SRE"),
+    ]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("qualified-1", "SRE", 5),
+      makeEmployee("null-1", "SRE", null, null),
+      makeEmployee("null-2", "SRE", null, null),
+    ]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    expect(result.candidates).toHaveLength(3);
+    expect(result.candidates[0].employee.id).toBe("qualified-1");
+    expect(result.candidates.map((c) => c.employee.id)).toContain("null-1");
+    expect(result.candidates.map((c) => c.employee.id)).toContain("null-2");
+  });
+
+  it("prefers qualified over null tenure when capping at available slots", async () => {
+    const prospects = Array.from({ length: 10 }, (_, i) =>
+      makeProspect(`p-${i + 1}`, "SRE")
+    );
+    const employees = [
+      ...Array.from({ length: 8 }, (_, i) =>
+        makeEmployee(`p-${i + 1}`, "SRE", 20 - i)
+      ),
+      makeEmployee("p-9", "SRE", null, null),
+      makeEmployee("p-10", "SRE", null, null),
+    ];
+
+    searchEmailCandidatePeopleMock.mockResolvedValueOnce(prospects);
+    bulkEnrichPeopleMock.mockResolvedValueOnce(employees);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    expect(result.candidates).toHaveLength(7);
+    const ids = result.candidates.map((c) => c.employee.id);
+    expect(ids).not.toContain("p-9");
+    expect(ids).not.toContain("p-10");
+    expect(ids).not.toContain("p-8");
+  });
+
+  it("fills remaining slots from later stages with correct buckets", async () => {
+    searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([makeProspect("sre-1", "SRE")])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeProspect("infra-1", "Infrastructure")])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeProspect("devops-1", "DevOps")])
+      .mockResolvedValueOnce([]);
+    bulkEnrichPeopleMock
+      .mockResolvedValueOnce([makeEmployee("sre-1", "SRE", 5)])
+      .mockResolvedValueOnce([makeEmployee("infra-1", "Infrastructure", 12)])
+      .mockResolvedValueOnce([makeEmployee("devops-1", "DevOps", 15)]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    expect(result.candidates).toHaveLength(3);
+    expect(result.candidates[0]).toMatchObject({
+      campaignBucket: "sre",
+      employee: expect.objectContaining({ id: "sre-1" }),
+    });
+    expect(result.candidates[1]).toMatchObject({
+      campaignBucket: "eng",
+      employee: expect.objectContaining({ id: "infra-1" }),
+    });
+    expect(result.candidates[2]).toMatchObject({
+      campaignBucket: "eng",
+      employee: expect.objectContaining({ id: "devops-1" }),
+    });
+  });
+
+  it("assigns engLead bucket for stage 6 candidates", async () => {
+    searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeProspect("lead-1", "VP of Engineering")]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("lead-1", "VP of Engineering", 24),
+    ]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].campaignBucket).toBe("engLead");
+  });
+
+  it("skips stage when all results are deduped against list A", async () => {
+    searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([makeProspect("sre-1", "SRE")])
+      .mockResolvedValueOnce([makeProspect("sre-1", "SRE")]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("sre-1", "SRE", 5),
+    ]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    expect(result.candidates).toHaveLength(1);
+    expect(bulkEnrichPeopleMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("ranks qualified people by tenure descending within a stage", async () => {
+    const prospects = Array.from({ length: 5 }, (_, i) =>
+      makeProspect(`sre-${i + 1}`, "SRE")
+    );
+    const employees = [
+      makeEmployee("sre-1", "SRE", 3),
+      makeEmployee("sre-2", "SRE", 24),
+      makeEmployee("sre-3", "SRE", 12),
+      makeEmployee("sre-4", "SRE", 6),
+      makeEmployee("sre-5", "SRE", 18),
+    ];
+
+    searchEmailCandidatePeopleMock.mockResolvedValueOnce(prospects);
+    bulkEnrichPeopleMock.mockResolvedValueOnce(employees);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    const tenures = result.candidates.map((c) => c.employee.tenure);
+    expect(tenures).toEqual([24, 18, 12, 6, 3]);
+  });
+
+  it("passes correct search params for stage 4 (platform + past engineer)", async () => {
+    searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeProspect("plat-1", "Platform Engineer")]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("plat-1", "Platform Engineer", 15),
+    ]);
+
+    await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    const stage4Call = searchEmailCandidatePeopleMock.mock.calls[3];
+    expect(stage4Call[2]).toEqual({
+      currentTitles: [
+        "Platform engineering",
+        "Platform engineer",
+        "VP of Engineering, Platform",
+        "VP, Engineering - Platform",
+        "VP, Product Platform & Engineering",
+        "VP of Developer Platform",
+        "VP of Engineering Systems",
+        "Head of Platform",
+        "Head of Developer Platform",
+        "Head of Platform & Reliability",
+        "Head of Cloud Platform",
+        "Head of Engineering Productivity / Platform",
+        "Chief Platform Officer",
+      ],
+      notTitles: ["data"],
+    });
+  });
+
+  it("passes updated SRE keywords for stage 1 and stage 2", async () => {
+    searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    const stage1Call = searchEmailCandidatePeopleMock.mock.calls[0];
+    const stage2Call = searchEmailCandidatePeopleMock.mock.calls[1];
+
+    expect(stage1Call[2]).toEqual({
+      currentTitles: ["site reliability", "SRE", "Site Reliability Engineer"],
+      pastTitles: undefined,
+    });
+    expect(stage2Call[2]).toEqual({
+      currentTitles: undefined,
+      pastTitles: ["site reliability", "SRE", "Site Reliability Engineer"],
+    });
+  });
+
+  it("enforces 11-month tenure minimum for infrastructure stage", async () => {
+    searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        makeProspect("infra-short", "Infrastructure"),
+        makeProspect("infra-ok", "Infrastructure"),
+      ]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("infra-short", "Infrastructure", 10),
+      makeEmployee("infra-ok", "Infrastructure", 11),
+    ]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS
+    );
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0].employee.id).toBe("infra-ok");
+  });
+});

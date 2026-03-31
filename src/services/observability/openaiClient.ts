@@ -113,7 +113,7 @@ async function gatherSearchCandidates(
     return true;
   });
 
-  return unique.slice(0, 5);
+  return unique.slice(0, 10);
 }
 
 function extractContent(payload: ChatCompletionsResponse): string | null {
@@ -159,7 +159,7 @@ export async function researchCompany(
           Accept: "application/json",
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(90_000),
       });
 
       if (!response.ok) {

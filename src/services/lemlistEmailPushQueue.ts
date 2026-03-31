@@ -5,6 +5,7 @@ import {
   LemlistCreateLeadPayload,
 } from "./lemlistClient";
 import { SelectedUser } from "../shared/selectedUser";
+import { EmailCampaignBucket, TaggedEmailCandidate } from "./emailCandidateWaterfall";
 
 const RATE_LIMIT_REQUESTS = 20;
 const RATE_LIMIT_WINDOW_MS = 2_000;
@@ -15,7 +16,6 @@ const DEFAULT_LEMLIST_QUERY = {
   verifyEmail: false,
   findPhone: false,
 };
-const LEADERSHIP_EMAIL_TITLE_KEYWORDS = ["head", "vp", "svp", "cto", "chief", "president", "director"];
 
 type QueueTask = () => Promise<void>;
 
@@ -67,28 +67,24 @@ function toLeadPayload(
   };
 }
 
-function isLeadershipTitle(title: string): boolean {
-  const normalizedTitle = title.toLowerCase();
-  return LEADERSHIP_EMAIL_TITLE_KEYWORDS.some((keyword) => normalizedTitle.includes(keyword));
-}
+function groupByBucket(
+  candidates: TaggedEmailCandidate[]
+): Record<EmailCampaignBucket, EnrichedEmployee[]> {
+  const groups: Record<EmailCampaignBucket, EnrichedEmployee[]> = {
+    sre: [],
+    eng: [],
+    engLead: [],
+  };
 
-function splitByCampaign(employees: EnrichedEmployee[]): { lead: EnrichedEmployee[]; eng: EnrichedEmployee[] } {
-  const lead: EnrichedEmployee[] = [];
-  const eng: EnrichedEmployee[] = [];
-
-  for (const employee of employees) {
-    if (isLeadershipTitle(employee.currentTitle)) {
-      lead.push(employee);
-      continue;
-    }
-    eng.push(employee);
+  for (const { employee, campaignBucket } of candidates) {
+    groups[campaignBucket].push(employee);
   }
 
-  return { lead, eng };
+  return groups;
 }
 
 export async function pushPeopleToLemlistEmailCampaign(
-  employees: EnrichedEmployee[],
+  candidates: TaggedEmailCandidate[],
   companyName: string,
   companyDomain: string,
   selectedUser: SelectedUser
@@ -97,7 +93,7 @@ export async function pushPeopleToLemlistEmailCampaign(
     void enqueue(async () => {
       try {
         const campaignIds = getLemlistEmailCampaignIdsForUser(selectedUser);
-        const { lead, eng } = splitByCampaign(employees);
+        const grouped = groupByBucket(candidates);
         const failedItems: LemlistFailedLead[] = [];
         const successItems: string[] = [];
         let successful = 0;
@@ -105,12 +101,13 @@ export async function pushPeopleToLemlistEmailCampaign(
         let windowStartedAt = Date.now();
 
         console.log(
-          `[Lemlist][Email] Campaign routing (${companyName}) user=${selectedUser}: ENG_LEAD=${lead.length}, ENG=${eng.length}`
+          `[Lemlist][Email] Campaign routing (${companyName}) user=${selectedUser}: SRE=${grouped.sre.length}, ENG=${grouped.eng.length}, ENG_LEAD=${grouped.engLead.length}`
         );
 
         const buckets: Array<{ campaignId: string; people: EnrichedEmployee[] }> = [
-          { campaignId: campaignIds.engLeadEmailCampaignId, people: lead },
-          { campaignId: campaignIds.engEmailCampaignId, people: eng },
+          { campaignId: campaignIds.sreEmailCampaignId, people: grouped.sre },
+          { campaignId: campaignIds.engEmailCampaignId, people: grouped.eng },
+          { campaignId: campaignIds.engLeadEmailCampaignId, people: grouped.engLead },
         ];
 
         for (const bucket of buckets) {
@@ -163,7 +160,7 @@ export async function pushPeopleToLemlistEmailCampaign(
         }
 
         resolve({
-          attempted: employees.length,
+          attempted: candidates.length,
           successful,
           failed: failedItems.length,
           successItems,

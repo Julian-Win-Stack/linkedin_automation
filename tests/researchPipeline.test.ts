@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createJob, getJob } from "../src/jobs/jobStore";
 import { runResearchPipeline } from "../src/jobs/researchPipeline";
 import { EnrichedEmployee, Prospect } from "../src/types/prospect";
+import { TaggedEmailCandidate, EmailWaterfallResult } from "../src/services/emailCandidateWaterfall";
 
 const readCompaniesMock = vi.fn();
 const researchCompanyMock = vi.fn();
@@ -10,9 +11,6 @@ const countEngineerPeopleMock = vi.fn();
 const searchPeopleMock = vi.fn();
 const searchPastSrePeopleMock = vi.fn();
 const searchCurrentPlatformEngineerPeopleMock = vi.fn();
-const searchCurrentEngineeringEmailCandidatesMock = vi.fn();
-const searchCurrentEngineeringEmailCandidatesCompactMock = vi.fn();
-const getCurrentEngineeringEmailCandidateTotalEntriesMock = vi.fn();
 const bulkEnrichPeopleMock = vi.fn();
 const runWaterfallEmailForPersonIdsMock = vi.fn();
 const enrichMissingEmailsWithLemlistMock = vi.fn();
@@ -20,6 +18,7 @@ const selectTopSreForLemlistMock = vi.fn();
 const fillToMinimumWithBackfillMock = vi.fn();
 const pushPeopleToLemlistCampaignMock = vi.fn();
 const pushPeopleToLemlistEmailCampaignMock = vi.fn();
+const runEmailCandidateWaterfallMock = vi.fn();
 const rowsToCsvStringMock = vi.fn();
 const rejectedRowsToCsvStringMock = vi.fn();
 
@@ -37,14 +36,9 @@ vi.mock("../src/services/getCompany", () => ({
 
 vi.mock("../src/services/searchPeople", () => ({
   countEngineerPeople: (...args: unknown[]) => countEngineerPeopleMock(...args),
-  getCurrentEngineeringEmailCandidateTotalEntries: (...args: unknown[]) =>
-    getCurrentEngineeringEmailCandidateTotalEntriesMock(...args),
   searchPeople: (...args: unknown[]) => searchPeopleMock(...args),
   searchPastSrePeople: (...args: unknown[]) => searchPastSrePeopleMock(...args),
   searchCurrentPlatformEngineerPeople: (...args: unknown[]) => searchCurrentPlatformEngineerPeopleMock(...args),
-  searchCurrentEngineeringEmailCandidates: (...args: unknown[]) => searchCurrentEngineeringEmailCandidatesMock(...args),
-  searchCurrentEngineeringEmailCandidatesCompact: (...args: unknown[]) =>
-    searchCurrentEngineeringEmailCandidatesCompactMock(...args),
 }));
 
 vi.mock("../src/services/bulkEnrichPeople", () => ({
@@ -67,6 +61,10 @@ vi.mock("../src/services/lemlistPushQueue", () => ({
 
 vi.mock("../src/services/lemlistEmailPushQueue", () => ({
   pushPeopleToLemlistEmailCampaign: (...args: unknown[]) => pushPeopleToLemlistEmailCampaignMock(...args),
+}));
+
+vi.mock("../src/services/emailCandidateWaterfall", () => ({
+  runEmailCandidateWaterfall: (...args: unknown[]) => runEmailCandidateWaterfallMock(...args),
 }));
 
 vi.mock("../src/services/observability/csvWriter", () => ({
@@ -104,6 +102,10 @@ function makeEmployees(count: number, prefix: string): EnrichedEmployee[] {
   }));
 }
 
+function emptyWaterfallResult(): EmailWaterfallResult {
+  return { candidates: [] };
+}
+
 describe("runResearchPipeline orchestration", () => {
   beforeEach(() => {
     readCompaniesMock.mockReset();
@@ -113,9 +115,6 @@ describe("runResearchPipeline orchestration", () => {
     searchPeopleMock.mockReset();
     searchPastSrePeopleMock.mockReset();
     searchCurrentPlatformEngineerPeopleMock.mockReset();
-    searchCurrentEngineeringEmailCandidatesMock.mockReset();
-    searchCurrentEngineeringEmailCandidatesCompactMock.mockReset();
-    getCurrentEngineeringEmailCandidateTotalEntriesMock.mockReset();
     bulkEnrichPeopleMock.mockReset();
     runWaterfallEmailForPersonIdsMock.mockReset();
     enrichMissingEmailsWithLemlistMock.mockReset();
@@ -123,6 +122,7 @@ describe("runResearchPipeline orchestration", () => {
     fillToMinimumWithBackfillMock.mockReset();
     pushPeopleToLemlistCampaignMock.mockReset();
     pushPeopleToLemlistEmailCampaignMock.mockReset();
+    runEmailCandidateWaterfallMock.mockReset();
     rowsToCsvStringMock.mockReset();
     rejectedRowsToCsvStringMock.mockReset();
 
@@ -142,10 +142,8 @@ describe("runResearchPipeline orchestration", () => {
       successItems: [],
       failedItems: [],
     });
-    searchCurrentEngineeringEmailCandidatesMock.mockResolvedValue([]);
-    searchCurrentEngineeringEmailCandidatesCompactMock.mockResolvedValue([]);
-    getCurrentEngineeringEmailCandidateTotalEntriesMock.mockResolvedValue(0);
     searchCurrentPlatformEngineerPeopleMock.mockResolvedValue([]);
+    searchPastSrePeopleMock.mockResolvedValue([]);
     bulkEnrichPeopleMock.mockResolvedValue([]);
     runWaterfallEmailForPersonIdsMock.mockResolvedValue(new Map());
     enrichMissingEmailsWithLemlistMock.mockResolvedValue({
@@ -154,6 +152,7 @@ describe("runResearchPipeline orchestration", () => {
       recovered: 0,
       notFound: 0,
     });
+    runEmailCandidateWaterfallMock.mockResolvedValue(emptyWaterfallResult());
     researchCompanyMock.mockResolvedValue("Not found");
     getCompanyMock.mockResolvedValue({ companyName: "Acme", domain: "acme.com" });
     countEngineerPeopleMock.mockResolvedValue(120);
@@ -168,9 +167,9 @@ describe("runResearchPipeline orchestration", () => {
     searchPastSrePeopleMock.mockResolvedValueOnce(makeProspects(4, "past"));
     searchCurrentPlatformEngineerPeopleMock.mockResolvedValueOnce(makeProspects(4, "platform"));
     bulkEnrichPeopleMock
-      .mockResolvedValueOnce(makeEmployees(3, "current")) // current SRE enrich
-      .mockResolvedValueOnce(makeEmployees(4, "past")) // past enrich
-      .mockResolvedValueOnce(makeEmployees(4, "platform")); // platform enrich
+      .mockResolvedValueOnce(makeEmployees(3, "current"))
+      .mockResolvedValueOnce(makeEmployees(4, "past"))
+      .mockResolvedValueOnce(makeEmployees(4, "platform"));
     selectTopSreForLemlistMock.mockReturnValueOnce(makeEmployees(3, "selected-current"));
     fillToMinimumWithBackfillMock
       .mockReturnValueOnce(makeEmployees(4, "after-past-phase"))
@@ -203,6 +202,12 @@ describe("runResearchPipeline orchestration", () => {
       expect.any(Array),
       { minimum: 5, max: 5 }
     );
+    expect(searchPeopleMock).toHaveBeenCalledWith(
+      { companyName: "Acme", domain: "acme.com" },
+      30,
+      ["SRE", "Site Reliability", "Site Reliability Engineer", "Head of Reliability"],
+      { apolloOrganizationId: "org_1" }
+    );
   });
 
   it("skips all backfill when raw current SRE count is zero", async () => {
@@ -229,139 +234,50 @@ describe("runResearchPipeline orchestration", () => {
     expect(fillToMinimumWithBackfillMock).not.toHaveBeenCalled();
   });
 
-  it("builds list A by excluding attempted linkedin pushes and filtering tenure >= 11", async () => {
-    process.env.APOLLO_WATERFALL_ENABLED = "true";
+  it("calls email waterfall and pushes candidates to email campaign", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
     );
-    searchPeopleMock.mockResolvedValueOnce(makeProspects(1, "current"));
-    selectTopSreForLemlistMock.mockReturnValueOnce([
+    searchPeopleMock.mockResolvedValueOnce([]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+
+    const waterfallCandidates: TaggedEmailCandidate[] = [
       {
-        id: "current-1",
-        startDate: "2023-01-01",
-        endDate: null,
-        name: "Attempted Person",
-        email: "attempted@example.com",
-        linkedinUrl: "https://linkedin.com/in/attempted",
-        currentTitle: "SRE",
-        tenure: 20,
-      },
-      {
-        id: "current-2",
-        startDate: "2023-01-01",
-        endDate: null,
-        name: "Current Two",
-        email: "current.two@example.com",
-        linkedinUrl: "https://linkedin.com/in/current-two",
-        currentTitle: "SRE",
-        tenure: 20,
-      },
-      {
-        id: "current-3",
-        startDate: "2023-01-01",
-        endDate: null,
-        name: "Current Three",
-        email: "current.three@example.com",
-        linkedinUrl: "https://linkedin.com/in/current-three",
-        currentTitle: "SRE",
-        tenure: 20,
-      },
-      {
-        id: "current-4",
-        startDate: "2023-01-01",
-        endDate: null,
-        name: "Current Four",
-        email: "current.four@example.com",
-        linkedinUrl: "https://linkedin.com/in/current-four",
-        currentTitle: "SRE",
-        tenure: 20,
-      },
-      {
-        id: "current-5",
-        startDate: "2023-01-01",
-        endDate: null,
-        name: "Current Five",
-        email: "current.five@example.com",
-        linkedinUrl: "https://linkedin.com/in/current-five",
-        currentTitle: "SRE",
-        tenure: 20,
-      },
-    ]);
-    searchCurrentEngineeringEmailCandidatesMock.mockResolvedValueOnce([
-      { id: "current-1", name: "Attempted Person", title: "Platform Engineer" },
-      { id: "platform-keep", name: "Platform Keep", title: "Platform Engineer" },
-      { id: "lead-keep", name: "Lead Keep", title: "Head of Engineering" },
-    ]);
-    bulkEnrichPeopleMock
-      .mockResolvedValueOnce(makeEmployees(1, "current")) // current SRE enrich
-      .mockResolvedValueOnce([
-        {
-          id: "current-1",
+        employee: {
+          id: "sre-email-1",
           startDate: "2022-01-01",
           endDate: null,
-          name: "Attempted Person",
-          email: "attempted@example.com",
-          linkedinUrl: "https://linkedin.com/in/attempted",
-          currentTitle: "Platform Engineer",
-          tenure: 24,
+          name: "SRE Email",
+          email: "sre.email@example.com",
+          linkedinUrl: null,
+          currentTitle: "SRE",
+          tenure: 5,
         },
-        {
-          id: "platform-keep",
+        campaignBucket: "sre",
+      },
+      {
+        employee: {
+          id: "eng-email-1",
           startDate: "2022-01-01",
           endDate: null,
-          name: "Platform Keep",
-          email: null,
-          linkedinUrl: "https://linkedin.com/in/platform-keep",
-          currentTitle: "Platform Engineer",
-          tenure: 12,
-        },
-        {
-          id: "lead-keep",
-          startDate: "2022-01-01",
-          endDate: null,
-          name: "Lead Keep",
-          email: "lead.keep@example.com",
-          linkedinUrl: "https://linkedin.com/in/lead-keep",
-          currentTitle: "Head of Engineering",
+          name: "Eng Email",
+          email: "eng.email@example.com",
+          linkedinUrl: null,
+          currentTitle: "Infrastructure",
           tenure: 15,
         },
-        {
-          id: "short-tenure",
-          startDate: "2024-01-01",
-          endDate: null,
-          name: "Short Tenure",
-          email: "short.tenure@example.com",
-          linkedinUrl: "https://linkedin.com/in/short-tenure",
-          currentTitle: "Platform Engineer",
-          tenure: 8,
-        },
-      ]);
-    pushPeopleToLemlistCampaignMock.mockResolvedValueOnce({
-      attempted: 5,
-      successful: 2,
-      failed: 1,
-      successItems: [],
-      failedItems: [],
-    });
+        campaignBucket: "eng",
+      },
+    ];
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({ candidates: waterfallCandidates });
     pushPeopleToLemlistEmailCampaignMock.mockResolvedValueOnce({
       attempted: 2,
-      successful: 1,
+      successful: 2,
       failed: 0,
-      successItems: [],
+      successItems: ["SRE Email", "Eng Email"],
       failedItems: [],
     });
-    enrichMissingEmailsWithLemlistMock.mockImplementationOnce(async (candidates: Array<{ employee: EnrichedEmployee }>) => {
-      const target = candidates.find((candidate) => candidate.employee.id === "platform-keep");
-      if (target) {
-        target.employee.email = "platform.keep@example.com";
-      }
-      return {
-        attempted: 1,
-        accepted: 1,
-        recovered: 1,
-        notFound: 0,
-      };
-    });
 
     const jobId = createJob();
     await runResearchPipeline(jobId, "csv", {
@@ -375,104 +291,57 @@ describe("runResearchPipeline orchestration", () => {
       apolloAccountIdColumn: "Apollo Account Id",
     }, "julian");
 
-    expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
-    expect(searchCurrentPlatformEngineerPeopleMock).not.toHaveBeenCalled();
-    expect(getCurrentEngineeringEmailCandidateTotalEntriesMock).toHaveBeenCalledTimes(1);
-    expect(searchCurrentEngineeringEmailCandidatesMock).toHaveBeenCalledTimes(1);
-    expect(searchCurrentEngineeringEmailCandidatesCompactMock).not.toHaveBeenCalled();
-    expect(bulkEnrichPeopleMock).toHaveBeenNthCalledWith(2, expect.any(Array), expect.any(Map));
-    expect(enrichMissingEmailsWithLemlistMock).toHaveBeenCalledTimes(1);
-    expect(runWaterfallEmailForPersonIdsMock).not.toHaveBeenCalled();
-    expect(pushPeopleToLemlistCampaignMock).toHaveBeenCalledWith(
-      expect.any(Array),
-      "Acme",
-      "acme.com",
-      "julian"
+    expect(runEmailCandidateWaterfallMock).toHaveBeenCalledTimes(1);
+    expect(runEmailCandidateWaterfallMock).toHaveBeenCalledWith(
+      { companyName: "Acme", domain: "acme.com" },
+      expect.any(Set),
+      expect.any(Map),
+      { apolloOrganizationId: "org_1" }
     );
+    expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledWith(
-      expect.any(Array),
+      waterfallCandidates,
       "Acme",
       "acme.com",
       "julian"
     );
-    const listA = pushPeopleToLemlistEmailCampaignMock.mock.calls[0]?.[0] as EnrichedEmployee[];
-    expect(listA.map((employee) => employee.id)).toEqual(["platform-keep", "lead-keep"]);
-    expect(listA.find((employee) => employee.id === "platform-keep")?.email).toBe("platform.keep@example.com");
     const job = getJob(jobId);
-    expect(job?.summary?.totalLinkedinCampaignSuccessful).toBe(2);
-    expect(job?.summary?.totalLemlistSuccessful).toBe(3);
+    expect(job?.summary?.totalLemlistSuccessful).toBe(2);
   });
 
-  it("uses compact email candidate search when broad total_entries is greater than 60", async () => {
+  it("tracks missing email person ids from waterfall candidates", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
     );
-    searchPeopleMock.mockResolvedValueOnce(makeProspects(1, "current"));
+    searchPeopleMock.mockResolvedValueOnce([]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([]);
     selectTopSreForLemlistMock.mockReturnValueOnce([]);
-    getCurrentEngineeringEmailCandidateTotalEntriesMock.mockResolvedValueOnce(61);
-    searchCurrentEngineeringEmailCandidatesCompactMock.mockResolvedValueOnce([
-      { id: "compact-1", name: "Compact One", title: "Platform Engineer" },
-    ]);
-    bulkEnrichPeopleMock
-      .mockResolvedValueOnce(makeEmployees(1, "current"))
-      .mockResolvedValueOnce([
-        {
-          id: "compact-1",
+
+    const waterfallCandidates: TaggedEmailCandidate[] = [
+      {
+        employee: {
+          id: "missing-email-1",
           startDate: "2022-01-01",
           endDate: null,
-          name: "Compact One",
-          email: "compact.one@example.com",
-          linkedinUrl: "https://linkedin.com/in/compact-one",
-          currentTitle: "Platform Engineer",
-          tenure: 13,
-        },
-      ]);
-
-    const jobId = createJob();
-    await runResearchPipeline(jobId, "csv", {
-      azureOpenAiApiKey: "k",
-      azureOpenAiBaseUrl: "u",
-      searchApiKey: "s",
-      model: "m",
-      maxCompletionTokens: 1000,
-      nameColumn: "Company Name",
-      domainColumn: "Website",
-      apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
-
-    expect(getCurrentEngineeringEmailCandidateTotalEntriesMock).toHaveBeenCalledTimes(1);
-    expect(searchCurrentEngineeringEmailCandidatesCompactMock).toHaveBeenCalledTimes(1);
-    expect(searchCurrentEngineeringEmailCandidatesMock).not.toHaveBeenCalled();
-    expect(bulkEnrichPeopleMock).toHaveBeenNthCalledWith(
-      2,
-      [{ id: "compact-1", name: "Compact One", title: "Platform Engineer" }],
-      expect.any(Map)
-    );
-  });
-
-  it("skips global waterfall when APOLLO_WATERFALL_ENABLED is false by default", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    searchPeopleMock.mockResolvedValueOnce(makeProspects(1, "current"));
-    selectTopSreForLemlistMock.mockReturnValueOnce([]);
-    searchCurrentEngineeringEmailCandidatesMock.mockResolvedValueOnce([
-      { id: "platform-missing", name: "Platform Missing", title: "Platform Engineer" },
-    ]);
-    bulkEnrichPeopleMock
-      .mockResolvedValueOnce(makeEmployees(1, "current"))
-      .mockResolvedValueOnce([
-        {
-          id: "platform-missing",
-          startDate: "2022-01-01",
-          endDate: null,
-          name: "Platform Missing",
+          name: "Missing Email",
           email: null,
-          linkedinUrl: "https://linkedin.com/in/platform-missing",
-          currentTitle: "Platform Engineer",
-          tenure: 12,
+          linkedinUrl: null,
+          currentTitle: "SRE",
+          tenure: 5,
         },
-      ]);
+        campaignBucket: "sre",
+      },
+    ];
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({ candidates: waterfallCandidates });
+    enrichMissingEmailsWithLemlistMock.mockImplementationOnce(
+      async (candidates: Array<{ employee: EnrichedEmployee }>) => {
+        const target = candidates.find((c) => c.employee.id === "missing-email-1");
+        if (target) {
+          target.employee.email = "recovered@example.com";
+        }
+        return { attempted: 1, accepted: 1, recovered: 1, notFound: 0 };
+      }
+    );
 
     const jobId = createJob();
     await runResearchPipeline(jobId, "csv", {
@@ -486,10 +355,8 @@ describe("runResearchPipeline orchestration", () => {
       apolloAccountIdColumn: "Apollo Account Id",
     }, "julian");
 
-    expect(runWaterfallEmailForPersonIdsMock).not.toHaveBeenCalled();
+    expect(enrichMissingEmailsWithLemlistMock).toHaveBeenCalledTimes(1);
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
-    const listA = pushPeopleToLemlistEmailCampaignMock.mock.calls[0]?.[0] as EnrichedEmployee[];
-    expect(listA[0]?.email).toBeNull();
   });
 
   it("masks engineer count above 1000 in rejected outputs", async () => {

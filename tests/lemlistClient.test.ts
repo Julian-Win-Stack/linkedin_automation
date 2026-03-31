@@ -33,10 +33,10 @@ describe("lemlistClient", () => {
     getMock.mockClear();
     process.env.LEMLIST_API_KEY = "test_lemlist_key";
     process.env.JULIAN_LINKEDIN_SRE_CAMPAIGN_ID = "cam_sre";
-    process.env.JULIAN_LINKEDIN_ENG_LEAD_CAMPAIGN_ID = "cam_eng_lead";
     process.env.JULIAN_LINKEDIN_ENG_CAMPAIGN_ID = "cam_eng";
     process.env.JULIAN_ENG_LEAD_EMAIL_CAMPAIGN_ID = "cam_eng_lead_email";
     process.env.JULIAN_ENG_EMAIL_CAMPAIGN_ID = "cam_eng_email";
+    process.env.JULIAN_SRE_EMAIL_CAMPAIGN_ID = "cam_sre_email";
   });
 
   it("builds basic auth header with empty username and api key", () => {
@@ -146,10 +146,10 @@ describe("lemlistClient", () => {
     expect(getCampaignIdsForUser("julian")).toEqual({
       linkedin: {
         sreCampaignId: "cam_sre",
-        engLeadCampaignId: "cam_eng_lead",
         engCampaignId: "cam_eng",
       },
       email: {
+        sreEmailCampaignId: "cam_sre_email",
         engLeadEmailCampaignId: "cam_eng_lead_email",
         engEmailCampaignId: "cam_eng_email",
       },
@@ -159,7 +159,6 @@ describe("lemlistClient", () => {
   it("returns LinkedIn campaign ids from resolver wrappers", () => {
     expect(getLemlistLinkedinCampaignIdsForUser("julian")).toEqual({
       sreCampaignId: "cam_sre",
-      engLeadCampaignId: "cam_eng_lead",
       engCampaignId: "cam_eng",
     });
   });
@@ -173,6 +172,7 @@ describe("lemlistClient", () => {
 
   it("returns both email campaign ids from env", () => {
     expect(getLemlistEmailCampaignIdsForUser("julian")).toEqual({
+      sreEmailCampaignId: "cam_sre_email",
       engLeadEmailCampaignId: "cam_eng_lead_email",
       engEmailCampaignId: "cam_eng_email",
     });

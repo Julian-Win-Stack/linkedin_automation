@@ -8,12 +8,9 @@ import {
 import { getCompany } from "../services/getCompany";
 import { enrichMissingEmailsWithLemlist } from "../services/lemlistBulkEmailEnrichment";
 import { pushPeopleToLemlistEmailCampaign } from "../services/lemlistEmailPushQueue";
-import { pushPeopleToLemlistCampaign } from "../services/lemlistPushQueue";
+import { pushPeopleToLemlistCampaign, TaggedLinkedinCandidate } from "../services/lemlistPushQueue";
 import {
   countEngineerPeople,
-  getCurrentEngineeringEmailCandidateTotalEntries,
-  searchCurrentEngineeringEmailCandidates,
-  searchCurrentEngineeringEmailCandidatesCompact,
   searchCurrentPlatformEngineerPeople,
   searchPastSrePeople,
   searchPeople,
@@ -42,12 +39,11 @@ import {
 } from "./jobStore";
 import { EnrichedEmployee } from "../types/prospect";
 import { SelectedUser } from "../shared/selectedUser";
+import { runEmailCandidateWaterfall, TaggedEmailCandidate } from "../services/emailCandidateWaterfall";
 
 const MAX_ROWS = 500;
-const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Head of Reliability"];
+const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Head of Reliability"];
 const MAX_RESULTS = 30;
-const EMAIL_CANDIDATE_MAX_RESULTS = 100;
-const EMAIL_CANDIDATE_SAFEGUARD_THRESHOLD = 60;
 const REJECTED_REASON = "rejected because they were using other observability tools";
 const MIN_ENGINEER_COUNT = 18;
 const MAX_ENGINEER_COUNT = 700;
@@ -67,7 +63,7 @@ interface RowResearchResult {
 interface PendingEmailPushBatch {
   companyName: string;
   companyDomain: string;
-  employees: EnrichedEmployee[];
+  candidates: TaggedEmailCandidate[];
 }
 
 function isCancelled(jobId: string): boolean {
@@ -143,6 +139,12 @@ export async function runResearchPipeline(
   let totalLemlistFailed = 0;
 
   try {
+    // TEMPORARY: suppress non-waterfall logs for clean debugging output.
+    // The waterfall uses process.stdout.write so its output always appears.
+    // Remove this block when done debugging.
+    const _originalConsoleLog = console.log;
+    console.log = () => {};
+
     setJobStatus(jobId, "processing");
     logPipelineStage("JOB_START", `Job started. selected_user=${selectedUser}`);
     setJobMessage(jobId, "Starting observability research...");
@@ -308,6 +310,7 @@ export async function runResearchPipeline(
           companyContext
         );
         let selectedForLemlist = selectedCurrentSre;
+        let prePlatformKeys: Set<string> | null = null;
 
         // Backfill only runs if we have at least one current SRE candidate selected.
         if (selectedCurrentSre.length > 0 && selectedCurrentSre.length < 5 && rawSreCount > 0) {
@@ -329,6 +332,7 @@ export async function runResearchPipeline(
           );
 
           if (selectedForLemlist.length < 5) {
+            prePlatformKeys = new Set(selectedForLemlist.map(toEmployeeKey));
             logPipelineStage("BACKFILL_PHASE_2_START", "Backfill phase 2 (platform) started.", companyContext);
             const platformProspects = dedupeProspectsById(
               await searchCurrentPlatformEngineerPeople(company, MAX_RESULTS, {
@@ -354,13 +358,19 @@ export async function runResearchPipeline(
         let lemlistSuccessful = 0;
         let lemlistFailed = 0;
         if (lemlistEnabled && selectedForLemlist.length > 0) {
+          const taggedForLemlist: TaggedLinkedinCandidate[] = selectedForLemlist.map((emp) => ({
+            employee: emp,
+            linkedinBucket: prePlatformKeys === null || prePlatformKeys.has(toEmployeeKey(emp))
+              ? "sre" as const
+              : "eng" as const,
+          }));
           logPipelineStage(
             "PUSH_LINKEDIN_START",
-            `Pushing LinkedIn campaigns. candidates=${selectedForLemlist.length}`,
+            `Pushing LinkedIn campaigns. candidates=${taggedForLemlist.length}`,
             companyContext
           );
           const lemlistMeta = await pushPeopleToLemlistCampaign(
-            selectedForLemlist,
+            taggedForLemlist,
             company.companyName,
             company.domain,
             selectedUser
@@ -379,61 +389,33 @@ export async function runResearchPipeline(
 
         if (lemlistEnabled) {
           const attemptedLinkedinKeys = new Set(selectedForLemlist.map((employee) => toEmployeeKey(employee)));
-          const emailCandidateTotalEntries = await getCurrentEngineeringEmailCandidateTotalEntries(company, {
-            apolloOrganizationId: row.apolloAccountId,
-          });
+          logPipelineStage("EMAIL_WATERFALL_START", "Email candidate waterfall started.", companyContext);
+          const waterfallResult = await runEmailCandidateWaterfall(
+            company,
+            attemptedLinkedinKeys,
+            enrichmentCache,
+            { apolloOrganizationId: row.apolloAccountId }
+          );
           logPipelineStage(
-            "SEARCH_EMAIL_CANDIDATES_PROBE_DONE",
-            `Email candidate probe complete. total_entries=${emailCandidateTotalEntries}`,
+            "EMAIL_WATERFALL_DONE",
+            `Email candidate waterfall complete. candidates=${waterfallResult.candidates.length}`,
             companyContext
           );
 
-          const shouldUseCompactEmailSearch = emailCandidateTotalEntries > EMAIL_CANDIDATE_SAFEGUARD_THRESHOLD;
-          const emailProspects = dedupeProspectsById(
-            shouldUseCompactEmailSearch
-              ? await searchCurrentEngineeringEmailCandidatesCompact(company, EMAIL_CANDIDATE_MAX_RESULTS, {
-                  apolloOrganizationId: row.apolloAccountId,
-                })
-              : await searchCurrentEngineeringEmailCandidates(company, EMAIL_CANDIDATE_MAX_RESULTS, {
-                  apolloOrganizationId: row.apolloAccountId,
-                })
-          );
-          logPipelineStage(
-            "SEARCH_EMAIL_CANDIDATES_DONE",
-            `Email candidates fetched with ${
-              shouldUseCompactEmailSearch ? "compact" : "broad"
-            } titles. count=${emailProspects.length}`,
-            companyContext
-          );
-
-          const emailEnriched = await bulkEnrichPeople(emailProspects, enrichmentCache);
-          logPipelineStage(
-            "ENRICH_EMAIL_CANDIDATES_DONE",
-            `Email candidates enriched. count=${emailEnriched.length}`,
-            companyContext
-          );
-          const listA = emailEnriched.filter((employee) => {
-            if (attemptedLinkedinKeys.has(toEmployeeKey(employee))) {
-              return false;
-            }
-            return employee.tenure !== null && employee.tenure >= 11;
-          });
-          logPipelineStage("BUILD_LIST_A_DONE", `List A prepared. count=${listA.length}`, companyContext);
-
-          if (listA.length > 0) {
+          if (waterfallResult.candidates.length > 0) {
             pendingEmailPushBatches.push({
               companyName: company.companyName,
               companyDomain: company.domain,
-              employees: listA,
+              candidates: waterfallResult.candidates,
             });
-            for (const employee of listA) {
+            for (const { employee } of waterfallResult.candidates) {
               if (!employee.email && employee.id) {
                 globalMissingEmailPersonIds.add(employee.id);
               }
             }
             logPipelineStage(
-              "QUEUE_LIST_A",
-              `List A queued for email push. missing_email_so_far=${globalMissingEmailPersonIds.size}`,
+              "QUEUE_EMAIL_BATCH",
+              `Email batch queued. missing_email_so_far=${globalMissingEmailPersonIds.size}`,
               companyContext
             );
           }
@@ -481,9 +463,9 @@ export async function runResearchPipeline(
     let recoveredEmailsByPersonId = new Map<string, string>();
     if (lemlistEnabled && lemlistBulkFindEmailEnabled && pendingEmailPushBatches.length > 0) {
       const missingEmailCandidates = pendingEmailPushBatches.flatMap((batch) =>
-        batch.employees
-          .filter((employee) => !employee.email || employee.email.trim().length === 0)
-          .map((employee) => ({
+        batch.candidates
+          .filter(({ employee }) => !employee.email || employee.email.trim().length === 0)
+          .map(({ employee }) => ({
             employee,
             companyName: batch.companyName,
             companyDomain: batch.companyDomain,
@@ -557,7 +539,7 @@ export async function runResearchPipeline(
           return;
         }
 
-        for (const employee of batch.employees) {
+        for (const { employee } of batch.candidates) {
           if (employee.email || !employee.id) {
             continue;
           }
@@ -568,7 +550,7 @@ export async function runResearchPipeline(
         }
 
         const emailPushMeta = await pushPeopleToLemlistEmailCampaign(
-          batch.employees,
+          batch.candidates,
           batch.companyName,
           batch.companyDomain,
           selectedUser
@@ -625,9 +607,11 @@ export async function runResearchPipeline(
       "JOB_DONE",
       `Job done: processed=${apolloProcessedCompanyCount} linkedin_success=${totalLinkedinCampaignSuccessful} lemlist_success=${totalLemlistSuccessful} lemlist_failed=${totalLemlistFailed}`
     );
+    console.log = _originalConsoleLog;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected job failure";
     markJobError(jobId, message);
     logPipelineStage("JOB_FAILED", `Job failed. error=${message}`);
+    console.log = _originalConsoleLog;
   }
 }

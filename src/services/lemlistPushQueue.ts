@@ -17,7 +17,13 @@ const DEFAULT_LEMLIST_QUERY = {
 };
 
 type QueueTask = () => Promise<void>;
-type LemlistCampaignBucket = "sre" | "engLead" | "eng";
+
+export type LinkedinCampaignBucket = "sre" | "eng";
+
+export interface TaggedLinkedinCandidate {
+  employee: EnrichedEmployee;
+  linkedinBucket: LinkedinCampaignBucket;
+}
 
 let queueTail: Promise<void> = Promise.resolve();
 
@@ -62,39 +68,21 @@ function toLeadPayload(
   };
 }
 
-function includesAnyKeyword(value: string, keywords: string[]): boolean {
-  return keywords.some((keyword) => value.includes(keyword));
-}
-
-function splitEmployeesByCampaignTitle(employees: EnrichedEmployee[]): Record<LemlistCampaignBucket, EnrichedEmployee[]> {
-  const sreKeywords = ["sre", "site reliability", "head of reliability"];
-  const engLeadKeywords = ["vp", "svp", "cto", "head", "director", "principal"];
-  const buckets: Record<LemlistCampaignBucket, EnrichedEmployee[]> = {
+function groupByBucket(candidates: TaggedLinkedinCandidate[]): Record<LinkedinCampaignBucket, EnrichedEmployee[]> {
+  const buckets: Record<LinkedinCampaignBucket, EnrichedEmployee[]> = {
     sre: [],
-    engLead: [],
     eng: [],
   };
 
-  for (const employee of employees) {
-    const normalizedTitle = employee.currentTitle.toLowerCase();
-    if (includesAnyKeyword(normalizedTitle, sreKeywords)) {
-      buckets.sre.push(employee);
-      continue;
-    }
-
-    if (includesAnyKeyword(normalizedTitle, engLeadKeywords)) {
-      buckets.engLead.push(employee);
-      continue;
-    }
-
-    buckets.eng.push(employee);
+  for (const candidate of candidates) {
+    buckets[candidate.linkedinBucket].push(candidate.employee);
   }
 
   return buckets;
 }
 
 export async function pushPeopleToLemlistCampaign(
-  employees: EnrichedEmployee[],
+  candidates: TaggedLinkedinCandidate[],
   companyName: string,
   companyDomain: string,
   selectedUser: SelectedUser
@@ -103,7 +91,7 @@ export async function pushPeopleToLemlistCampaign(
     void enqueue(async () => {
       try {
         const campaignIds = getLemlistLinkedinCampaignIdsForUser(selectedUser);
-        const bucketedEmployees = splitEmployeesByCampaignTitle(employees);
+        const grouped = groupByBucket(candidates);
         const failedItems: LemlistFailedLead[] = [];
         const successItems: string[] = [];
         let successful = 0;
@@ -111,13 +99,12 @@ export async function pushPeopleToLemlistCampaign(
         let windowStartedAt = Date.now();
 
         console.log(
-          `[Lemlist] Campaign routing (${companyName}) user=${selectedUser}: SRE=${bucketedEmployees.sre.length}, ENG_LEAD=${bucketedEmployees.engLead.length}, ENG=${bucketedEmployees.eng.length}`
+          `[Lemlist] Campaign routing (${companyName}) user=${selectedUser}: SRE=${grouped.sre.length}, ENG=${grouped.eng.length}`
         );
 
         const bucketOrder: Array<{ campaignId: string; people: EnrichedEmployee[] }> = [
-          { campaignId: campaignIds.sreCampaignId, people: bucketedEmployees.sre },
-          { campaignId: campaignIds.engLeadCampaignId, people: bucketedEmployees.engLead },
-          { campaignId: campaignIds.engCampaignId, people: bucketedEmployees.eng },
+          { campaignId: campaignIds.sreCampaignId, people: grouped.sre },
+          { campaignId: campaignIds.engCampaignId, people: grouped.eng },
         ];
 
         for (const bucket of bucketOrder) {
@@ -159,7 +146,7 @@ export async function pushPeopleToLemlistCampaign(
         }
 
         resolve({
-          attempted: employees.length,
+          attempted: candidates.length,
           successful,
           failed: failedItems.length,
           successItems,

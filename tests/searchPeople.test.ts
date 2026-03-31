@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   countEngineerPeople,
-  getCurrentEngineeringEmailCandidateTotalEntries,
-  searchCurrentEngineeringEmailCandidatesCompact,
-  searchCurrentEngineeringEmailCandidates,
+  searchEmailCandidatePeople,
   searchCurrentPlatformEngineerPeople,
   searchPastSrePeople,
   searchPeople,
@@ -253,7 +251,7 @@ describe("searchPeople", () => {
       per_page: 100,
       include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
-      "person_past_titles[]": ["SRE", "Site Reliability", "Head of Reliability"],
+      "person_past_titles[]": ["SRE", "Site Reliability", "Site Reliability Engineer", "Head of Reliability"],
     });
   });
 
@@ -271,7 +269,7 @@ describe("searchPeople", () => {
       include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
       "q_organization_ids[]": ["org_456"],
-      "person_past_titles[]": ["SRE", "Site Reliability", "Head of Reliability"],
+      "person_past_titles[]": ["SRE", "Site Reliability", "Site Reliability Engineer", "Head of Reliability"],
     });
   });
 
@@ -310,107 +308,128 @@ describe("searchPeople", () => {
     });
   });
 
-  it("queries engineering email candidates helper with current title param", async () => {
+  it("searches email candidates with current titles only", async () => {
     apolloPostWithQueryMock.mockResolvedValueOnce({
-      people: [{ id: "eng-1", name: "Eng One", title: "Head of Engineering" }],
+      people: [{ id: "sre-1", name: "SRE One", title: "SRE" }],
       pagination: { page: 1, total_pages: 1 },
     });
 
-    const result = await searchCurrentEngineeringEmailCandidates(company, 10);
+    const result = await searchEmailCandidatePeople(company, 10, {
+      currentTitles: ["SRE", "Site Reliability"],
+    });
     expect(result).toHaveLength(1);
     expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
       page: 1,
       per_page: 100,
       include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
-      "person_titles[]": expect.arrayContaining([
-        "platform engineer",
-        "SRE",
-        "Site Reliability",
-        "staff engineer",
-        "principal engineer",
-        "chief technology officer",
-      ]),
+      "person_titles[]": ["SRE", "Site Reliability"],
     });
   });
 
-  it("includes q_organization_ids[] for engineering email candidates helper when provided", async () => {
+  it("searches email candidates with past titles only", async () => {
     apolloPostWithQueryMock.mockResolvedValueOnce({
-      people: [{ id: "eng-1", name: "Eng One", title: "Head of Engineering" }],
+      people: [{ id: "past-1", name: "Past SRE", title: "SRE" }],
       pagination: { page: 1, total_pages: 1 },
     });
 
-    await searchCurrentEngineeringEmailCandidates(company, 10, { apolloOrganizationId: "org_eng_123" });
-
-    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
-      page: 1,
-      per_page: 100,
-      include_similar_titles: false,
-      "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_eng_123"],
-      "person_titles[]": expect.any(Array),
+    const result = await searchEmailCandidatePeople(company, 10, {
+      pastTitles: ["SRE", "Site Reliability"],
     });
-  });
-
-  it("returns total_entries for broad email candidate probe", async () => {
-    apolloPostWithQueryMock.mockResolvedValueOnce({
-      total_entries: 44,
-      people: [{ id: "eng-1", name: "Eng One", title: "Head of Engineering" }],
-      pagination: { page: 1, total_pages: 1 },
-    });
-
-    const totalEntries = await getCurrentEngineeringEmailCandidateTotalEntries(company, {
-      apolloOrganizationId: "org_eng_123",
-    });
-
-    expect(totalEntries).toBe(44);
-    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
-      page: 1,
-      per_page: 100,
-      include_similar_titles: false,
-      "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_eng_123"],
-      "person_titles[]": expect.any(Array),
-    });
-  });
-
-  it("falls back to people length when total_entries is missing in probe", async () => {
-    apolloPostWithQueryMock.mockResolvedValueOnce({
-      people: [
-        { id: "eng-1", name: "Eng One", title: "Head of Engineering" },
-        { id: "eng-2", name: "Eng Two", title: "Staff Engineer" },
-      ],
-      pagination: { page: 1, total_pages: 1 },
-    });
-
-    const totalEntries = await getCurrentEngineeringEmailCandidateTotalEntries(company);
-    expect(totalEntries).toBe(2);
-  });
-
-  it("queries compact email candidate helper with safeguard titles", async () => {
-    apolloPostWithQueryMock.mockResolvedValueOnce({
-      people: [{ id: "eng-compact-1", name: "Compact One", title: "Platform Engineer" }],
-      pagination: { page: 1, total_pages: 1 },
-    });
-
-    const result = await searchCurrentEngineeringEmailCandidatesCompact(company, 10);
     expect(result).toHaveLength(1);
     expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
       page: 1,
       per_page: 100,
       include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
-      "person_titles[]": [
-        "platform engineer",
-        "SRE",
-        "Site Reliability",
-        "staff engineer",
-        "principal engineer",
-        "tech lead",
-        "devops",
-        "infrastructure",
-        "lead software engineer",
-      ],
+      "person_past_titles[]": ["SRE", "Site Reliability"],
     });
+  });
+
+  it("searches email candidates with both current and past titles", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "plat-1", name: "Platform One", title: "Platform Engineer" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const result = await searchEmailCandidatePeople(company, 10, {
+      currentTitles: ["platform"],
+      pastTitles: ["engineer"],
+    });
+    expect(result).toHaveLength(1);
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 100,
+      include_similar_titles: false,
+      "q_organization_domains_list[]": ["acme.com"],
+      "person_titles[]": ["platform"],
+      "person_past_titles[]": ["engineer"],
+    });
+  });
+
+  it("includes q_organization_ids[] for email candidate search when provided", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "eng-1", name: "Eng One", title: "Infrastructure" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    await searchEmailCandidatePeople(
+      company,
+      10,
+      { currentTitles: ["Infrastructure"] },
+      { apolloOrganizationId: "org_123" }
+    );
+
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 100,
+      include_similar_titles: false,
+      "q_organization_domains_list[]": ["acme.com"],
+      "q_organization_ids[]": ["org_123"],
+      "person_titles[]": ["Infrastructure"],
+    });
+  });
+
+  it("throws when no titles are provided to email candidate search", async () => {
+    await expect(
+      searchEmailCandidatePeople(company, 10, {})
+    ).rejects.toThrow("At least one current or past title is required.");
+  });
+
+  it("includes person_not_titles[] when notTitles is provided", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "infra-1", name: "Infra One", title: "Infrastructure Engineer" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    await searchEmailCandidatePeople(
+      company,
+      10,
+      { currentTitles: ["Infrastructure"], notTitles: ["data"] }
+    );
+
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 100,
+      include_similar_titles: false,
+      "q_organization_domains_list[]": ["acme.com"],
+      "person_titles[]": ["Infrastructure"],
+      "person_not_titles[]": ["data"],
+    });
+  });
+
+  it("omits person_not_titles[] when notTitles is empty or absent", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "sre-2", name: "SRE Two", title: "SRE" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    await searchEmailCandidatePeople(company, 10, {
+      currentTitles: ["SRE"],
+      notTitles: [],
+    });
+
+    const params = apolloPostWithQueryMock.mock.calls[0][1];
+    expect(params).not.toHaveProperty("person_not_titles[]");
   });
 });

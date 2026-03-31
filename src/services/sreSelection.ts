@@ -1,7 +1,7 @@
 import { EnrichedEmployee } from "../types/prospect";
 
 const SRE_VARIANT_REGEX = /\b(sre|site reliability|site-reliability|site reliability engineering)\b/i;
-const HEAD_OF_RELIABILITY_REGEX = /\bhead of reliability\b/i;
+const TIER_1_HEAD_TITLE_REGEX = /\bhead of (reliability|site reliability|sre)\b/i;
 const TIER_1_REGEX = /\b(head|director)\b/i;
 const TIER_2_REGEX = /\b(manager|staff)\b/i;
 const TIER_3_REGEX = /\b(senior|sr\.?)\b/i;
@@ -44,7 +44,7 @@ function classifySreTier(employee: EnrichedEmployee): SreTier | null {
     return null;
   }
 
-  if (HEAD_OF_RELIABILITY_REGEX.test(title)) {
+  if (TIER_1_HEAD_TITLE_REGEX.test(title)) {
     return 1;
   }
 

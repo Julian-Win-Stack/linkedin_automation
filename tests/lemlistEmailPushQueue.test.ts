@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pushPeopleToLemlistEmailCampaign } from "../src/services/lemlistEmailPushQueue";
+import { TaggedEmailCandidate } from "../src/services/emailCandidateWaterfall";
 
 const createLeadInCampaignMock = vi.fn();
 const getLemlistEmailCampaignIdsForUserMock = vi.fn();
@@ -15,54 +16,50 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
     createLeadInCampaignMock.mockReset();
     getLemlistEmailCampaignIdsForUserMock.mockReset();
     getLemlistEmailCampaignIdsForUserMock.mockReturnValue({
+      sreEmailCampaignId: "cam_sre_email",
       engLeadEmailCampaignId: "cam_eng_lead_email",
       engEmailCampaignId: "cam_eng_email",
     });
     vi.restoreAllMocks();
   });
 
-  it("routes leadership titles to eng lead email campaign", async () => {
+  it("routes sre bucket candidates to SRE email campaign", async () => {
     createLeadInCampaignMock.mockResolvedValue(undefined);
 
-    await pushPeopleToLemlistEmailCampaign(
-      [
-        {
+    const candidates: TaggedEmailCandidate[] = [
+      {
+        employee: {
           id: "person-1",
           startDate: "2024-01-01",
           endDate: null,
-          name: "Lead Person",
-          email: "lead.person@example.com",
-          linkedinUrl: "https://linkedin.com/in/lead",
-          currentTitle: "Head of Engineering",
+          name: "SRE Person",
+          email: "sre.person@example.com",
+          linkedinUrl: "https://linkedin.com/in/sre",
+          currentTitle: "SRE",
           tenure: 24,
         },
-      ],
-      "Acme",
-      "acme.com",
-      "julian"
-    );
+        campaignBucket: "sre",
+      },
+    ];
+
+    await pushPeopleToLemlistEmailCampaign(candidates, "Acme", "acme.com", "julian");
 
     expect(createLeadInCampaignMock).toHaveBeenCalledWith(
-      "cam_eng_lead_email",
-      {
-        email: "lead.person@example.com",
-        firstName: "Lead",
-        lastName: "Person",
-        companyName: "Acme",
-        companyDomain: "acme.com",
-        jobTitle: "Head of Engineering",
-        linkedinUrl: "https://linkedin.com/in/lead",
-      },
+      "cam_sre_email",
+      expect.objectContaining({
+        email: "sre.person@example.com",
+        jobTitle: "SRE",
+      }),
       expect.any(Object)
     );
   });
 
-  it("routes non-leadership titles to eng email campaign", async () => {
+  it("routes eng bucket candidates to ENG email campaign", async () => {
     createLeadInCampaignMock.mockResolvedValue(undefined);
 
-    await pushPeopleToLemlistEmailCampaign(
-      [
-        {
+    const candidates: TaggedEmailCandidate[] = [
+      {
+        employee: {
           id: "person-1",
           startDate: "2024-01-01",
           endDate: null,
@@ -72,11 +69,11 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
           currentTitle: "Platform Engineer",
           tenure: 24,
         },
-      ],
-      "Acme",
-      "acme.com",
-      "julian"
-    );
+        campaignBucket: "eng",
+      },
+    ];
+
+    await pushPeopleToLemlistEmailCampaign(candidates, "Acme", "acme.com", "julian");
 
     expect(createLeadInCampaignMock).toHaveBeenCalledWith(
       "cam_eng_email",
@@ -88,23 +85,124 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
     );
   });
 
+  it("routes engLead bucket candidates to ENG_LEAD email campaign", async () => {
+    createLeadInCampaignMock.mockResolvedValue(undefined);
+
+    const candidates: TaggedEmailCandidate[] = [
+      {
+        employee: {
+          id: "person-1",
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "Lead Person",
+          email: "lead.person@example.com",
+          linkedinUrl: "https://linkedin.com/in/lead",
+          currentTitle: "Head of Engineering",
+          tenure: 24,
+        },
+        campaignBucket: "engLead",
+      },
+    ];
+
+    await pushPeopleToLemlistEmailCampaign(candidates, "Acme", "acme.com", "julian");
+
+    expect(createLeadInCampaignMock).toHaveBeenCalledWith(
+      "cam_eng_lead_email",
+      expect.objectContaining({
+        email: "lead.person@example.com",
+        jobTitle: "Head of Engineering",
+      }),
+      expect.any(Object)
+    );
+  });
+
+  it("routes mixed buckets to correct campaigns", async () => {
+    createLeadInCampaignMock.mockResolvedValue(undefined);
+
+    const candidates: TaggedEmailCandidate[] = [
+      {
+        employee: {
+          id: "p-1",
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "SRE One",
+          email: "sre@example.com",
+          linkedinUrl: null,
+          currentTitle: "SRE",
+          tenure: 5,
+        },
+        campaignBucket: "sre",
+      },
+      {
+        employee: {
+          id: "p-2",
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "Infra One",
+          email: "infra@example.com",
+          linkedinUrl: null,
+          currentTitle: "Infrastructure",
+          tenure: 15,
+        },
+        campaignBucket: "eng",
+      },
+      {
+        employee: {
+          id: "p-3",
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "VP One",
+          email: "vp@example.com",
+          linkedinUrl: null,
+          currentTitle: "VP of Engineering",
+          tenure: 24,
+        },
+        campaignBucket: "engLead",
+      },
+    ];
+
+    await pushPeopleToLemlistEmailCampaign(candidates, "Acme", "acme.com", "julian");
+
+    expect(createLeadInCampaignMock).toHaveBeenCalledTimes(3);
+    expect(createLeadInCampaignMock).toHaveBeenCalledWith(
+      "cam_sre_email",
+      expect.objectContaining({ email: "sre@example.com" }),
+      expect.any(Object)
+    );
+    expect(createLeadInCampaignMock).toHaveBeenCalledWith(
+      "cam_eng_email",
+      expect.objectContaining({ email: "infra@example.com" }),
+      expect.any(Object)
+    );
+    expect(createLeadInCampaignMock).toHaveBeenCalledWith(
+      "cam_eng_lead_email",
+      expect.objectContaining({ email: "vp@example.com" }),
+      expect.any(Object)
+    );
+  });
+
   it("skips missing-email people and logs company and person", async () => {
     createLeadInCampaignMock.mockResolvedValue(undefined);
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    const result = await pushPeopleToLemlistEmailCampaign(
-      [
-        {
+    const candidates: TaggedEmailCandidate[] = [
+      {
+        employee: {
           id: "person-1",
           startDate: "2024-01-01",
           endDate: null,
           name: "No Email",
           email: null,
           linkedinUrl: "https://linkedin.com/in/no-email",
-          currentTitle: "Head of Engineering",
+          currentTitle: "SRE",
           tenure: 24,
         },
-      ],
+        campaignBucket: "sre",
+      },
+    ];
+
+    const result = await pushPeopleToLemlistEmailCampaign(
+      candidates,
       "Acme",
       "acme.com",
       "julian"
@@ -119,7 +217,7 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
       error: "Missing email for Lemlist email campaign payload.",
     });
     expect(logSpy).toHaveBeenCalledWith(
-      "[EmailPush][MissingEmail] company=Acme person=No Email title=Head of Engineering"
+      "[EmailPush][MissingEmail] company=Acme person=No Email title=SRE"
     );
   });
 });

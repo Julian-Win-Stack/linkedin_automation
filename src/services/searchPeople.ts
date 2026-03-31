@@ -258,50 +258,8 @@ export async function searchPeople(
   return searchPeopleByTitleParam(company, maxResults, personTitles, "person_titles[]", filters, false);
 }
 
-const BACKFILL_PAST_SRE_TITLES = ["SRE", "Site Reliability", "Head of Reliability"];
+const BACKFILL_PAST_SRE_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Head of Reliability"];
 const BACKFILL_PLATFORM_TITLES = ["platform engineer"];
-const EMAIL_CANDIDATE_TITLES = [
-  "platform engineer",
-  "SRE",
-  "Site Reliability",
-  "staff engineer",
-  "principal engineer",
-  "vp of platform",
-  "cto",
-  "tech lead",
-  "devops",
-  "infrastructure",
-  "head of engineering",
-  "vp of engineering",
-  "svp of engineering",
-  "chief technology officer",
-  "vice president of engineering",
-  "vp of software engineering",
-  "vp of technology",
-  "head of backend",
-  "head of infrastructure",
-  "head of systems",
-  "director of engineering",
-  "director of software engineering",
-  "director of backend engineering",
-  "lead software engineer",
-  "chief technical officer",
-  "vp of engineering",
-  "vice president engineering",
-  "vice president of engineering",
-  "software engineering",
-];
-const EMAIL_CANDIDATE_COMPACT_TITLES = [
-  "platform engineer",
-  "SRE",
-  "Site Reliability",
-  "staff engineer",
-  "principal engineer",
-  "tech lead",
-  "devops",
-  "infrastructure",
-  "lead software engineer",
-];
 
 export async function searchPastSrePeople(
   company: ResolvedCompany,
@@ -326,41 +284,78 @@ export async function searchCurrentPlatformEngineerPeople(
   return searchPeopleByTitleParam(company, maxResults, BACKFILL_PLATFORM_TITLES, "person_titles[]", filters, false);
 }
 
-export async function searchCurrentEngineeringEmailCandidates(
-  company: ResolvedCompany,
-  maxResults = 100,
-  filters: PeopleSearchFilters = {}
-): Promise<Prospect[]> {
-  return searchPeopleByTitleParam(company, maxResults, EMAIL_CANDIDATE_TITLES, "person_titles[]", filters, false);
+export interface EmailCandidateSearchParams {
+  currentTitles?: string[];
+  pastTitles?: string[];
+  notTitles?: string[];
 }
 
-export async function getCurrentEngineeringEmailCandidateTotalEntries(
+export async function searchEmailCandidatePeople(
   company: ResolvedCompany,
+  maxResults: number,
+  searchParams: EmailCandidateSearchParams,
   filters: PeopleSearchFilters = {}
-): Promise<number> {
-  const response = await apolloPostWithQuery<PeopleSearchResponse>(
-    "/mixed_people/api_search",
-    toPeopleSearchQueryParams(company, 1, EMAIL_CANDIDATE_TITLES, "person_titles[]", filters, APOLLO_PAGE_SIZE, false)
-  );
+): Promise<Prospect[]> {
+  const normalizedMaxResults = Math.max(1, Math.min(maxResults, 100));
+  const currentTitles = [...new Set((searchParams.currentTitles ?? []).map((t) => t.trim()).filter(Boolean))];
+  const pastTitles = [...new Set((searchParams.pastTitles ?? []).map((t) => t.trim()).filter(Boolean))];
+  const notTitles = [...new Set((searchParams.notTitles ?? []).map((t) => t.trim()).filter(Boolean))];
 
-  if (typeof response.total_entries === "number") {
-    return response.total_entries;
+  if (currentTitles.length === 0 && pastTitles.length === 0) {
+    throw new Error("At least one current or past title is required.");
   }
 
-  return (response.people ?? []).length;
-}
+  const prospects: Prospect[] = [];
+  let page = 1;
 
-export async function searchCurrentEngineeringEmailCandidatesCompact(
-  company: ResolvedCompany,
-  maxResults = 100,
-  filters: PeopleSearchFilters = {}
-): Promise<Prospect[]> {
-  return searchPeopleByTitleParam(
-    company,
-    maxResults,
-    EMAIL_CANDIDATE_COMPACT_TITLES,
-    "person_titles[]",
-    filters,
-    false
-  );
+  while (prospects.length < normalizedMaxResults) {
+    const params: Record<string, string | number | boolean | Array<string | number | boolean>> = {
+      page,
+      per_page: APOLLO_PAGE_SIZE,
+      include_similar_titles: false,
+    };
+
+    if (currentTitles.length > 0) {
+      params["person_titles[]"] = currentTitles;
+    }
+    if (pastTitles.length > 0) {
+      params["person_past_titles[]"] = pastTitles;
+    }
+    if (notTitles.length > 0) {
+      params["person_not_titles[]"] = notTitles;
+    }
+
+    const domain = company.domain.trim();
+    if (domain) {
+      params["q_organization_domains_list[]"] = [domain];
+    }
+
+    const apolloOrganizationId = filters.apolloOrganizationId?.trim();
+    if (apolloOrganizationId) {
+      params["q_organization_ids[]"] = [apolloOrganizationId];
+    }
+
+    const response = await apolloPostWithQuery<PeopleSearchResponse>(
+      "/mixed_people/api_search",
+      params
+    );
+
+    const people = response.people ?? [];
+    if (people.length === 0) {
+      break;
+    }
+
+    prospects.push(...people.map((person) => toProspect(person, company.companyName)));
+
+    const totalPages = response.pagination?.total_pages;
+    const reachedLastPage =
+      page >= MAX_APOLLO_PAGES || (totalPages ? page >= totalPages : people.length < APOLLO_PAGE_SIZE);
+    if (reachedLastPage) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return prospects.slice(0, normalizedMaxResults);
 }

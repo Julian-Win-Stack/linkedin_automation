@@ -125,6 +125,24 @@ describe("selectTopSreForLemlist", () => {
     expect(selected).toHaveLength(1);
     expect(selected[0].name).toBe("Head Reliability");
   });
+
+  it("treats all tier-1 head titles equally and trims by tenure", () => {
+    const selected = selectTopSreForLemlist(
+      [
+        employee({ name: "Head Reliability", currentTitle: "Head of Reliability", tenure: 2 }),
+        employee({ name: "Head Site Reliability", currentTitle: "Head of Site Reliability", tenure: 8 }),
+        employee({ name: "Head SRE", currentTitle: "Head of SRE", tenure: 5 }),
+        employee({ name: "SRE Director", currentTitle: "Director of SRE", tenure: 7 }),
+      ],
+      3
+    );
+
+    expect(selected.map((item) => item.name)).toEqual([
+      "Head Site Reliability",
+      "SRE Director",
+      "Head SRE",
+    ]);
+  });
 });
 
 describe("fillToMinimumWithBackfill", () => {

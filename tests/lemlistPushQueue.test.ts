@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pushPeopleToLemlistCampaign } from "../src/services/lemlistPushQueue";
+import { pushPeopleToLemlistCampaign, TaggedLinkedinCandidate } from "../src/services/lemlistPushQueue";
 
 const createLeadInCampaignMock = vi.fn();
 const getLemlistLinkedinCampaignIdsForUserMock = vi.fn();
@@ -16,17 +16,16 @@ describe("pushPeopleToLemlistCampaign", () => {
     getLemlistLinkedinCampaignIdsForUserMock.mockReset();
     getLemlistLinkedinCampaignIdsForUserMock.mockReturnValue({
       sreCampaignId: "cam_sre",
-      engLeadCampaignId: "cam_eng_lead",
       engCampaignId: "cam_eng",
     });
   });
 
-  it("routes SRE titles to SRE campaign and returns push summary", async () => {
+  it("routes sre-bucketed candidates to SRE campaign", async () => {
     createLeadInCampaignMock.mockResolvedValue(undefined);
 
-    const result = await pushPeopleToLemlistCampaign(
-      [
-        {
+    const candidates: TaggedLinkedinCandidate[] = [
+      {
+        employee: {
           startDate: "2024-01-01",
           endDate: null,
           name: "Jane Doe",
@@ -34,11 +33,11 @@ describe("pushPeopleToLemlistCampaign", () => {
           currentTitle: "SRE",
           tenure: 12,
         },
-      ],
-      "Acme",
-      "acme.com",
-      "julian"
-    );
+        linkedinBucket: "sre",
+      },
+    ];
+
+    const result = await pushPeopleToLemlistCampaign(candidates, "Acme", "acme.com", "julian");
 
     expect(createLeadInCampaignMock).toHaveBeenCalledWith(
       "cam_sre",
@@ -67,128 +66,117 @@ describe("pushPeopleToLemlistCampaign", () => {
     });
   });
 
-  it("routes remaining leadership titles to eng lead campaign", async () => {
+  it("routes eng-bucketed candidates to Eng campaign", async () => {
     createLeadInCampaignMock.mockResolvedValue(undefined);
 
-    await pushPeopleToLemlistCampaign(
-      [
-        {
-          startDate: "2024-01-01",
-          endDate: null,
-          name: "Lead Person",
-          linkedinUrl: "https://linkedin.com/in/lead",
-          currentTitle: "VP of Engineering",
-          tenure: 12,
-        },
-      ],
-      "Acme",
-      "acme.com",
-      "julian"
-    );
-
-    expect(createLeadInCampaignMock).toHaveBeenCalledWith(
-      "cam_eng_lead",
+    const candidates: TaggedLinkedinCandidate[] = [
       {
-        firstName: "Lead",
-        lastName: "Person",
-        companyName: "Acme",
-        jobTitle: "VP of Engineering",
-        linkedinUrl: "https://linkedin.com/in/lead",
-        companyDomain: "acme.com",
-      },
-      expect.any(Object)
-    );
-  });
-
-  it("routes non-SRE and non-leadership titles to eng campaign", async () => {
-    createLeadInCampaignMock.mockResolvedValue(undefined);
-
-    await pushPeopleToLemlistCampaign(
-      [
-        {
+        employee: {
           startDate: "2024-01-01",
           endDate: null,
-          name: "Engineer Person",
-          linkedinUrl: "https://linkedin.com/in/engineer",
-          currentTitle: "Software Engineer",
+          name: "Platform Person",
+          linkedinUrl: "https://linkedin.com/in/platform",
+          currentTitle: "Platform Engineer",
           tenure: 12,
         },
-      ],
-      "Acme",
-      "acme.com",
-      "julian"
-    );
+        linkedinBucket: "eng",
+      },
+    ];
+
+    await pushPeopleToLemlistCampaign(candidates, "Acme", "acme.com", "julian");
 
     expect(createLeadInCampaignMock).toHaveBeenCalledWith(
       "cam_eng",
       {
-        firstName: "Engineer",
+        firstName: "Platform",
         lastName: "Person",
         companyName: "Acme",
-        jobTitle: "Software Engineer",
-        linkedinUrl: "https://linkedin.com/in/engineer",
+        jobTitle: "Platform Engineer",
+        linkedinUrl: "https://linkedin.com/in/platform",
         companyDomain: "acme.com",
       },
       expect.any(Object)
     );
   });
 
-  it("uses SRE campaign when title matches both SRE and leadership keywords", async () => {
+  it("routes mixed buckets to correct campaigns in order", async () => {
     createLeadInCampaignMock.mockResolvedValue(undefined);
 
-    await pushPeopleToLemlistCampaign(
-      [
-        {
+    const candidates: TaggedLinkedinCandidate[] = [
+      {
+        employee: {
           startDate: "2024-01-01",
           endDate: null,
-          name: "Dual Match",
-          linkedinUrl: "https://linkedin.com/in/dual",
-          currentTitle: "VP, Head of Site Reliability",
+          name: "SRE Person",
+          linkedinUrl: "https://linkedin.com/in/sre",
+          currentTitle: "Site Reliability Engineer",
           tenure: 12,
         },
-      ],
-      "Acme",
-      "acme.com",
-      "julian"
-    );
+        linkedinBucket: "sre",
+      },
+      {
+        employee: {
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "Platform Person",
+          linkedinUrl: "https://linkedin.com/in/platform",
+          currentTitle: "Platform Engineer",
+          tenure: 12,
+        },
+        linkedinBucket: "eng",
+      },
+    ];
 
-    expect(createLeadInCampaignMock).toHaveBeenCalledWith(
+    const result = await pushPeopleToLemlistCampaign(candidates, "Acme", "acme.com", "julian");
+
+    expect(createLeadInCampaignMock).toHaveBeenCalledTimes(2);
+    expect(createLeadInCampaignMock).toHaveBeenNthCalledWith(
+      1,
       "cam_sre",
-      expect.objectContaining({
-        jobTitle: "VP, Head of Site Reliability",
-      }),
+      expect.objectContaining({ jobTitle: "Site Reliability Engineer" }),
       expect.any(Object)
     );
+    expect(createLeadInCampaignMock).toHaveBeenNthCalledWith(
+      2,
+      "cam_eng",
+      expect.objectContaining({ jobTitle: "Platform Engineer" }),
+      expect.any(Object)
+    );
+    expect(result.attempted).toBe(2);
+    expect(result.successful).toBe(2);
   });
 
-  it("keeps successful pushes and reports failed pushes across routed campaigns", async () => {
+  it("keeps successful pushes and reports failed pushes across buckets", async () => {
     createLeadInCampaignMock
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error("Lemlist API error (404): Campaign not found"));
 
-    const result = await pushPeopleToLemlistCampaign(
-      [
-        {
+    const candidates: TaggedLinkedinCandidate[] = [
+      {
+        employee: {
           startDate: "2024-01-01",
           endDate: null,
           name: "Jane Doe",
           linkedinUrl: "https://linkedin.com/in/jane",
-          currentTitle: "Site Reliability Engineer",
+          currentTitle: "SRE",
           tenure: 12,
         },
-        {
+        linkedinBucket: "sre",
+      },
+      {
+        employee: {
           startDate: "2024-01-01",
           endDate: null,
           name: "John Doe",
           linkedinUrl: "https://linkedin.com/in/john",
-          currentTitle: "VP Engineering",
+          currentTitle: "Platform Engineer",
           tenure: 12,
         },
-      ],
-      "Acme",
-      "acme.com",
-      "julian"
-    );
+        linkedinBucket: "eng",
+      },
+    ];
+
+    const result = await pushPeopleToLemlistCampaign(candidates, "Acme", "acme.com", "julian");
 
     expect(result.attempted).toBe(2);
     expect(result.successful).toBe(1);
@@ -201,22 +189,23 @@ describe("pushPeopleToLemlistCampaign", () => {
     expect(createLeadInCampaignMock).toHaveBeenNthCalledWith(
       1,
       "cam_sre",
-      expect.objectContaining({ jobTitle: "Site Reliability Engineer" }),
+      expect.objectContaining({ jobTitle: "SRE" }),
       expect.any(Object)
     );
     expect(createLeadInCampaignMock).toHaveBeenNthCalledWith(
       2,
-      "cam_eng_lead",
-      expect.objectContaining({ jobTitle: "VP Engineering" }),
+      "cam_eng",
+      expect.objectContaining({ jobTitle: "Platform Engineer" }),
       expect.any(Object)
     );
   });
 
   it("does not apply tenure filtering in queue layer", async () => {
     createLeadInCampaignMock.mockResolvedValue(undefined);
-    const result = await pushPeopleToLemlistCampaign(
-      [
-        {
+
+    const candidates: TaggedLinkedinCandidate[] = [
+      {
+        employee: {
           startDate: "2024-01-01",
           endDate: null,
           name: "Short Stay",
@@ -224,7 +213,10 @@ describe("pushPeopleToLemlistCampaign", () => {
           currentTitle: "SRE",
           tenure: 1,
         },
-        {
+        linkedinBucket: "sre",
+      },
+      {
+        employee: {
           startDate: "2024-01-01",
           endDate: null,
           name: "Eligible Person",
@@ -232,11 +224,11 @@ describe("pushPeopleToLemlistCampaign", () => {
           currentTitle: "SRE",
           tenure: 2,
         },
-      ],
-      "Acme",
-      "acme.com",
-      "julian"
-    );
+        linkedinBucket: "sre",
+      },
+    ];
+
+    const result = await pushPeopleToLemlistCampaign(candidates, "Acme", "acme.com", "julian");
 
     expect(createLeadInCampaignMock).toHaveBeenCalledTimes(2);
     expect(result.attempted).toBe(2);
