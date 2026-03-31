@@ -288,6 +288,7 @@ export interface EmailCandidateSearchParams {
   currentTitles?: string[];
   pastTitles?: string[];
   notTitles?: string[];
+  notPastTitles?: string[];
 }
 
 export async function searchEmailCandidatePeople(
@@ -300,6 +301,7 @@ export async function searchEmailCandidatePeople(
   const currentTitles = [...new Set((searchParams.currentTitles ?? []).map((t) => t.trim()).filter(Boolean))];
   const pastTitles = [...new Set((searchParams.pastTitles ?? []).map((t) => t.trim()).filter(Boolean))];
   const notTitles = [...new Set((searchParams.notTitles ?? []).map((t) => t.trim()).filter(Boolean))];
+  const notPastTitles = [...new Set((searchParams.notPastTitles ?? []).map((t) => t.trim()).filter(Boolean))];
 
   if (currentTitles.length === 0 && pastTitles.length === 0) {
     throw new Error("At least one current or past title is required.");
@@ -323,6 +325,9 @@ export async function searchEmailCandidatePeople(
     }
     if (notTitles.length > 0) {
       params["person_not_titles[]"] = notTitles;
+    }
+    if (notPastTitles.length > 0) {
+      params["person_not_past_titles[]"] = notPastTitles;
     }
 
     const domain = company.domain.trim();

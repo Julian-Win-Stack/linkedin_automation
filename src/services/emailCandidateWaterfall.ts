@@ -9,6 +9,7 @@ interface EmailSearchStageConfig {
   currentTitles?: string[];
   pastTitles?: string[];
   notTitles?: string[];
+  notPastTitles?: string[];
   minTenureMonths: number;
   campaignBucket: EmailCampaignBucket;
 }
@@ -36,6 +37,19 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
   },
   {
     pastTitles: ["site reliability", "SRE", "Site Reliability Engineer"],
+    notPastTitles: [
+      "client",
+      "account",
+      "sales",
+      "customer",
+      "insight",
+      "research",
+      "marketing",
+      "consultant",
+      "analyst",
+      "partner",
+      "commercial",
+    ],
     minTenureMonths: 2,
     campaignBucket: "sre",
   },
@@ -227,7 +241,7 @@ export async function runEmailCandidateWaterfall(
     const rawProspects = await searchEmailCandidatePeople(
       company,
       MAX_SEARCH_RESULTS,
-      { currentTitles: stage.currentTitles, pastTitles: stage.pastTitles, notTitles: stage.notTitles },
+      { currentTitles: stage.currentTitles, pastTitles: stage.pastTitles, notTitles: stage.notTitles, notPastTitles: stage.notPastTitles },
       filters
     );
 

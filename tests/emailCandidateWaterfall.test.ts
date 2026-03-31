@@ -389,6 +389,19 @@ describe("runEmailCandidateWaterfall", () => {
     expect(stage2Call[2]).toEqual({
       currentTitles: undefined,
       pastTitles: ["site reliability", "SRE", "Site Reliability Engineer"],
+      notPastTitles: [
+        "client",
+        "account",
+        "sales",
+        "customer",
+        "insight",
+        "research",
+        "marketing",
+        "consultant",
+        "analyst",
+        "partner",
+        "commercial",
+      ],
     });
   });
 

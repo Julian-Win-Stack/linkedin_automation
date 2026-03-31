@@ -432,4 +432,40 @@ describe("searchPeople", () => {
     const params = apolloPostWithQueryMock.mock.calls[0][1];
     expect(params).not.toHaveProperty("person_not_titles[]");
   });
+
+  it("includes person_not_past_titles[] when notPastTitles is provided", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "past-sre-1", name: "Past SRE", title: "Software Engineer" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    await searchEmailCandidatePeople(company, 10, {
+      pastTitles: ["SRE"],
+      notPastTitles: ["client", "sales"],
+    });
+
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 100,
+      include_similar_titles: false,
+      "q_organization_domains_list[]": ["acme.com"],
+      "person_past_titles[]": ["SRE"],
+      "person_not_past_titles[]": ["client", "sales"],
+    });
+  });
+
+  it("omits person_not_past_titles[] when notPastTitles is empty or absent", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "sre-3", name: "SRE Three", title: "SRE" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    await searchEmailCandidatePeople(company, 10, {
+      pastTitles: ["SRE"],
+      notPastTitles: [],
+    });
+
+    const params = apolloPostWithQueryMock.mock.calls[0][1];
+    expect(params).not.toHaveProperty("person_not_past_titles[]");
+  });
 });
