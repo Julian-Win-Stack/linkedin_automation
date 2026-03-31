@@ -62,6 +62,12 @@ function setSelectedUser(user: SelectedUser): void {
   localStorage.setItem(SELECTED_USER_STORAGE_KEY, user);
 }
 
+async function logoutSelectedUser(): Promise<void> {
+  await cancelAndReset();
+  selectedUser.value = null;
+  localStorage.removeItem(SELECTED_USER_STORAGE_KEY);
+}
+
 watch(resultBlob, (blob) => {
   if (downloadUrl.value) {
     URL.revokeObjectURL(downloadUrl.value);
@@ -363,11 +369,18 @@ async function cancelAndReset(): Promise<void> {
   <div
     class="relative min-h-screen bg-[radial-gradient(circle_at_top,#111a2a_0%,#090d16_45%,#05070c_100%)] px-4 text-zinc-200"
   >
-    <div
-      v-if="selectedUserLabel"
-      class="absolute right-4 top-4 rounded-full border border-indigo-400/40 bg-[#121a2c]/90 px-3 py-1.5 text-xs font-semibold tracking-wide text-indigo-200 shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
-    >
-      User: {{ selectedUserLabel }}
+    <div v-if="selectedUserLabel" class="absolute right-4 top-4 flex flex-col items-end gap-1.5">
+      <div
+        class="rounded-full border border-indigo-400/40 bg-[#121a2c]/90 px-3 py-1.5 text-xs font-semibold tracking-wide text-indigo-200 shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+      >
+        User: {{ selectedUserLabel }}
+      </div>
+      <button
+        class="rounded-full border border-zinc-500/50 bg-[#0f1728]/90 px-2.5 py-1 text-[11px] font-medium tracking-wide text-zinc-300 transition hover:border-zinc-400/70 hover:bg-[#16233a]"
+        @click="logoutSelectedUser"
+      >
+        Log out
+      </button>
     </div>
 
     <div class="mx-auto flex min-h-screen w-full max-w-2xl items-center py-12">
