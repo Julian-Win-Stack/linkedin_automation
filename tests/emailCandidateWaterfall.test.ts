@@ -363,6 +363,19 @@ describe("runEmailCandidateWaterfall", () => {
         "backend platform",
       ],
       notTitles: ["data"],
+      notPastTitles: [
+        "client",
+        "account",
+        "sales",
+        "customer",
+        "insight",
+        "research",
+        "marketing",
+        "consultant",
+        "analyst",
+        "partner",
+        "commercial",
+      ],
     });
   });
 
