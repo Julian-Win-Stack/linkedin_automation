@@ -31,12 +31,12 @@ const LIGHT_LINE = "─".repeat(LINE_WIDTH);
 
 const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
   {
-    currentTitles: ["site reliability", "SRE", "Site Reliability Engineer"],
+    currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
     minTenureMonths: 2,
     campaignBucket: "sre",
   },
   {
-    pastTitles: ["site reliability", "SRE", "Site Reliability Engineer"],
+    pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
     notPastTitles: [
       "client",
       "account",

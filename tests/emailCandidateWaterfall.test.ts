@@ -400,12 +400,12 @@ describe("runEmailCandidateWaterfall", () => {
     const stage2Call = searchEmailCandidatePeopleMock.mock.calls[1];
 
     expect(stage1Call[2]).toEqual({
-      currentTitles: ["site reliability", "SRE", "Site Reliability Engineer"],
+      currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
       pastTitles: undefined,
     });
     expect(stage2Call[2]).toEqual({
       currentTitles: undefined,
-      pastTitles: ["site reliability", "SRE", "Site Reliability Engineer"],
+      pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
       notPastTitles: [
         "client",
         "account",

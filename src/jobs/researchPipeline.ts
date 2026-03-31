@@ -42,7 +42,7 @@ import { SelectedUser } from "../shared/selectedUser";
 import { runEmailCandidateWaterfall, TaggedEmailCandidate } from "../services/emailCandidateWaterfall";
 
 const MAX_ROWS = 500;
-const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Head of Reliability"];
+const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"];
 const MAX_RESULTS = 30;
 const REJECTED_REASON = "rejected because they were using other observability tools";
 const MIN_ENGINEER_COUNT = 18;
