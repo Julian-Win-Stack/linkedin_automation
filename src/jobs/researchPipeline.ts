@@ -28,6 +28,8 @@ import {
   addJobWarning,
   getJob,
   JobSummary,
+  CampaignPushData,
+  CampaignPushEntry,
   markJobDone,
   markJobError,
   setJobMessage,
@@ -35,11 +37,13 @@ import {
   setSkippedCompanies,
   setJobStatus,
   setJobSummary,
+  setCampaignPushData,
   setRejectedCompanies,
 } from "./jobStore";
-import { EnrichedEmployee } from "../types/prospect";
+import { EnrichedEmployee, ApifyOpenToWorkCache } from "../types/prospect";
 import { SelectedUser } from "../shared/selectedUser";
 import { runEmailCandidateWaterfall, TaggedEmailCandidate } from "../services/emailCandidateWaterfall";
+import { scrapeAndFilterOpenToWork, splitByTenure } from "../services/apifyClient";
 
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"];
@@ -140,11 +144,16 @@ export async function runResearchPipeline(
   let totalEmailCampaignSuccessful = 0;
   let totalEmailCampaignFailed = 0;
 
+  const campaignPushData: CampaignPushData = {
+    linkedinSre: [],
+    linkedinEng: [],
+    emailSre: [],
+    emailEng: [],
+    emailEngLead: [],
+  };
+
+  const _originalConsoleLog = console.log;
   try {
-    // TEMPORARY: suppress non-waterfall logs for clean debugging output.
-    // The waterfall uses process.stdout.write so its output always appears.
-    // Remove this block when done debugging.
-    const _originalConsoleLog = console.log;
     console.log = () => {};
 
     setJobStatus(jobId, "processing");
@@ -224,6 +233,7 @@ export async function runResearchPipeline(
       logPipelineStage("COMPANY_START", "Company processing started.", companyContext);
 
       try {
+        const apifyCache: ApifyOpenToWorkCache = new Map();
         logPipelineStage("RESOLVE_COMPANY", "Resolving company profile.", companyContext);
         const company = row.companyDomain
           ? await getCompany(row.companyDomain)
@@ -277,14 +287,18 @@ export async function runResearchPipeline(
           });
           continue;
         }
+        process.stdout.write(`\n${"═".repeat(78)}\n  LINKEDIN CAMPAIGN — SRE Search — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
+        process.stdout.write(`  ▸ Searching current SRE candidates...\n`);
         logPipelineStage("SEARCH_CURRENT_SRE", "Searching current SRE candidates.", companyContext);
         const prospects = await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES, {
           apolloOrganizationId: row.apolloAccountId,
         });
         const dedupedProspects = dedupeProspectsById(prospects);
         const rawSreCount = dedupedProspects.length;
+        process.stdout.write(`  ▸ Found ${rawSreCount} current SRE candidates\n`);
         logPipelineStage("SEARCH_CURRENT_SRE_DONE", `Current SRE candidates found. count=${rawSreCount}`, companyContext);
         if (rawSreCount > MAX_SRE_COUNT) {
+          process.stdout.write(`  ▸ Rejected — too many SREs (${rawSreCount} > ${MAX_SRE_COUNT})\n`);
           logPipelineStage(
             "REJECT_SRE_MAX",
             `Company rejected by SRE maximum. count=${rawSreCount}`,
@@ -303,9 +317,16 @@ export async function runResearchPipeline(
           });
           continue;
         }
+        process.stdout.write(`  ▸ Enriching ${dedupedProspects.length} current SRE candidates...\n`);
         logPipelineStage("ENRICH_CURRENT_SRE", "Enriching current SRE candidates.", companyContext);
         const enrichedEmployees = await bulkEnrichPeople(dedupedProspects, enrichmentCache);
-        const selectedCurrentSre = selectTopSreForLemlist(enrichedEmployees, 7);
+        const { eligible: tenureEligibleSre } = splitByTenure(enrichedEmployees, 2);
+        process.stdout.write(`  ▸ Checking openToWork for ${tenureEligibleSre.length} current SRE candidates...\n`);
+        logPipelineStage("APIFY_CURRENT_SRE", `Checking openToWork for ${tenureEligibleSre.length} current SRE candidates.`, companyContext);
+        const { kept: apifyFilteredSre, warnings: apifyWarnsSre } = await scrapeAndFilterOpenToWork(tenureEligibleSre, apifyCache, { companyName: row.companyName, companyDomain: row.companyDomain });
+        for (const w of apifyWarnsSre) { addJobWarning(jobId, w); }
+        const selectedCurrentSre = selectTopSreForLemlist(apifyFilteredSre, 7);
+        process.stdout.write(`  ▸ Selected ${selectedCurrentSre.length} current SRE for LinkedIn seed\n`);
         logPipelineStage(
           "SELECT_CURRENT_SRE",
           `Current SRE selected for LinkedIn seed. selected=${selectedCurrentSre.length}`,
@@ -316,17 +337,25 @@ export async function runResearchPipeline(
 
         // Backfill only runs if we have at least one current SRE candidate selected.
         if (selectedCurrentSre.length > 0 && selectedCurrentSre.length < 5 && rawSreCount > 0) {
+          process.stdout.write(`  ▸ Backfill Phase 1 — Searching past SRE candidates...\n`);
           logPipelineStage("BACKFILL_PHASE_1_START", "Backfill phase 1 (past SRE) started.", companyContext);
           const pastSreProspects = dedupeProspectsById(
             await searchPastSrePeople(company, MAX_RESULTS, {
               apolloOrganizationId: row.apolloAccountId,
             })
           );
+          process.stdout.write(`  ▸ Enriching ${pastSreProspects.length} past SRE candidates...\n`);
           const pastSreEnriched = await bulkEnrichPeople(pastSreProspects, enrichmentCache);
-          selectedForLemlist = fillToMinimumWithBackfill(selectedCurrentSre, pastSreEnriched, [], {
+          const { eligible: tenureEligiblePastSre } = splitByTenure(pastSreEnriched, 2);
+          process.stdout.write(`  ▸ Checking openToWork for ${tenureEligiblePastSre.length} past SRE candidates...\n`);
+          logPipelineStage("APIFY_PAST_SRE", `Checking openToWork for ${tenureEligiblePastSre.length} past SRE candidates.`, companyContext);
+          const { kept: apifyFilteredPastSre, warnings: apifyWarnsPastSre } = await scrapeAndFilterOpenToWork(tenureEligiblePastSre, apifyCache, { companyName: row.companyName, companyDomain: row.companyDomain });
+          for (const w of apifyWarnsPastSre) { addJobWarning(jobId, w); }
+          selectedForLemlist = fillToMinimumWithBackfill(selectedCurrentSre, apifyFilteredPastSre, [], {
             minimum: 5,
             max: 7,
           });
+          process.stdout.write(`  ▸ Backfill Phase 1 done — ${selectedForLemlist.length} selected so far\n`);
           logPipelineStage(
             "BACKFILL_PHASE_1_DONE",
             `Backfill phase 1 complete. selected_after_phase1=${selectedForLemlist.length}`,
@@ -335,17 +364,25 @@ export async function runResearchPipeline(
 
           if (selectedForLemlist.length < 5) {
             prePlatformKeys = new Set(selectedForLemlist.map(toEmployeeKey));
+            process.stdout.write(`  ▸ Backfill Phase 2 — Searching platform candidates...\n`);
             logPipelineStage("BACKFILL_PHASE_2_START", "Backfill phase 2 (platform) started.", companyContext);
             const platformProspects = dedupeProspectsById(
               await searchCurrentPlatformEngineerPeople(company, MAX_RESULTS, {
                 apolloOrganizationId: row.apolloAccountId,
               })
             );
+            process.stdout.write(`  ▸ Enriching ${platformProspects.length} platform candidates...\n`);
             const platformEnriched = await bulkEnrichPeople(platformProspects, enrichmentCache);
-            selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, [], platformEnriched, {
+            const { eligible: tenureEligiblePlatform } = splitByTenure(platformEnriched, 11);
+            process.stdout.write(`  ▸ Checking openToWork for ${tenureEligiblePlatform.length} platform candidates...\n`);
+            logPipelineStage("APIFY_PLATFORM", `Checking openToWork for ${tenureEligiblePlatform.length} platform candidates.`, companyContext);
+            const { kept: apifyFilteredPlatform, warnings: apifyWarnsPlatform } = await scrapeAndFilterOpenToWork(tenureEligiblePlatform, apifyCache, { companyName: row.companyName, companyDomain: row.companyDomain });
+            for (const w of apifyWarnsPlatform) { addJobWarning(jobId, w); }
+            selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, [], apifyFilteredPlatform, {
               minimum: 5,
               max: 5,
             });
+            process.stdout.write(`  ▸ Backfill Phase 2 done — ${selectedForLemlist.length} selected so far\n`);
             logPipelineStage(
               "BACKFILL_PHASE_2_DONE",
               `Backfill phase 2 complete. selected_after_phase2=${selectedForLemlist.length}`,
@@ -366,6 +403,19 @@ export async function runResearchPipeline(
               ? "sre" as const
               : "eng" as const,
           }));
+          for (const tagged of taggedForLemlist) {
+            const entry: CampaignPushEntry = {
+              name: tagged.employee.name,
+              title: tagged.employee.currentTitle,
+              linkedinUrl: tagged.employee.linkedinUrl ?? null,
+            };
+            if (tagged.linkedinBucket === "sre") {
+              campaignPushData.linkedinSre.push(entry);
+            } else {
+              campaignPushData.linkedinEng.push(entry);
+            }
+          }
+          process.stdout.write(`  ▸ Pushing ${taggedForLemlist.length} candidates to LinkedIn campaign...\n`);
           logPipelineStage(
             "PUSH_LINKEDIN_START",
             `Pushing LinkedIn campaigns. candidates=${taggedForLemlist.length}`,
@@ -382,6 +432,7 @@ export async function runResearchPipeline(
           totalLinkedinCampaignSuccessful += lemlistSuccessful;
           totalLemlistSuccessful += lemlistSuccessful;
           totalLemlistFailed += lemlistFailed;
+          process.stdout.write(`  ▸ LinkedIn push done — ${lemlistSuccessful} successful, ${lemlistFailed} failed\n`);
           logPipelineStage(
             "PUSH_LINKEDIN_DONE",
             `LinkedIn push complete. successful=${lemlistSuccessful} failed=${lemlistFailed}`,
@@ -391,18 +442,24 @@ export async function runResearchPipeline(
 
         if (lemlistEnabled) {
           const attemptedLinkedinKeys = new Set(selectedForLemlist.map((employee) => toEmployeeKey(employee)));
+          process.stdout.write(`  ▸ Starting email candidate waterfall...\n`);
           logPipelineStage("EMAIL_WATERFALL_START", "Email candidate waterfall started.", companyContext);
           const waterfallResult = await runEmailCandidateWaterfall(
             company,
             attemptedLinkedinKeys,
             enrichmentCache,
-            { apolloOrganizationId: row.apolloAccountId }
+            { apolloOrganizationId: row.apolloAccountId },
+            apifyCache
           );
           logPipelineStage(
             "EMAIL_WATERFALL_DONE",
             `Email candidate waterfall complete. candidates=${waterfallResult.candidates.length}`,
             companyContext
           );
+
+          for (const warning of waterfallResult.warnings) {
+            addJobWarning(jobId, warning);
+          }
 
           if (waterfallResult.candidates.length > 0) {
             pendingEmailPushBatches.push({
@@ -551,6 +608,21 @@ export async function runResearchPipeline(
           }
         }
 
+        for (const { employee, campaignBucket } of batch.candidates) {
+          const entry: CampaignPushEntry = {
+            name: employee.name,
+            title: employee.currentTitle,
+            linkedinUrl: employee.linkedinUrl ?? null,
+          };
+          if (campaignBucket === "sre") {
+            campaignPushData.emailSre.push(entry);
+          } else if (campaignBucket === "engLead") {
+            campaignPushData.emailEngLead.push(entry);
+          } else {
+            campaignPushData.emailEng.push(entry);
+          }
+        }
+
         const emailPushMeta = await pushPeopleToLemlistEmailCampaign(
           batch.candidates,
           batch.companyName,
@@ -590,6 +662,7 @@ export async function runResearchPipeline(
       totalEmailCampaignFailed,
     };
     setJobSummary(jobId, summary);
+    setCampaignPushData(jobId, campaignPushData);
 
     const combinedOutputRows: OutputRow[] = [
       ...outputRows,
@@ -613,11 +686,11 @@ export async function runResearchPipeline(
       "JOB_DONE",
       `Job done: processed=${apolloProcessedCompanyCount} linkedin_success=${totalLinkedinCampaignSuccessful} lemlist_success=${totalLemlistSuccessful} lemlist_failed=${totalLemlistFailed}`
     );
-    console.log = _originalConsoleLog;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected job failure";
     markJobError(jobId, message);
     logPipelineStage("JOB_FAILED", `Job failed. error=${message}`);
+  } finally {
     console.log = _originalConsoleLog;
   }
 }

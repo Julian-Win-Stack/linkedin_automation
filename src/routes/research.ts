@@ -4,6 +4,7 @@ import { loadPipelineConfig } from "../config/pipelineConfig";
 import { createJob, getJob, markJobCancelled } from "../jobs/jobStore";
 import { runResearchPipeline } from "../jobs/researchPipeline";
 import { isSelectedUser, SelectedUser } from "../shared/selectedUser";
+import { generateCampaignPdf } from "../services/pdfReportGenerator";
 
 const upload = multer({ storage: multer.memoryStorage() });
 const router = Router();
@@ -99,6 +100,23 @@ router.post("/cancel/:jobId", (req, res) => {
 
   markJobCancelled(req.params.jobId);
   return res.status(200).json({ status: "cancelled" });
+});
+
+router.get("/pdf/:jobId", (req, res) => {
+  const job = getJob(req.params.jobId);
+  if (!job) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+  if (job.status !== "done" || !job.campaignPushData) {
+    return res.status(400).json({ error: "PDF is not available for this job." });
+  }
+
+  const doc = generateCampaignPdf(job.campaignPushData);
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", 'attachment; filename="campaign-push-report.pdf"');
+  doc.pipe(res);
+  doc.end();
 });
 
 export default router;

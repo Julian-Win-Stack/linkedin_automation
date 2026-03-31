@@ -1,7 +1,8 @@
 import { ResolvedCompany } from "./getCompany";
 import { bulkEnrichPeople, EnrichmentCache } from "./bulkEnrichPeople";
 import { searchEmailCandidatePeople, PeopleSearchFilters } from "./searchPeople";
-import { EnrichedEmployee, Prospect } from "../types/prospect";
+import { EnrichedEmployee, Prospect, ApifyOpenToWorkCache } from "../types/prospect";
+import { scrapeAndFilterOpenToWork, splitByTenure, filterFrontendEngineers } from "./apifyClient";
 
 export type EmailCampaignBucket = "sre" | "eng" | "engLead";
 
@@ -21,6 +22,7 @@ export interface TaggedEmailCandidate {
 
 export interface EmailWaterfallResult {
   candidates: TaggedEmailCandidate[];
+  warnings: string[];
 }
 
 const MAX_PER_COMPANY = 7;
@@ -28,6 +30,7 @@ const MAX_SEARCH_RESULTS = 30;
 const LINE_WIDTH = 62;
 const HEAVY_LINE = "═".repeat(LINE_WIDTH);
 const LIGHT_LINE = "─".repeat(LINE_WIDTH);
+const NORMAL_ENGINEER_STAGE_INDEX = 5;
 
 const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
   {
@@ -55,7 +58,7 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
   },
   {
     currentTitles: ["Infrastructure"],
-    notTitles: ["data"],
+    notTitles: ["data", "frontend", "front end", "front-end"],
     minTenureMonths: 11,
     campaignBucket: "eng",
   },
@@ -245,10 +248,12 @@ export async function runEmailCandidateWaterfall(
   company: ResolvedCompany,
   linkedinAttemptedKeys: Set<string>,
   enrichmentCache: EnrichmentCache,
-  filters: PeopleSearchFilters
+  filters: PeopleSearchFilters,
+  apifyCache: ApifyOpenToWorkCache
 ): Promise<EmailWaterfallResult> {
   const listA: TaggedEmailCandidate[] = [];
   const listAKeys = new Set<string>();
+  const warnings: string[] = [];
 
   print("");
   print(HEAVY_LINE);
@@ -328,8 +333,51 @@ export async function runEmailCandidateWaterfall(
       continue;
     }
 
+    const { eligible: tenureEligible, droppedByTenure } = splitByTenure(filtered, stage.minTenureMonths);
+    if (droppedByTenure.length > 0) {
+      print(`    Pre-tenure   ${String(filtered.length).padStart(3)} → ${tenureEligible.length}  (dropped ${droppedByTenure.length} below ${stage.minTenureMonths}mo)`);
+    }
+
+    if (tenureEligible.length === 0) {
+      printStageSkip("all candidates dropped by tenure filter");
+      continue;
+    }
+
+    const { kept: apifyFiltered, warnings: apifyWarnings } = await scrapeAndFilterOpenToWork(tenureEligible, apifyCache, { companyName: company.companyName, companyDomain: company.domain });
+    warnings.push(...apifyWarnings);
+
+    if (apifyFiltered.length === 0) {
+      printStageSkip("all candidates removed by openToWork filter");
+      continue;
+    }
+
+    let candidatesForRanking = apifyFiltered;
+
+    if (stageIndex === NORMAL_ENGINEER_STAGE_INDEX) {
+      const frontendResult = filterFrontendEngineers(apifyFiltered, apifyCache, {
+        companyName: company.companyName,
+        companyDomain: company.domain,
+      });
+      candidatesForRanking = frontendResult.kept;
+
+      if (frontendResult.rejectedFrontend.length > 0) {
+        print(`    Frontend     ${apifyFiltered.length} → ${frontendResult.kept.length}  (rejected ${frontendResult.rejectedFrontend.length} frontend)`);
+      }
+
+      if (frontendResult.warnings.length > 0) {
+        warnings.push(
+          `Normal Engineer Search at ${company.companyName}: could not match company for ${frontendResult.warnings.length} candidate(s) — candidates kept`
+        );
+      }
+
+      if (candidatesForRanking.length === 0) {
+        printStageSkip("all candidates removed by frontend keyword filter");
+        continue;
+      }
+    }
+
     const slotsAvailable = MAX_PER_COMPANY - listA.length;
-    const result = rankAndSelectCandidates(filtered, stage.minTenureMonths, slotsAvailable);
+    const result = rankAndSelectCandidates(candidatesForRanking, stage.minTenureMonths, slotsAvailable);
 
     print(`    Tenure       ${result.qualifiedCount} qualified · ${result.nullTenureCount} null (filler) · ${result.belowMinCount} below min (dropped)`);
     print(`    Selection    ${slotsAvailable} slots → ${result.selected.length} picked (${result.selected.length - result.fillerCount} qualified + ${result.fillerCount} fillers)`);
@@ -361,5 +409,5 @@ export async function runEmailCandidateWaterfall(
   print(HEAVY_LINE);
   print("");
 
-  return { candidates: listA };
+  return { candidates: listA, warnings };
 }

@@ -51,3 +51,19 @@ export interface ApolloPerson {
   linkedin_url?: string;
   employment_history?: EmploymentHistoryItem[];
 }
+
+export interface ApifyExperienceEntry {
+  companyName?: string;
+  companyUniversalName?: string;
+  companyLinkedinUrl?: string;
+  description?: string;
+  position?: string;
+  endDate?: { text?: string } | null;
+}
+
+export interface ApifyCacheEntry {
+  openToWork: boolean;
+  experience: ApifyExperienceEntry[];
+}
+
+export type ApifyOpenToWorkCache = Map<string, ApifyCacheEntry>;

@@ -2,6 +2,20 @@ import { randomUUID } from "node:crypto";
 
 export type JobStatus = "pending" | "processing" | "cancelled" | "done" | "error";
 
+export interface CampaignPushEntry {
+  name: string;
+  title: string;
+  linkedinUrl: string | null;
+}
+
+export interface CampaignPushData {
+  linkedinSre: CampaignPushEntry[];
+  linkedinEng: CampaignPushEntry[];
+  emailSre: CampaignPushEntry[];
+  emailEng: CampaignPushEntry[];
+  emailEngLead: CampaignPushEntry[];
+}
+
 export interface JobSummary {
   totalRows: number;
   eligibleCompanyCount: number;
@@ -29,6 +43,7 @@ export type JobState = {
   rejectedCompanies: string[];
   rejectedReason?: string;
   summary?: JobSummary;
+  campaignPushData?: CampaignPushData;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -147,6 +162,15 @@ export function setJobSummary(jobId: string, summary: JobSummary): void {
     return;
   }
   job.summary = summary;
+  job.updatedAtMs = Date.now();
+}
+
+export function setCampaignPushData(jobId: string, data: CampaignPushData): void {
+  const job = jobs.get(jobId);
+  if (!job) {
+    return;
+  }
+  job.campaignPushData = data;
   job.updatedAtMs = Date.now();
 }
 
