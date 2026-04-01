@@ -21,6 +21,8 @@ const pushPeopleToLemlistEmailCampaignMock = vi.fn();
 const runEmailCandidateWaterfallMock = vi.fn();
 const rowsToCsvStringMock = vi.fn();
 const rejectedRowsToCsvStringMock = vi.fn();
+const scrapeAndFilterOpenToWorkMock = vi.fn();
+const splitByTenureMock = vi.fn();
 
 vi.mock("../src/services/observability/csvReader", () => ({
   readCompanies: (...args: unknown[]) => readCompaniesMock(...args),
@@ -72,6 +74,11 @@ vi.mock("../src/services/observability/csvWriter", () => ({
   rejectedRowsToCsvString: (...args: unknown[]) => rejectedRowsToCsvStringMock(...args),
 }));
 
+vi.mock("../src/services/apifyClient", () => ({
+  scrapeAndFilterOpenToWork: (...args: unknown[]) => scrapeAndFilterOpenToWorkMock(...args),
+  splitByTenure: (...args: unknown[]) => splitByTenureMock(...args),
+}));
+
 function asyncCompanyRows(
   rows: Array<{ companyName: string; companyDomain: string; apolloAccountId?: string; rowNumber: number }>
 ) {
@@ -103,7 +110,7 @@ function makeEmployees(count: number, prefix: string): EnrichedEmployee[] {
 }
 
 function emptyWaterfallResult(): EmailWaterfallResult {
-  return { candidates: [] };
+  return { candidates: [], warnings: [] };
 }
 
 describe("runResearchPipeline orchestration", () => {
@@ -125,6 +132,8 @@ describe("runResearchPipeline orchestration", () => {
     runEmailCandidateWaterfallMock.mockReset();
     rowsToCsvStringMock.mockReset();
     rejectedRowsToCsvStringMock.mockReset();
+    scrapeAndFilterOpenToWorkMock.mockReset();
+    splitByTenureMock.mockReset();
 
     rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
     rejectedRowsToCsvStringMock.mockResolvedValue("company_name,engineer_count\n");
@@ -134,6 +143,7 @@ describe("runResearchPipeline orchestration", () => {
       failed: 0,
       successItems: [],
       failedItems: [],
+      outcomes: [],
     });
     pushPeopleToLemlistEmailCampaignMock.mockResolvedValue({
       attempted: 0,
@@ -141,6 +151,7 @@ describe("runResearchPipeline orchestration", () => {
       failed: 0,
       successItems: [],
       failedItems: [],
+      outcomes: [],
     });
     searchCurrentPlatformEngineerPeopleMock.mockResolvedValue([]);
     searchPastSrePeopleMock.mockResolvedValue([]);
@@ -156,6 +167,13 @@ describe("runResearchPipeline orchestration", () => {
     researchCompanyMock.mockResolvedValue("Not found");
     getCompanyMock.mockResolvedValue({ companyName: "Acme", domain: "acme.com" });
     countEngineerPeopleMock.mockResolvedValue(120);
+    scrapeAndFilterOpenToWorkMock.mockImplementation(async (employees: EnrichedEmployee[]) => ({
+      kept: employees,
+      warnings: [],
+    }));
+    splitByTenureMock.mockImplementation((employees: EnrichedEmployee[]) => ({ eligible: employees }));
+    process.env.LEMLIST_PUSH_ENABLED = "true";
+    process.env.LEMLIST_BULK_FIND_EMAIL_ENABLED = "true";
     delete process.env.APOLLO_WATERFALL_ENABLED;
   });
 
@@ -270,13 +288,14 @@ describe("runResearchPipeline orchestration", () => {
         campaignBucket: "eng",
       },
     ];
-    runEmailCandidateWaterfallMock.mockResolvedValueOnce({ candidates: waterfallCandidates });
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({ candidates: waterfallCandidates, warnings: [] });
     pushPeopleToLemlistEmailCampaignMock.mockResolvedValueOnce({
       attempted: 2,
       successful: 2,
       failed: 0,
       successItems: ["SRE Email", "Eng Email"],
       failedItems: [],
+      outcomes: [],
     });
 
     const jobId = createJob();
@@ -296,7 +315,8 @@ describe("runResearchPipeline orchestration", () => {
       { companyName: "Acme", domain: "acme.com" },
       expect.any(Set),
       expect.any(Map),
-      { apolloOrganizationId: "org_1" }
+      { apolloOrganizationId: "org_1" },
+      expect.any(Map)
     );
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledWith(
@@ -332,7 +352,7 @@ describe("runResearchPipeline orchestration", () => {
         campaignBucket: "sre",
       },
     ];
-    runEmailCandidateWaterfallMock.mockResolvedValueOnce({ candidates: waterfallCandidates });
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({ candidates: waterfallCandidates, warnings: [] });
     enrichMissingEmailsWithLemlistMock.mockImplementationOnce(
       async (candidates: Array<{ employee: EnrichedEmployee }>) => {
         const target = candidates.find((c) => c.employee.id === "missing-email-1");
@@ -393,7 +413,7 @@ describe("runResearchPipeline orchestration", () => {
       ])
     );
     researchCompanyMock.mockResolvedValueOnce("Datadog").mockResolvedValueOnce("Other observability tool");
-    searchPeopleMock.mockResolvedValueOnce([]);
+    searchPeopleMock.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     selectTopSreForLemlistMock.mockReturnValueOnce([]);
 
     const jobId = createJob();

@@ -11,6 +11,10 @@ const ACCENT_COLOR = "#1a1a2e" as const;
 const SECTION_BG = "#f0f0f5" as const;
 const LINK_COLOR = "#2563eb" as const;
 const MUTED_COLOR = "#6b7280" as const;
+const SUCCESS_BG = "#dcfce7" as const;
+const SUCCESS_TEXT = "#166534" as const;
+const FAILURE_BG = "#fee2e2" as const;
+const FAILURE_TEXT = "#991b1b" as const;
 
 function buildSections(data: CampaignPushData): CampaignSection[] {
   const mapping: { key: keyof CampaignPushData; label: string }[] = [
@@ -152,7 +156,8 @@ function renderEntry(
   entry: CampaignPushEntry,
   pageWidth: number
 ): void {
-  ensureSpace(doc, 40);
+  const hasFailureError = entry.lemlistStatus === "failed" && Boolean(entry.lemlistError);
+  ensureSpace(doc, hasFailureError ? 78 : 58);
 
   doc
     .font("Helvetica-Bold")
@@ -160,6 +165,28 @@ function renderEntry(
     .fillColor("#111827")
     .text(entry.name, PAGE_MARGIN + 8, doc.y, { width: pageWidth - 16 });
 
+  const statusLabel = entry.lemlistStatus === "succeed" ? "Lemlist succeed" : "Lemlist failed";
+  const statusBg = entry.lemlistStatus === "succeed" ? SUCCESS_BG : FAILURE_BG;
+  const statusText = entry.lemlistStatus === "succeed" ? SUCCESS_TEXT : FAILURE_TEXT;
+  const statusY = doc.y + 2;
+  const statusX = PAGE_MARGIN + 8;
+  const statusFontSize = 8;
+  const statusPaddingX = 6;
+  const statusPaddingY = 3;
+  const statusTextWidth = doc.font("Helvetica-Bold").fontSize(statusFontSize).widthOfString(statusLabel);
+  const statusWidth = statusTextWidth + statusPaddingX * 2;
+  const statusHeight = statusFontSize + statusPaddingY * 2 + 1;
+
+  doc.save().roundedRect(statusX, statusY, statusWidth, statusHeight, 4).fill(statusBg).restore();
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(statusFontSize)
+    .fillColor(statusText)
+    .text(statusLabel, statusX + statusPaddingX, statusY + statusPaddingY, {
+      width: statusTextWidth + 1,
+    });
+
+  doc.y = statusY + statusHeight + 4;
   const detailY = doc.y;
   const title = entry.title || "—";
 
@@ -178,6 +205,14 @@ function renderEntry(
       .fontSize(9)
       .fillColor(MUTED_COLOR)
       .text(title, PAGE_MARGIN + 8, detailY, { width: pageWidth - 16 });
+  }
+
+  if (entry.lemlistStatus === "failed" && entry.lemlistError) {
+    doc
+      .font("Helvetica")
+      .fontSize(8.5)
+      .fillColor(FAILURE_TEXT)
+      .text(`Error: ${entry.lemlistError}`, PAGE_MARGIN + 8, doc.y + 2, { width: pageWidth - 16 });
   }
 
   doc.y += 8;

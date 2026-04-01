@@ -6,6 +6,8 @@ export interface CampaignPushEntry {
   name: string;
   title: string;
   linkedinUrl: string | null;
+  lemlistStatus: "succeed" | "failed";
+  lemlistError?: string;
 }
 
 export interface CampaignPushData {

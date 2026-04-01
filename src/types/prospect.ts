@@ -20,12 +20,24 @@ export interface LemlistFailedLead {
   error: string;
 }
 
+export type LemlistPushStatus = "succeed" | "failed";
+
+export interface LemlistPushOutcome {
+  key: string;
+  name: string;
+  title: string;
+  linkedinUrl: string | null;
+  status: LemlistPushStatus;
+  error?: string;
+}
+
 export interface LemlistPushMeta {
   attempted: number;
   successful: number;
   failed: number;
   successItems: string[];
   failedItems: LemlistFailedLead[];
+  outcomes: LemlistPushOutcome[];
   skipped?: boolean;
   reason?: string;
   enabledByEnv?: boolean;

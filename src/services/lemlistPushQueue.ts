@@ -1,4 +1,9 @@
-import { EnrichedEmployee, LemlistFailedLead, LemlistPushMeta } from "../types/prospect";
+import {
+  EnrichedEmployee,
+  LemlistFailedLead,
+  LemlistPushMeta,
+  LemlistPushOutcome,
+} from "../types/prospect";
 import {
   createLeadInCampaign,
   getLemlistLinkedinCampaignIdsForUser,
@@ -15,6 +20,8 @@ const DEFAULT_LEMLIST_QUERY = {
   verifyEmail: false,
   findPhone: false,
 };
+const LEMLIST_ERROR_COLOR = "\x1b[31m";
+const ANSI_RESET = "\x1b[0m";
 
 type QueueTask = () => Promise<void>;
 
@@ -81,6 +88,10 @@ function groupByBucket(candidates: TaggedLinkedinCandidate[]): Record<LinkedinCa
   return buckets;
 }
 
+function toEmployeeKey(employee: EnrichedEmployee): string {
+  return employee.id ?? `${employee.name}|${employee.currentTitle}|${employee.linkedinUrl ?? ""}`;
+}
+
 export async function pushPeopleToLemlistCampaign(
   candidates: TaggedLinkedinCandidate[],
   companyName: string,
@@ -94,6 +105,7 @@ export async function pushPeopleToLemlistCampaign(
         const grouped = groupByBucket(candidates);
         const failedItems: LemlistFailedLead[] = [];
         const successItems: string[] = [];
+        const outcomes: LemlistPushOutcome[] = [];
         let successful = 0;
         let sentInWindow = 0;
         let windowStartedAt = Date.now();
@@ -123,9 +135,18 @@ export async function pushPeopleToLemlistCampaign(
 
             const payload = toLeadPayload(employee, companyName, companyDomain);
             if (!payload) {
+              const failureMessage = "Missing valid lead name for Lemlist payload.";
               failedItems.push({
                 name: employee.name,
-                error: "Missing valid lead name for Lemlist payload.",
+                error: failureMessage,
+              });
+              outcomes.push({
+                key: toEmployeeKey(employee),
+                name: employee.name,
+                title: employee.currentTitle,
+                linkedinUrl: employee.linkedinUrl ?? null,
+                status: "failed",
+                error: failureMessage,
               });
               continue;
             }
@@ -135,10 +156,28 @@ export async function pushPeopleToLemlistCampaign(
               successful += 1;
               successItems.push(employee.name);
               sentInWindow += 1;
+              outcomes.push({
+                key: toEmployeeKey(employee),
+                name: employee.name,
+                title: employee.currentTitle,
+                linkedinUrl: employee.linkedinUrl ?? null,
+                status: "succeed",
+              });
             } catch (error) {
               const message = error instanceof Error ? error.message : "Unknown Lemlist push error.";
+              console.error(
+                `${LEMLIST_ERROR_COLOR}[Lemlist][LinkedIn][ERROR] company=${companyName} person=${employee.name} campaign=${bucket.campaignId} message=${message}${ANSI_RESET}`
+              );
               failedItems.push({
                 name: employee.name,
+                error: message,
+              });
+              outcomes.push({
+                key: toEmployeeKey(employee),
+                name: employee.name,
+                title: employee.currentTitle,
+                linkedinUrl: employee.linkedinUrl ?? null,
+                status: "failed",
                 error: message,
               });
             }
@@ -151,6 +190,7 @@ export async function pushPeopleToLemlistCampaign(
           failed: failedItems.length,
           successItems,
           failedItems,
+          outcomes,
         });
       } catch (error) {
         reject(error);
