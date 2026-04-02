@@ -57,7 +57,6 @@ router.get("/status/:jobId", (req, res) => {
     return res.status(200).json({
       status: "done",
       csv: job.csvBase64 ?? "",
-      rejectsCsv: job.rejectsCsvBase64 ?? "",
       warnings: job.warnings,
       skippedCompanies: job.skippedCompanies,
       rejectedCompanies: job.rejectedCompanies,

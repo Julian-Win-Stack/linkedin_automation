@@ -20,7 +20,6 @@ const pushPeopleToLemlistCampaignMock = vi.fn();
 const pushPeopleToLemlistEmailCampaignMock = vi.fn();
 const runEmailCandidateWaterfallMock = vi.fn();
 const rowsToCsvStringMock = vi.fn();
-const rejectedRowsToCsvStringMock = vi.fn();
 const scrapeAndFilterOpenToWorkMock = vi.fn();
 const splitByTenureMock = vi.fn();
 
@@ -71,7 +70,6 @@ vi.mock("../src/services/emailCandidateWaterfall", () => ({
 
 vi.mock("../src/services/observability/csvWriter", () => ({
   rowsToCsvString: (...args: unknown[]) => rowsToCsvStringMock(...args),
-  rejectedRowsToCsvString: (...args: unknown[]) => rejectedRowsToCsvStringMock(...args),
 }));
 
 vi.mock("../src/services/apifyClient", () => ({
@@ -131,12 +129,10 @@ describe("runResearchPipeline orchestration", () => {
     pushPeopleToLemlistEmailCampaignMock.mockReset();
     runEmailCandidateWaterfallMock.mockReset();
     rowsToCsvStringMock.mockReset();
-    rejectedRowsToCsvStringMock.mockReset();
     scrapeAndFilterOpenToWorkMock.mockReset();
     splitByTenureMock.mockReset();
 
     rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
-    rejectedRowsToCsvStringMock.mockResolvedValue("company_name,engineer_count\n");
     pushPeopleToLemlistCampaignMock.mockResolvedValue({
       attempted: 0,
       successful: 0,
@@ -397,9 +393,9 @@ describe("runResearchPipeline orchestration", () => {
       apolloAccountIdColumn: "Apollo Account Id",
     }, "julian");
 
-    const rejectedRowsArg = rejectedRowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
-    expect(rejectedRowsArg).toHaveLength(1);
-    expect(rejectedRowsArg[0].engineer_count).toBe("> 1000");
+    const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    const rejectedRow = combinedRowsArg.find((row) => row.company_name === "BigCo");
+    expect(rejectedRow?.engineer_count).toBe("> 1000");
 
     const job = getJob(jobId);
     expect(job?.rejectedCompanies[0]).toContain("> 1000");

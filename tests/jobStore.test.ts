@@ -54,7 +54,7 @@ describe("jobStore lifecycle", () => {
     setJobMessage(jobId, "running");
     setJobProgress(jobId, { currentRow: 2, totalRows: 10 });
     addJobWarning(jobId, "warn");
-    markJobDone(jobId, "csv_base64", "rejects_base64");
+    markJobDone(jobId, "csv_base64");
 
     const doneJob = getJob(jobId);
     expect(doneJob?.status).toBe("done");

@@ -14,9 +14,7 @@ const error = ref<string | null>(null);
 const warnings = ref<string[]>([]);
 const progressMessage = ref<string | null>(null);
 const resultBlob = ref<Blob | null>(null);
-const rejectsBlob = ref<Blob | null>(null);
 const downloadUrl = ref<string | null>(null);
-const rejectsDownloadUrl = ref<string | null>(null);
 const summary = ref<Record<string, number> | null>(null);
 const skippedCompanies = ref<string[]>([]);
 const rejectedCompanies = ref<string[]>([]);
@@ -78,22 +76,9 @@ watch(resultBlob, (blob) => {
   }
 });
 
-watch(rejectsBlob, (blob) => {
-  if (rejectsDownloadUrl.value) {
-    URL.revokeObjectURL(rejectsDownloadUrl.value);
-    rejectsDownloadUrl.value = null;
-  }
-  if (blob) {
-    rejectsDownloadUrl.value = URL.createObjectURL(blob);
-  }
-});
-
 onBeforeUnmount(() => {
   if (downloadUrl.value) {
     URL.revokeObjectURL(downloadUrl.value);
-  }
-  if (rejectsDownloadUrl.value) {
-    URL.revokeObjectURL(rejectsDownloadUrl.value);
   }
 });
 
@@ -102,7 +87,6 @@ function resetState(): void {
   warnings.value = [];
   progressMessage.value = null;
   resultBlob.value = null;
-  rejectsBlob.value = null;
   summary.value = null;
   skippedCompanies.value = [];
   rejectedCompanies.value = [];
@@ -249,7 +233,6 @@ async function pollJob(jobId: string): Promise<void> {
         | {
             status: "done";
             csv: string;
-            rejectsCsv?: string;
             warnings?: string[];
             skippedCompanies?: string[];
             rejectedCompanies?: string[];
@@ -272,7 +255,6 @@ async function pollJob(jobId: string): Promise<void> {
       const donePayload = payload as {
         status: "done";
         csv: string;
-        rejectsCsv?: string;
         warnings?: string[];
         skippedCompanies?: string[];
         rejectedCompanies?: string[];
@@ -286,16 +268,6 @@ async function pollJob(jobId: string): Promise<void> {
         bytes[i] = binary.charCodeAt(i);
       }
       resultBlob.value = new Blob([bytes], { type: "text/csv" });
-      if (donePayload.rejectsCsv) {
-        const rejectedBinary = atob(donePayload.rejectsCsv);
-        const rejectedBytes = new Uint8Array(rejectedBinary.length);
-        for (let i = 0; i < rejectedBinary.length; i += 1) {
-          rejectedBytes[i] = rejectedBinary.charCodeAt(i);
-        }
-        rejectsBlob.value = new Blob([rejectedBytes], { type: "text/csv" });
-      } else {
-        rejectsBlob.value = null;
-      }
       warnings.value = donePayload.warnings ?? [];
       skippedCompanies.value = donePayload.skippedCompanies ?? [];
       rejectedCompanies.value = donePayload.rejectedCompanies ?? [];
@@ -519,14 +491,6 @@ async function cancelAndReset(): Promise<void> {
               class="inline-block rounded-md bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-600"
             >
               Download passed & rejected companies for Apollo
-            </a>
-            <a
-              v-if="rejectsDownloadUrl"
-              :href="rejectsDownloadUrl"
-              download="rejects.csv"
-              class="inline-block rounded-md bg-zinc-700 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-600"
-            >
-              Download rejected companies
             </a>
           </div>
           <a

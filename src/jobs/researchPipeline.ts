@@ -22,7 +22,6 @@ import { fillToMinimumWithBackfill, selectTopSreForLemlist } from "../services/s
 import {
   OutputRow,
   RejectedOutputRow,
-  rejectedRowsToCsvString,
   rowsToCsvString,
 } from "../services/observability/csvWriter";
 import {
@@ -710,10 +709,8 @@ export async function runResearchPipeline(
     ];
 
     const csvString = await rowsToCsvString(combinedOutputRows);
-    const rejectsCsvString = await rejectedRowsToCsvString(rejectedOutputRows);
     const csvBase64 = Buffer.from(csvString, "utf8").toString("base64");
-    const rejectsCsvBase64 = Buffer.from(rejectsCsvString, "utf8").toString("base64");
-    markJobDone(jobId, csvBase64, rejectsCsvBase64);
+    markJobDone(jobId, csvBase64);
     logPipelineStage(
       "JOB_DONE",
       `Job done: processed=${apolloProcessedCompanyCount} linkedin_success=${totalLinkedinCampaignSuccessful} lemlist_success=${totalLemlistSuccessful} lemlist_failed=${totalLemlistFailed}`
