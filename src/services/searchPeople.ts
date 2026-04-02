@@ -103,6 +103,8 @@ interface PeopleSearchResponse {
 type TitleParamKey = "person_titles[]" | "person_past_titles[]";
 export interface PeopleSearchFilters {
   apolloOrganizationId?: string;
+  /** Substrings excluded from current job title (Apollo `person_not_titles[]`). */
+  notTitles?: string[];
 }
 
 function toName(person: ApolloPerson): string {
@@ -147,6 +149,11 @@ function toPeopleSearchQueryParams(
   const apolloOrganizationId = filters.apolloOrganizationId?.trim();
   if (apolloOrganizationId) {
     params["q_organization_ids[]"] = [apolloOrganizationId];
+  }
+
+  const notTitles = [...new Set((filters.notTitles ?? []).map((t) => t.trim()).filter(Boolean))];
+  if (notTitles.length > 0) {
+    params["person_not_titles[]"] = notTitles;
   }
 
   return params;

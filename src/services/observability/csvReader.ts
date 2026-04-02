@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 export type CompanyRow = {
   companyName: string;
   companyDomain: string;
+  companyLinkedinUrl: string;
   apolloAccountId?: string;
   rowNumber: number;
 };
@@ -19,6 +20,7 @@ interface ReadCompaniesOptions {
   csvBuffer: string;
   nameColumn: string;
   domainColumn: string;
+  linkedinUrlColumn?: string;
   apolloAccountIdColumn?: string;
   onSkipRow?: (skipInfo: CompanyRowSkipInfo) => void;
 }
@@ -47,6 +49,9 @@ export async function* readCompanies(options: ReadCompaniesOptions): AsyncGenera
 
     const companyName = cleanCell(record[options.nameColumn]);
     const companyDomain = cleanCell(record[options.domainColumn]);
+    const companyLinkedinUrl = options.linkedinUrlColumn
+      ? cleanCell(record[options.linkedinUrlColumn])
+      : "";
     const apolloAccountId = options.apolloAccountIdColumn
       ? cleanCell(record[options.apolloAccountIdColumn]) || undefined
       : undefined;
@@ -63,6 +68,7 @@ export async function* readCompanies(options: ReadCompaniesOptions): AsyncGenera
     yield {
       companyName,
       companyDomain,
+      companyLinkedinUrl,
       apolloAccountId,
       rowNumber,
     };

@@ -97,6 +97,28 @@ describe("searchPeople", () => {
     });
   });
 
+  it("includes person_not_titles[] when notTitles is provided in filters", async () => {
+    apolloPostWithQueryMock.mockResolvedValue({
+      people: [{ id: "person-1", name: "A Person", title: "SRE" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    await searchPeople(company, 25, ["SRE"], {
+      apolloOrganizationId: "org_123",
+      notTitles: ["contract"],
+    });
+
+    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
+      page: 1,
+      per_page: 100,
+      include_similar_titles: false,
+      "q_organization_domains_list[]": ["acme.com"],
+      "q_organization_ids[]": ["org_123"],
+      "person_titles[]": ["SRE"],
+      "person_not_titles[]": ["contract"],
+    });
+  });
+
   it("returns current-title total_entries when current count is at least 18", async () => {
     apolloPostWithQueryMock
       .mockResolvedValueOnce({

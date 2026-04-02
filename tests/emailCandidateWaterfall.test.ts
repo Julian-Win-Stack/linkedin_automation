@@ -5,6 +5,9 @@ import { EnrichmentCache } from "../src/services/bulkEnrichPeople";
 
 const searchEmailCandidatePeopleMock = vi.fn();
 const bulkEnrichPeopleMock = vi.fn();
+const scrapeAndFilterOpenToWorkMock = vi.fn();
+const splitByTenureMock = vi.fn();
+const filterFrontendEngineersMock = vi.fn();
 
 vi.mock("../src/services/searchPeople", () => ({
   searchEmailCandidatePeople: (...args: unknown[]) => searchEmailCandidatePeopleMock(...args),
@@ -12,6 +15,12 @@ vi.mock("../src/services/searchPeople", () => ({
 
 vi.mock("../src/services/bulkEnrichPeople", () => ({
   bulkEnrichPeople: (...args: unknown[]) => bulkEnrichPeopleMock(...args),
+}));
+
+vi.mock("../src/services/apifyClient", () => ({
+  scrapeAndFilterOpenToWork: (...args: unknown[]) => scrapeAndFilterOpenToWorkMock(...args),
+  splitByTenure: (...args: unknown[]) => splitByTenureMock(...args),
+  filterFrontendEngineers: (...args: unknown[]) => filterFrontendEngineersMock(...args),
 }));
 
 const COMPANY = { companyName: "Acme", domain: "acme.com" };
@@ -43,8 +52,25 @@ describe("runEmailCandidateWaterfall", () => {
   beforeEach(() => {
     searchEmailCandidatePeopleMock.mockReset();
     bulkEnrichPeopleMock.mockReset();
+    scrapeAndFilterOpenToWorkMock.mockReset();
+    splitByTenureMock.mockReset();
+    filterFrontendEngineersMock.mockReset();
     searchEmailCandidatePeopleMock.mockResolvedValue([]);
     bulkEnrichPeopleMock.mockResolvedValue([]);
+    scrapeAndFilterOpenToWorkMock.mockImplementation(
+      async (employees: EnrichedEmployee[]) => ({ kept: employees, warnings: [] })
+    );
+    splitByTenureMock.mockImplementation((employees: EnrichedEmployee[], minTenureMonths: number) => ({
+      eligible: employees.filter((employee) => employee.tenure === null || employee.tenure >= minTenureMonths),
+      droppedByTenure: employees.filter(
+        (employee) => employee.tenure !== null && employee.tenure < minTenureMonths
+      ),
+    }));
+    filterFrontendEngineersMock.mockImplementation((employees: EnrichedEmployee[]) => ({
+      kept: employees,
+      rejectedFrontend: [],
+      warnings: [],
+    }));
   });
 
   it("returns empty when all stages produce no results", async () => {
@@ -349,6 +375,10 @@ describe("runEmailCandidateWaterfall", () => {
       currentTitles: [
         "Platform engineering",
         "Platform engineer",
+        "Platforms Engineering Manager",
+        "Director of Software Engineering, Platform",
+        "Director, Engineering (Platform)",
+        "Platform Engineering Manager",
         "VP of Engineering, Platform",
         "VP, Engineering - Platform",
         "VP, Product Platform & Engineering",
@@ -362,7 +392,8 @@ describe("runEmailCandidateWaterfall", () => {
         "Chief Platform Officer",
         "backend platform",
       ],
-      notTitles: ["data"],
+      pastTitles: undefined,
+      notTitles: ["data", "contract", "AI", "artificial intelligence", "machine learning", "ml"],
       notPastTitles: [
         "client",
         "account",
@@ -375,6 +406,10 @@ describe("runEmailCandidateWaterfall", () => {
         "analyst",
         "partner",
         "commercial",
+        "AI",
+        "artificial intelligence",
+        "machine learning",
+        "ml",
       ],
     });
   });
@@ -402,10 +437,13 @@ describe("runEmailCandidateWaterfall", () => {
     expect(stage1Call[2]).toEqual({
       currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
       pastTitles: undefined,
+      notTitles: ["contract"],
+      notPastTitles: undefined,
     });
     expect(stage2Call[2]).toEqual({
       currentTitles: undefined,
       pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
+      notTitles: ["contract"],
       notPastTitles: [
         "client",
         "account",

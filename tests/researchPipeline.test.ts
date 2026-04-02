@@ -220,7 +220,7 @@ describe("runResearchPipeline orchestration", () => {
       { companyName: "Acme", domain: "acme.com" },
       30,
       ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
-      { apolloOrganizationId: "org_1" }
+      { apolloOrganizationId: "org_1", notTitles: ["contract"] }
     );
   });
 

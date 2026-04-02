@@ -48,6 +48,12 @@ import { scrapeAndFilterOpenToWork, splitByTenure } from "../services/apifyClien
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"];
 const MAX_RESULTS = 30;
+/** Current-title exclusions for LinkedIn Apollo searches (SRE, past SRE, platform backfill). */
+const LINKEDIN_APOLLO_NOT_TITLES = ["contract"];
+
+function linkedinApolloPeopleFilters(filters: PeopleSearchFilters): PeopleSearchFilters {
+  return { ...filters, notTitles: LINKEDIN_APOLLO_NOT_TITLES };
+}
 const REJECTED_REASON = "rejected because they were using other observability tools";
 const MIN_ENGINEER_COUNT = 18;
 const MAX_ENGINEER_COUNT = 700;
@@ -55,10 +61,12 @@ const MAX_SRE_COUNT = 15;
 const ENGINEER_RANGE_REJECTION_NOTE = "Engineer count not in BACCA's optimal range";
 const LARGE_ENGINEER_COUNT_MASK = "> 1000";
 const EMAIL_WATERFALL_WAIT_MS = 20 * 60 * 1000;
+const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
 
 interface RowResearchResult {
   companyName: string;
   companyDomain: string;
+  companyLinkedinUrl: string;
   apolloAccountId?: string;
   company: ResolvedCompany;
   peopleSearchFilters: PeopleSearchFilters;
@@ -210,6 +218,7 @@ export async function runResearchPipeline(
       csvBuffer,
       nameColumn: config.nameColumn,
       domainColumn: config.domainColumn,
+      linkedinUrlColumn: COMPANY_LINKEDIN_URL_COLUMN,
       apolloAccountIdColumn: config.apolloAccountIdColumn,
       onSkipRow: (skipInfo) => {
         if (skipInfo.reason === "missing_website_and_apollo_account_id") {
@@ -252,6 +261,7 @@ export async function runResearchPipeline(
         rejectedOutputRows.push({
           company_name: row.companyName,
           company_domain: row.companyDomain,
+          company_linkedin_url: row.companyLinkedinUrl,
           observability_tool_research: "",
           sre_count: "",
           engineer_count: engineerCountDisplayValue,
@@ -263,7 +273,7 @@ export async function runResearchPipeline(
 
       logPipelineStage("SEARCH_CURRENT_SRE", "Searching current SRE candidates for pre-filter.", companyContext);
       const currentSreProspects = dedupeProspectsById(
-        await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES, peopleSearchFilters)
+        await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES, linkedinApolloPeopleFilters(peopleSearchFilters))
       );
       const rawSreCount = currentSreProspects.length;
       logPipelineStage("SEARCH_CURRENT_SRE_DONE", `Current SRE candidates found. count=${rawSreCount}`, companyContext);
@@ -274,6 +284,7 @@ export async function runResearchPipeline(
         rejectedOutputRows.push({
           company_name: row.companyName,
           company_domain: row.companyDomain,
+          company_linkedin_url: row.companyLinkedinUrl,
           observability_tool_research: "",
           sre_count: rawSreCount,
           engineer_count: engineerCountDisplayValue,
@@ -286,6 +297,7 @@ export async function runResearchPipeline(
       rowResults.push({
         companyName: row.companyName,
         companyDomain: row.companyDomain,
+        companyLinkedinUrl: row.companyLinkedinUrl,
         apolloAccountId: row.apolloAccountId,
         company,
         peopleSearchFilters,
@@ -378,9 +390,11 @@ export async function runResearchPipeline(
           process.stdout.write(`  ▸ Backfill Phase 1 — Searching past SRE candidates...\n`);
           logPipelineStage("BACKFILL_PHASE_1_START", "Backfill phase 1 (past SRE) started.", companyContext);
           const pastSreProspects = dedupeProspectsById(
-            await searchPastSrePeople(company, MAX_RESULTS, {
-              apolloOrganizationId: row.apolloAccountId,
-            })
+            await searchPastSrePeople(
+              company,
+              MAX_RESULTS,
+              linkedinApolloPeopleFilters({ apolloOrganizationId: row.apolloAccountId })
+            )
           );
           process.stdout.write(`  ▸ Enriching ${pastSreProspects.length} past SRE candidates...\n`);
           const pastSreEnriched = await bulkEnrichPeople(pastSreProspects, enrichmentCache);
@@ -405,9 +419,11 @@ export async function runResearchPipeline(
             process.stdout.write(`  ▸ Backfill Phase 2 — Searching platform candidates...\n`);
             logPipelineStage("BACKFILL_PHASE_2_START", "Backfill phase 2 (platform) started.", companyContext);
             const platformProspects = dedupeProspectsById(
-              await searchCurrentPlatformEngineerPeople(company, MAX_RESULTS, {
-                apolloOrganizationId: row.apolloAccountId,
-              })
+              await searchCurrentPlatformEngineerPeople(
+                company,
+                MAX_RESULTS,
+                linkedinApolloPeopleFilters({ apolloOrganizationId: row.apolloAccountId })
+              )
             );
             process.stdout.write(`  ▸ Enriching ${platformProspects.length} platform candidates...\n`);
             const platformEnriched = await bulkEnrichPeople(platformProspects, enrichmentCache);
@@ -518,6 +534,7 @@ export async function runResearchPipeline(
         outputRows.push({
           company_name: row.companyName,
           company_domain: row.companyDomain,
+          company_linkedin_url: row.companyLinkedinUrl,
           observability_tool_research: row.observability,
           stage: "ChasingPOC",
           sre_count: rawSreCount,
@@ -532,6 +549,7 @@ export async function runResearchPipeline(
         outputRows.push({
           company_name: row.companyName,
           company_domain: row.companyDomain,
+          company_linkedin_url: row.companyLinkedinUrl,
           observability_tool_research: row.observability,
           stage: "ChasingPOC",
           sre_count: 0,
@@ -546,6 +564,7 @@ export async function runResearchPipeline(
       rejectedOutputRows.push({
         company_name: row.companyName,
         company_domain: row.companyDomain,
+        company_linkedin_url: row.companyLinkedinUrl,
         observability_tool_research: row.observability,
         sre_count: row.rawSreCount,
         engineer_count: row.engineerCountDisplayValue,
@@ -700,6 +719,7 @@ export async function runResearchPipeline(
       ...rejectedOutputRows.map((row) => ({
         company_name: row.company_name,
         company_domain: row.company_domain,
+        company_linkedin_url: row.company_linkedin_url,
         observability_tool_research: row.observability_tool_research,
         stage: row.status,
         sre_count: row.sre_count,

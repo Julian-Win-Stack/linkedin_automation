@@ -57,13 +57,21 @@ describe("pushPeopleToLemlistCampaign", () => {
         findPhone: false,
       }
     );
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       attempted: 1,
       successful: 1,
       failed: 0,
       successItems: ["Jane Doe"],
       failedItems: [],
     });
+    expect(result.outcomes).toEqual([
+      expect.objectContaining({
+        name: "Jane Doe",
+        title: "SRE",
+        linkedinUrl: "https://linkedin.com/in/jane",
+        status: "succeed",
+      }),
+    ]);
   });
 
   it("routes eng-bucketed candidates to Eng campaign", async () => {
