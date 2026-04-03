@@ -137,6 +137,8 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "Head of Engineering Productivity / Platform",
       "Chief Platform Officer",
       "backend platform",
+      "cloud platform",
+      "platform cloud",
     ],
     notTitles: [
       "data",
