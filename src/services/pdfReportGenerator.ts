@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { CampaignPushData, CampaignPushEntry } from "../jobs/jobStore";
+import { CampaignPushData, CampaignPushEntry, FilteredOutCampaignEntry } from "../jobs/jobStore";
 
 interface CampaignSection {
   label: string;
@@ -9,6 +9,11 @@ interface CampaignSection {
 interface CompanyGroup {
   companyName: string;
   entries: CampaignPushEntry[];
+}
+
+interface FilteredOutReasonGroup {
+  label: string;
+  entries: FilteredOutCampaignEntry[];
 }
 
 const PAGE_MARGIN = 50;
@@ -22,10 +27,17 @@ const FAILURE_BG = "#fee2e2" as const;
 const FAILURE_TEXT = "#991b1b" as const;
 const COMPANY_GROUP_BG = "#eef2ff" as const;
 const COMPANY_GROUP_TEXT = "#312e81" as const;
+const FILTER_SECTION_BG = "#eff6ff" as const;
+const FILTER_CARD_BG = "#f8fafc" as const;
+const FILTER_REASON_BADGE_BG = "#e0e7ff" as const;
+const FILTER_REASON_BADGE_TEXT = "#3730a3" as const;
 const UNKNOWN_COMPANY_LABEL = "Unknown company";
 
 function buildSections(data: CampaignPushData): CampaignSection[] {
-  const mapping: { key: keyof CampaignPushData; label: string }[] = [
+  const mapping: {
+    key: "linkedinSre" | "linkedinEng" | "emailSre" | "emailEng" | "emailEngLead";
+    label: string;
+  }[] = [
     { key: "linkedinSre", label: "LinkedIn — SRE Campaign" },
     { key: "linkedinEng", label: "LinkedIn — Engineering Campaign" },
     { key: "emailSre", label: "Email — SRE Campaign" },
@@ -44,6 +56,21 @@ function formatDate(): string {
     month: "long",
     day: "numeric",
   });
+}
+
+function buildFilteredOutReasonGroups(entries: FilteredOutCampaignEntry[]): FilteredOutReasonGroup[] {
+  const openToWork = entries.filter((entry) => entry.reason === "open_to_work");
+  const frontendRole = entries.filter((entry) => entry.reason === "frontend_role");
+  const groups: FilteredOutReasonGroup[] = [];
+
+  if (openToWork.length > 0) {
+    groups.push({ label: "Filtered for OpenToWork", entries: openToWork });
+  }
+  if (frontendRole.length > 0) {
+    groups.push({ label: "Filtered for Frontend Role", entries: frontendRole });
+  }
+
+  return groups;
 }
 
 export function generateCampaignPdf(data: CampaignPushData): PDFKit.PDFDocument {
@@ -99,6 +126,10 @@ export function generateCampaignPdf(data: CampaignPushData): PDFKit.PDFDocument 
   for (let sIdx = 0; sIdx < sections.length; sIdx++) {
     const section = sections[sIdx];
     renderSection(doc, section, pageWidth, sIdx < sections.length - 1);
+  }
+
+  if (data.filteredOutNormalEngineers.length > 0) {
+    renderFilteredOutSection(doc, data.filteredOutNormalEngineers, pageWidth);
   }
 
   return doc;
@@ -273,6 +304,133 @@ function renderEntry(
   }
 
   doc.y += 8;
+}
+
+function renderFilteredOutSection(
+  doc: PDFKit.PDFDocument,
+  entries: FilteredOutCampaignEntry[],
+  pageWidth: number
+): void {
+  const groups = buildFilteredOutReasonGroups(entries);
+  if (groups.length === 0) {
+    return;
+  }
+
+  doc.y += 8;
+  ensureSpace(doc, 96);
+  doc
+    .save()
+    .moveTo(PAGE_MARGIN, doc.y)
+    .lineTo(PAGE_MARGIN + pageWidth, doc.y)
+    .strokeColor("#dbeafe")
+    .lineWidth(1)
+    .stroke()
+    .restore();
+
+  doc.y += 18;
+  ensureSpace(doc, 64);
+  doc
+    .save()
+    .roundedRect(PAGE_MARGIN - 4, doc.y, pageWidth + 8, 34, 6)
+    .fill(FILTER_SECTION_BG)
+    .restore();
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(12)
+    .fillColor(ACCENT_COLOR)
+    .text("Filtered Out — Normal Engineer Search", PAGE_MARGIN + 8, doc.y + 8, { width: pageWidth - 16 });
+
+  doc.y += 42;
+  doc
+    .font("Helvetica")
+    .fontSize(9)
+    .fillColor(MUTED_COLOR)
+    .text(`${entries.length} candidate${entries.length === 1 ? "" : "s"} were filtered out`, PAGE_MARGIN, doc.y);
+  doc.y += 14;
+
+  for (const group of groups) {
+    ensureSpace(doc, 44);
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(9)
+      .fillColor("#1e3a8a")
+      .text(group.label, PAGE_MARGIN, doc.y, { width: pageWidth });
+    doc.y += 6;
+
+    for (const entry of group.entries) {
+      renderFilteredOutEntry(doc, entry, pageWidth);
+    }
+
+    doc.y += 4;
+  }
+}
+
+function renderFilteredOutEntry(
+  doc: PDFKit.PDFDocument,
+  entry: FilteredOutCampaignEntry,
+  pageWidth: number
+): void {
+  ensureSpace(doc, 72);
+  const cardX = PAGE_MARGIN + 4;
+  const cardY = doc.y;
+  const cardWidth = pageWidth - 8;
+  const cardHeight = 60;
+
+  doc
+    .save()
+    .roundedRect(cardX, cardY, cardWidth, cardHeight, 6)
+    .fill(FILTER_CARD_BG)
+    .restore();
+
+  const reasonLabel = entry.reason === "open_to_work" ? "Reason: OpenToWork profile" : "Reason: Frontend-focused role";
+  const reasonTextWidth = doc.font("Helvetica-Bold").fontSize(7.5).widthOfString(reasonLabel);
+  const badgeWidth = reasonTextWidth + 10;
+  const badgeX = cardX + cardWidth - badgeWidth - 10;
+  const badgeY = cardY + 8;
+
+  doc
+    .save()
+    .roundedRect(badgeX, badgeY, badgeWidth, 14, 6)
+    .fill(FILTER_REASON_BADGE_BG)
+    .restore();
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(7.5)
+    .fillColor(FILTER_REASON_BADGE_TEXT)
+    .text(reasonLabel, badgeX + 5, badgeY + 4, { width: reasonTextWidth + 1 });
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(10)
+    .fillColor("#111827")
+    .text(entry.name, cardX + 10, cardY + 9, { width: Math.max(90, badgeX - (cardX + 16)) });
+
+  doc
+    .font("Helvetica")
+    .fontSize(9)
+    .fillColor(MUTED_COLOR)
+    .text(entry.title || "—", cardX + 10, cardY + 28, { width: cardWidth - 20 });
+
+  if (entry.linkedinUrl) {
+    doc
+      .font("Helvetica")
+      .fontSize(8.5)
+      .fillColor(LINK_COLOR)
+      .text(entry.linkedinUrl, cardX + 10, cardY + 44, {
+        width: cardWidth - 20,
+        link: normalizeLink(entry.linkedinUrl),
+        underline: true,
+      });
+  } else {
+    doc
+      .font("Helvetica")
+      .fontSize(8.5)
+      .fillColor(MUTED_COLOR)
+      .text("LinkedIn URL: —", cardX + 10, cardY + 44, { width: cardWidth - 20 });
+  }
+
+  doc.y = cardY + cardHeight + 8;
 }
 
 function normalizeLink(url: string): string {

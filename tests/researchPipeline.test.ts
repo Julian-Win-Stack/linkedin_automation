@@ -108,7 +108,7 @@ function makeEmployees(count: number, prefix: string): EnrichedEmployee[] {
 }
 
 function emptyWaterfallResult(): EmailWaterfallResult {
-  return { candidates: [], warnings: [] };
+  return { candidates: [], filteredOutNormalEngineers: [], warnings: [] };
 }
 
 describe("runResearchPipeline orchestration", () => {
@@ -284,7 +284,11 @@ describe("runResearchPipeline orchestration", () => {
         campaignBucket: "eng",
       },
     ];
-    runEmailCandidateWaterfallMock.mockResolvedValueOnce({ candidates: waterfallCandidates, warnings: [] });
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
+      candidates: waterfallCandidates,
+      filteredOutNormalEngineers: [],
+      warnings: [],
+    });
     pushPeopleToLemlistEmailCampaignMock.mockResolvedValueOnce({
       attempted: 2,
       successful: 2,
@@ -348,7 +352,11 @@ describe("runResearchPipeline orchestration", () => {
         campaignBucket: "sre",
       },
     ];
-    runEmailCandidateWaterfallMock.mockResolvedValueOnce({ candidates: waterfallCandidates, warnings: [] });
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
+      candidates: waterfallCandidates,
+      filteredOutNormalEngineers: [],
+      warnings: [],
+    });
     enrichMissingEmailsWithLemlistMock.mockImplementationOnce(
       async (candidates: Array<{ employee: EnrichedEmployee }>) => {
         const target = candidates.find((c) => c.employee.id === "missing-email-1");

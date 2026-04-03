@@ -30,6 +30,7 @@ import {
   JobSummary,
   CampaignPushData,
   CampaignPushEntry,
+  FilteredOutCampaignEntry,
   markJobDone,
   markJobError,
   setJobMessage,
@@ -208,6 +209,7 @@ export async function runResearchPipeline(
     emailSre: [],
     emailEng: [],
     emailEngLead: [],
+    filteredOutNormalEngineers: [],
   };
 
   const _originalConsoleLog = console.log;
@@ -515,6 +517,19 @@ export async function runResearchPipeline(
 
           for (const warning of waterfallResult.warnings) {
             addJobWarning(jobId, warning);
+          }
+
+          if (waterfallResult.filteredOutNormalEngineers.length > 0) {
+            const filteredEntries: FilteredOutCampaignEntry[] = waterfallResult.filteredOutNormalEngineers.map(
+              ({ employee, reason }) => ({
+                companyName: company.companyName,
+                name: employee.name,
+                title: employee.currentTitle,
+                linkedinUrl: employee.linkedinUrl ?? null,
+                reason,
+              })
+            );
+            campaignPushData.filteredOutNormalEngineers.push(...filteredEntries);
           }
 
           if (waterfallResult.candidates.length > 0) {

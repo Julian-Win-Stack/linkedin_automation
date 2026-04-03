@@ -13,6 +13,8 @@ interface EmailSearchStageConfig {
   notPastTitles?: string[];
   minTenureMonths: number;
   campaignBucket: EmailCampaignBucket;
+  splitLeadership?: boolean;
+  leadershipBucket?: EmailCampaignBucket;
 }
 
 export interface TaggedEmailCandidate {
@@ -20,8 +22,16 @@ export interface TaggedEmailCandidate {
   campaignBucket: EmailCampaignBucket;
 }
 
+export type NormalEngineerFilteredReason = "open_to_work" | "frontend_role";
+
+export interface FilteredNormalEngineerCandidate {
+  employee: EnrichedEmployee;
+  reason: NormalEngineerFilteredReason;
+}
+
 export interface EmailWaterfallResult {
   candidates: TaggedEmailCandidate[];
+  filteredOutNormalEngineers: FilteredNormalEngineerCandidate[];
   warnings: string[];
 }
 
@@ -30,7 +40,9 @@ const MAX_SEARCH_RESULTS = 30;
 const LINE_WIDTH = 62;
 const HEAVY_LINE = "═".repeat(LINE_WIDTH);
 const LIGHT_LINE = "─".repeat(LINE_WIDTH);
-const NORMAL_ENGINEER_STAGE_INDEX = 5; 
+const LEADERSHIP_TITLE_KEYWORDS = ["vp", "manager", "director", "head", "chief", "principal"];
+const NORMAL_ENGINEER_STAGE_LABEL = "Normal Engineer Search";
+const SPLIT_LEADERSHIP_BUCKET: EmailCampaignBucket = "engLead";
 
 const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
   {
@@ -102,6 +114,8 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
     ],
     minTenureMonths: 11,
     campaignBucket: "eng",
+    splitLeadership: true,
+    leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
   },
   {
     currentTitles: [
@@ -124,7 +138,18 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "Chief Platform Officer",
       "backend platform",
     ],
-    notTitles: ["data", "contract", "AI", "artificial intelligence", "machine learning", "ml", "frontend", "front-end", "front end", "solution",],
+    notTitles: [
+      "data",
+      "contract",
+      "AI",
+      "artificial intelligence",
+      "machine learning",
+      "ml",
+      "frontend",
+      "front-end",
+      "front end",
+      "solution",
+    ],
     notPastTitles: [
       "client",
       "account",
@@ -144,6 +169,8 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
     ],
     minTenureMonths: 11,
     campaignBucket: "eng",
+    splitLeadership: true,
+    leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
   },
   {
     currentTitles: ["DevOps", "Dev Ops"],
@@ -189,6 +216,8 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
     ],
     minTenureMonths: 11,
     campaignBucket: "eng",
+    splitLeadership: true,
+    leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
   },
   {
     currentTitles: [
@@ -317,6 +346,23 @@ function toEmployeeKey(employee: EnrichedEmployee): string {
   return employee.id ?? `${employee.name}|${employee.currentTitle}|${employee.linkedinUrl ?? ""}`;
 }
 
+function addEmployeeIdentifiers(set: Set<string>, employee: EnrichedEmployee): void {
+  set.add(toEmployeeKey(employee));
+  if (employee.id) {
+    set.add(employee.id);
+  }
+}
+
+function hasEmployeeIdentifier(set: Set<string>, employee: EnrichedEmployee): boolean {
+  if (set.has(toEmployeeKey(employee))) {
+    return true;
+  }
+  if (employee.id && set.has(employee.id)) {
+    return true;
+  }
+  return false;
+}
+
 function dedupeProspectsById(items: Prospect[]): Prospect[] {
   const seen = new Set<string>();
   const deduped: Prospect[] = [];
@@ -384,8 +430,9 @@ function rankAndSelectCandidates(
 }
 
 function printStageHeader(stageIndex: number): void {
-  const label = STAGE_LABELS[stageIndex];
-  const tag = `Stage ${stageIndex + 1}/7: ${label}`;
+  const label = STAGE_LABELS[stageIndex] ?? `Stage ${stageIndex + 1}`;
+  const totalStages = EMAIL_CANDIDATE_STAGES.length;
+  const tag = `Stage ${stageIndex + 1}/${totalStages}: ${label}`;
   const padding = LIGHT_LINE.length - tag.length - 5;
   print("");
   print(`─── ${tag} ${"─".repeat(Math.max(1, padding))}`);
@@ -408,6 +455,27 @@ function printPeopleTable(selected: EnrichedEmployee[], bucket: EmailCampaignBuc
   }
 }
 
+function isLeadershipRoleTitle(title: string): boolean {
+  const normalized = title.toLowerCase();
+  return LEADERSHIP_TITLE_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function partitionLeadershipCandidates(candidates: EnrichedEmployee[]): {
+  icCandidates: EnrichedEmployee[];
+  leadershipCandidates: EnrichedEmployee[];
+} {
+  const icCandidates: EnrichedEmployee[] = [];
+  const leadershipCandidates: EnrichedEmployee[] = [];
+  for (const employee of candidates) {
+    if (isLeadershipRoleTitle(employee.currentTitle)) {
+      leadershipCandidates.push(employee);
+    } else {
+      icCandidates.push(employee);
+    }
+  }
+  return { icCandidates, leadershipCandidates };
+}
+
 export async function runEmailCandidateWaterfall(
   company: ResolvedCompany,
   linkedinAttemptedKeys: Set<string>,
@@ -417,6 +485,7 @@ export async function runEmailCandidateWaterfall(
 ): Promise<EmailWaterfallResult> {
   const listA: TaggedEmailCandidate[] = [];
   const listAKeys = new Set<string>();
+  const filteredOutNormalEngineers: FilteredNormalEngineerCandidate[] = [];
   const warnings: string[] = [];
 
   print("");
@@ -507,8 +576,21 @@ export async function runEmailCandidateWaterfall(
       continue;
     }
 
+    const isNormalEngineerStage = STAGE_LABELS[stageIndex] === NORMAL_ENGINEER_STAGE_LABEL;
     const { kept: apifyFiltered, warnings: apifyWarnings } = await scrapeAndFilterOpenToWork(tenureEligible, apifyCache, { companyName: company.companyName, companyDomain: company.domain });
     warnings.push(...apifyWarnings);
+
+    if (isNormalEngineerStage) {
+      const apifyKeptKeys = new Set<string>();
+      for (const employee of apifyFiltered) {
+        addEmployeeIdentifiers(apifyKeptKeys, employee);
+      }
+      for (const employee of tenureEligible) {
+        if (!hasEmployeeIdentifier(apifyKeptKeys, employee)) {
+          filteredOutNormalEngineers.push({ employee, reason: "open_to_work" });
+        }
+      }
+    }
 
     if (apifyFiltered.length === 0) {
       printStageSkip("all candidates removed by openToWork filter");
@@ -517,12 +599,18 @@ export async function runEmailCandidateWaterfall(
 
     let candidatesForRanking = apifyFiltered;
 
-    if (stageIndex === NORMAL_ENGINEER_STAGE_INDEX) {
+    if (isNormalEngineerStage) {
       const frontendResult = filterFrontendEngineers(apifyFiltered, apifyCache, {
         companyName: company.companyName,
         companyDomain: company.domain,
       });
       candidatesForRanking = frontendResult.kept;
+      filteredOutNormalEngineers.push(
+        ...frontendResult.rejectedFrontend.map((employee) => ({
+          employee,
+          reason: "frontend_role" as const,
+        }))
+      );
 
       if (frontendResult.rejectedFrontend.length > 0) {
         print(`    Frontend     ${apifyFiltered.length} → ${frontendResult.kept.length}  (rejected ${frontendResult.rejectedFrontend.length} frontend)`);
@@ -540,20 +628,54 @@ export async function runEmailCandidateWaterfall(
       }
     }
 
-    const slotsAvailable = MAX_PER_COMPANY - listA.length;
-    const result = rankAndSelectCandidates(candidatesForRanking, stage.minTenureMonths, slotsAvailable);
+    if (stage.splitLeadership) {
+      const { icCandidates, leadershipCandidates } = partitionLeadershipCandidates(candidatesForRanking);
+      const icSlots = MAX_PER_COMPANY - listA.length;
+      const icResult = rankAndSelectCandidates(icCandidates, stage.minTenureMonths, icSlots);
+      print(
+        `    IC Tenure    ${icResult.qualifiedCount} qualified · ${icResult.nullTenureCount} null (filler) · ${icResult.belowMinCount} below min (dropped)`
+      );
+      print(
+        `    IC Selection ${icSlots} slots → ${icResult.selected.length} picked (${icResult.selected.length - icResult.fillerCount} qualified + ${icResult.fillerCount} fillers)`
+      );
+      printPeopleTable(icResult.selected, stage.campaignBucket);
+      for (const employee of icResult.selected) {
+        listA.push({ employee, campaignBucket: stage.campaignBucket });
+        addEmployeeIdentifiers(listAKeys, employee);
+      }
 
-    print(`    Tenure       ${result.qualifiedCount} qualified · ${result.nullTenureCount} null (filler) · ${result.belowMinCount} below min (dropped)`);
-    print(`    Selection    ${slotsAvailable} slots → ${result.selected.length} picked (${result.selected.length - result.fillerCount} qualified + ${result.fillerCount} fillers)`);
-
-    printPeopleTable(result.selected, stage.campaignBucket);
-
-    for (const employee of result.selected) {
-      const key = toEmployeeKey(employee);
-      listA.push({ employee, campaignBucket: stage.campaignBucket });
-      listAKeys.add(key);
-      if (employee.id) {
-        listAKeys.add(employee.id);
+      const leadershipSlots = MAX_PER_COMPANY - listA.length;
+      if (leadershipSlots > 0 && stage.leadershipBucket) {
+        const leadershipResult = rankAndSelectCandidates(
+          leadershipCandidates,
+          stage.minTenureMonths,
+          leadershipSlots
+        );
+        print(
+          `    Lead Tenure  ${leadershipResult.qualifiedCount} qualified · ${leadershipResult.nullTenureCount} null (filler) · ${leadershipResult.belowMinCount} below min (dropped)`
+        );
+        print(
+          `    Lead Select  ${leadershipSlots} slots → ${leadershipResult.selected.length} picked (${leadershipResult.selected.length - leadershipResult.fillerCount} qualified + ${leadershipResult.fillerCount} fillers)`
+        );
+        printPeopleTable(leadershipResult.selected, stage.leadershipBucket);
+        for (const employee of leadershipResult.selected) {
+          listA.push({ employee, campaignBucket: stage.leadershipBucket });
+          addEmployeeIdentifiers(listAKeys, employee);
+        }
+      }
+    } else {
+      const slotsAvailable = MAX_PER_COMPANY - listA.length;
+      const result = rankAndSelectCandidates(candidatesForRanking, stage.minTenureMonths, slotsAvailable);
+      print(
+        `    Tenure       ${result.qualifiedCount} qualified · ${result.nullTenureCount} null (filler) · ${result.belowMinCount} below min (dropped)`
+      );
+      print(
+        `    Selection    ${slotsAvailable} slots → ${result.selected.length} picked (${result.selected.length - result.fillerCount} qualified + ${result.fillerCount} fillers)`
+      );
+      printPeopleTable(result.selected, stage.campaignBucket);
+      for (const employee of result.selected) {
+        listA.push({ employee, campaignBucket: stage.campaignBucket });
+        addEmployeeIdentifiers(listAKeys, employee);
       }
     }
 
@@ -573,5 +695,5 @@ export async function runEmailCandidateWaterfall(
   print(HEAVY_LINE);
   print("");
 
-  return { candidates: listA, warnings };
+  return { candidates: listA, filteredOutNormalEngineers, warnings };
 }

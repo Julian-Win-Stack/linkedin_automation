@@ -11,12 +11,23 @@ export interface CampaignPushEntry {
   lemlistError?: string;
 }
 
+export type FilteredOutReason = "open_to_work" | "frontend_role";
+
+export interface FilteredOutCampaignEntry {
+  companyName: string;
+  name: string;
+  title: string;
+  linkedinUrl: string | null;
+  reason: FilteredOutReason;
+}
+
 export interface CampaignPushData {
   linkedinSre: CampaignPushEntry[];
   linkedinEng: CampaignPushEntry[];
   emailSre: CampaignPushEntry[];
   emailEng: CampaignPushEntry[];
   emailEngLead: CampaignPushEntry[];
+  filteredOutNormalEngineers: FilteredOutCampaignEntry[];
 }
 
 export interface JobSummary {

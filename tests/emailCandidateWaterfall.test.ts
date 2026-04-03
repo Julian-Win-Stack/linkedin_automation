@@ -25,6 +25,7 @@ vi.mock("../src/services/apifyClient", () => ({
 
 const COMPANY = { companyName: "Acme", domain: "acme.com" };
 const FILTERS = { apolloOrganizationId: "org_1" };
+const APIFY_CACHE = new Map();
 
 function makeProspect(id: string, title: string): Prospect {
   return { id, name: `Person ${id}`, title };
@@ -78,7 +79,8 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     expect(result.candidates).toEqual([]);
@@ -99,7 +101,8 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     expect(result.candidates).toHaveLength(2);
@@ -124,7 +127,8 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     expect(result.candidates).toHaveLength(7);
@@ -145,7 +149,8 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       linkedinKeys,
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     expect(result.candidates).toHaveLength(1);
@@ -164,7 +169,8 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     expect(result.candidates).toHaveLength(2);
@@ -186,7 +192,8 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     const stage1Candidates = result.candidates.filter((c) => c.employee.id === "ok-1");
@@ -210,7 +217,8 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     expect(result.candidates).toHaveLength(3);
@@ -238,7 +246,8 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     expect(result.candidates).toHaveLength(7);
@@ -266,7 +275,8 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     expect(result.candidates).toHaveLength(3);
@@ -284,24 +294,21 @@ describe("runEmailCandidateWaterfall", () => {
     });
   });
 
-  it("assigns engLead bucket for stage 7 candidates", async () => {
+  it("assigns engLead bucket for infrastructure leadership candidates", async () => {
     searchEmailCandidatePeopleMock
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([makeProspect("lead-1", "VP of Engineering")]);
+      .mockResolvedValueOnce([makeProspect("lead-1", "Head of Infrastructure")]);
     bulkEnrichPeopleMock.mockResolvedValueOnce([
-      makeEmployee("lead-1", "VP of Engineering", 24),
+      makeEmployee("lead-1", "Head of Infrastructure", 24),
     ]);
 
     const result = await runEmailCandidateWaterfall(
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     expect(result.candidates).toHaveLength(1);
@@ -320,7 +327,8 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     expect(result.candidates).toHaveLength(1);
@@ -346,14 +354,15 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     const tenures = result.candidates.map((c) => c.employee.tenure);
     expect(tenures).toEqual([24, 18, 12, 6, 3]);
   });
 
-  it("passes correct search params for stage 4 (platform + past engineer)", async () => {
+  it("passes correct search params for platform stage", async () => {
     searchEmailCandidatePeopleMock
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
@@ -367,11 +376,12 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
-    const stage4Call = searchEmailCandidatePeopleMock.mock.calls[3];
-    expect(stage4Call[2]).toEqual({
+    const platformStageCall = searchEmailCandidatePeopleMock.mock.calls[3];
+    expect(platformStageCall[2]).toEqual({
       currentTitles: [
         "Platform engineering",
         "Platform engineer",
@@ -393,7 +403,18 @@ describe("runEmailCandidateWaterfall", () => {
         "backend platform",
       ],
       pastTitles: undefined,
-      notTitles: ["data", "contract", "AI", "artificial intelligence", "machine learning", "ml"],
+      notTitles: [
+        "data",
+        "contract",
+        "AI",
+        "artificial intelligence",
+        "machine learning",
+        "ml",
+        "frontend",
+        "front-end",
+        "front end",
+        "solution",
+      ],
       notPastTitles: [
         "client",
         "account",
@@ -428,7 +449,8 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     const stage1Call = searchEmailCandidatePeopleMock.mock.calls[0];
@@ -465,10 +487,43 @@ describe("runEmailCandidateWaterfall", () => {
       COMPANY,
       new Set(),
       new Map() as EnrichmentCache,
-      FILTERS
+      FILTERS,
+      APIFY_CACHE
     );
 
     expect(result.candidates).toHaveLength(1);
     expect(result.candidates[0].employee.id).toBe("infra-ok");
+  });
+
+  it("does not re-add leadership candidates in final Eng Leader stage", async () => {
+    searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeProspect("dup-leader", "Head of Infrastructure")])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        makeProspect("dup-leader", "Head of Infrastructure"),
+        makeProspect("final-leader", "VP of Engineering"),
+      ]);
+    bulkEnrichPeopleMock
+      .mockResolvedValueOnce([makeEmployee("dup-leader", "Head of Infrastructure", 20)])
+      .mockResolvedValueOnce([makeEmployee("final-leader", "VP of Engineering", 24)]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS,
+      APIFY_CACHE
+    );
+
+    const ids = result.candidates.map((candidate) => candidate.employee.id);
+    expect(ids.filter((id) => id === "dup-leader")).toHaveLength(1);
+    expect(ids).toContain("final-leader");
+    expect(result.candidates.find((candidate) => candidate.employee.id === "final-leader")?.campaignBucket).toBe(
+      "engLead"
+    );
   });
 });
