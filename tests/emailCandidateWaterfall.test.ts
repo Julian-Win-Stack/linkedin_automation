@@ -59,7 +59,7 @@ describe("runEmailCandidateWaterfall", () => {
     searchEmailCandidatePeopleMock.mockResolvedValue([]);
     bulkEnrichPeopleMock.mockResolvedValue([]);
     scrapeAndFilterOpenToWorkMock.mockImplementation(
-      async (employees: EnrichedEmployee[]) => ({ kept: employees, warnings: [] })
+      async (employees: EnrichedEmployee[]) => ({ kept: employees, warnings: [], filteredOut: [] })
     );
     splitByTenureMock.mockImplementation((employees: EnrichedEmployee[], minTenureMonths: number) => ({
       eligible: employees.filter((employee) => employee.tenure === null || employee.tenure >= minTenureMonths),
@@ -70,7 +70,7 @@ describe("runEmailCandidateWaterfall", () => {
     filterFrontendEngineersMock.mockImplementation((employees: EnrichedEmployee[]) => ({
       kept: employees,
       rejectedFrontend: [],
-      warnings: [],
+      warningCandidates: [],
     }));
   });
 
@@ -401,11 +401,16 @@ describe("runEmailCandidateWaterfall", () => {
         "Head of Engineering Productivity / Platform",
         "Chief Platform Officer",
         "backend platform",
+        "cloud platform",
+        "platform cloud",
       ],
       pastTitles: undefined,
       notTitles: [
         "data",
         "contract",
+        "contractor",
+        "freelance",
+        "freelancer",
         "AI",
         "artificial intelligence",
         "machine learning",
@@ -459,13 +464,13 @@ describe("runEmailCandidateWaterfall", () => {
     expect(stage1Call[2]).toEqual({
       currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
       pastTitles: undefined,
-      notTitles: ["contract"],
+      notTitles: ["contract", "contractor", "freelance", "freelancer"],
       notPastTitles: undefined,
     });
     expect(stage2Call[2]).toEqual({
       currentTitles: undefined,
       pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
-      notTitles: ["contract"],
+      notTitles: ["contract", "contractor", "freelance", "freelancer"],
       notPastTitles: undefined,
     });
   });
@@ -525,5 +530,45 @@ describe("runEmailCandidateWaterfall", () => {
     expect(result.candidates.find((candidate) => candidate.employee.id === "final-leader")?.campaignBucket).toBe(
       "engLead"
     );
+  });
+
+  it("collects normal engineer Apify warning candidates without filtering them out", async () => {
+    searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeProspect("normal-1", "Staff engineer")]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("normal-1", "Staff engineer", 18),
+    ]);
+    filterFrontendEngineersMock.mockImplementationOnce((employees: EnrichedEmployee[]) => ({
+      kept: employees,
+      rejectedFrontend: [],
+      warningCandidates: [
+        {
+          employee: employees[0],
+          reason: "company_not_matched",
+          problem: "Could not match this profile to Acme in Apify experience data.",
+        },
+      ],
+    }));
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS,
+      APIFY_CACHE
+    );
+
+    expect(result.candidates.some((candidate) => candidate.employee.id === "normal-1")).toBe(true);
+    expect(result.normalEngineerApifyWarnings).toHaveLength(1);
+    expect(result.normalEngineerApifyWarnings[0]).toMatchObject({
+      employee: expect.objectContaining({ id: "normal-1" }),
+      problem: expect.stringContaining("Could not match"),
+    });
+    expect(result.warnings).toEqual([]);
   });
 });

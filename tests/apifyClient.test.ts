@@ -203,8 +203,11 @@ describe("filterFrontendEngineers", () => {
     });
 
     expect(result.kept).toHaveLength(1);
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain("Charlie");
+    expect(result.warningCandidates).toHaveLength(1);
+    expect(result.warningCandidates[0]).toMatchObject({
+      reason: "company_not_matched",
+      employee: expect.objectContaining({ name: "Charlie" }),
+    });
   });
 
   it("keeps employee when description has no frontend keywords", () => {
@@ -301,6 +304,76 @@ describe("filterFrontendEngineers", () => {
 
     expect(result.kept).toHaveLength(1);
   });
+
+  it("rejects employee when only historical company match is frontend-only", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    const pastRole: ApifyExperienceEntry = {
+      companyName: "Acme",
+      companyUniversalName: "acme",
+      description: "frontend developer",
+      endDate: { text: "2021" },
+    };
+    const currentOtherRole: ApifyExperienceEntry = {
+      companyName: "Other Corp",
+      companyUniversalName: "other-corp",
+      description: "backend engineer",
+      endDate: { text: "Present" },
+    };
+    cache.set("linkedin.com/in/helen", {
+      openToWork: false,
+      experience: [currentOtherRole, pastRole],
+    });
+
+    const employees = [
+      makeEmployee({ name: "Helen", linkedinUrl: "https://linkedin.com/in/helen" }),
+    ];
+
+    const result = filterFrontendEngineers(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.kept).toHaveLength(0);
+    expect(result.rejectedFrontend).toHaveLength(1);
+    expect(result.warningCandidates).toHaveLength(0);
+  });
+
+  it("keeps employee and warns when historical company match is not frontend-only", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    const pastRole: ApifyExperienceEntry = {
+      companyName: "Acme",
+      companyUniversalName: "acme",
+      description: "backend engineer",
+      endDate: { text: "2021" },
+    };
+    const currentOtherRole: ApifyExperienceEntry = {
+      companyName: "Other Corp",
+      companyUniversalName: "other-corp",
+      description: "backend engineer",
+      endDate: { text: "Present" },
+    };
+    cache.set("linkedin.com/in/harry", {
+      openToWork: false,
+      experience: [currentOtherRole, pastRole],
+    });
+
+    const employees = [
+      makeEmployee({ name: "Harry", linkedinUrl: "https://linkedin.com/in/harry" }),
+    ];
+
+    const result = filterFrontendEngineers(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.kept).toHaveLength(1);
+    expect(result.rejectedFrontend).toHaveLength(0);
+    expect(result.warningCandidates).toHaveLength(1);
+    expect(result.warningCandidates[0]).toMatchObject({
+      reason: "company_not_current_role",
+      employee: expect.objectContaining({ name: "Harry" }),
+    });
+  });
 });
 
 describe("scrapeAndFilterOpenToWork", () => {
@@ -318,6 +391,7 @@ describe("scrapeAndFilterOpenToWork", () => {
 
     expect(result.kept).toHaveLength(0);
     expect(result.warnings).toHaveLength(0);
+    expect(result.filteredOut).toHaveLength(0);
   });
 
   it("skips employees without LinkedIn URL and keeps them with warning", async () => {
@@ -348,6 +422,8 @@ describe("scrapeAndFilterOpenToWork", () => {
     });
 
     expect(result.kept).toHaveLength(0);
+    expect(result.filteredOut).toHaveLength(1);
+    expect(result.filteredOut[0].reason).toBe("open_to_work");
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -399,8 +475,158 @@ describe("scrapeAndFilterOpenToWork", () => {
 
     expect(result.kept).toHaveLength(1);
     expect(result.kept[0].name).toBe("Bob");
+    expect(result.filteredOut).toHaveLength(1);
+    expect(result.filteredOut[0]).toMatchObject({
+      employee: expect.objectContaining({ name: "Alice" }),
+      reason: "open_to_work",
+    });
     expect(cache.get("linkedin.com/in/alice")?.openToWork).toBe(true);
     expect(cache.get("linkedin.com/in/bob")?.openToWork).toBe(false);
+  });
+
+  it("filters contract employment when matched current company role is contract", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          linkedinUrl: "https://linkedin.com/in/contractor",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              companyUniversalName: "acme",
+              employmentType: "Contract",
+              endDate: { text: "Present" },
+            },
+          ],
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const employees = [
+      makeEmployee({ name: "Contractor", linkedinUrl: "https://linkedin.com/in/contractor" }),
+    ];
+
+    const result = await scrapeAndFilterOpenToWork(employees, new Map(), {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.kept).toHaveLength(0);
+    expect(result.filteredOut).toHaveLength(1);
+    expect(result.filteredOut[0]).toMatchObject({
+      employee: expect.objectContaining({ name: "Contractor" }),
+      reason: "contract_employment",
+    });
+  });
+
+  it("filters contractor employment type variants for matched current company role", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          linkedinUrl: "https://linkedin.com/in/contractor-variant",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              companyUniversalName: "acme",
+              employmentType: "Contractor",
+              endDate: { text: "Present" },
+            },
+          ],
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const employees = [
+      makeEmployee({ name: "Contractor Variant", linkedinUrl: "https://linkedin.com/in/contractor-variant" }),
+    ];
+
+    const result = await scrapeAndFilterOpenToWork(employees, new Map(), {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.kept).toHaveLength(0);
+    expect(result.filteredOut).toHaveLength(1);
+    expect(result.filteredOut[0].reason).toBe("contract_employment");
+  });
+
+  it("filters freelance employment type variants for matched current company role", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          linkedinUrl: "https://linkedin.com/in/freelance-variant",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              companyUniversalName: "acme",
+              employmentType: "Freelancer",
+              endDate: { text: "Present" },
+            },
+          ],
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const employees = [
+      makeEmployee({ name: "Freelance Variant", linkedinUrl: "https://linkedin.com/in/freelance-variant" }),
+    ];
+
+    const result = await scrapeAndFilterOpenToWork(employees, new Map(), {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.kept).toHaveLength(0);
+    expect(result.filteredOut).toHaveLength(1);
+    expect(result.filteredOut[0].reason).toBe("contract_employment");
+  });
+
+  it("filters contract when company match is only historical role", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          linkedinUrl: "https://linkedin.com/in/historical",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              companyUniversalName: "acme",
+              employmentType: "Contract",
+              endDate: { text: "2022" },
+            },
+            {
+              companyName: "Other",
+              companyUniversalName: "other",
+              employmentType: "Full-time",
+              endDate: { text: "Present" },
+            },
+          ],
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const employees = [
+      makeEmployee({ name: "Historical", linkedinUrl: "https://linkedin.com/in/historical" }),
+    ];
+
+    const result = await scrapeAndFilterOpenToWork(employees, new Map(), {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.kept).toHaveLength(0);
+    expect(result.filteredOut).toHaveLength(1);
+    expect(result.filteredOut[0].reason).toBe("contract_employment");
   });
 
   it("keeps employees when Apify returns no matching profile (fail-open)", async () => {

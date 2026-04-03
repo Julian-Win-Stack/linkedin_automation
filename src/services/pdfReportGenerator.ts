@@ -1,5 +1,10 @@
 import PDFDocument from "pdfkit";
-import { CampaignPushData, CampaignPushEntry, FilteredOutCampaignEntry } from "../jobs/jobStore";
+import {
+  CampaignPushData,
+  CampaignPushEntry,
+  FilteredOutCampaignEntry,
+  NormalEngineerApifyWarningEntry,
+} from "../jobs/jobStore";
 
 interface CampaignSection {
   label: string;
@@ -31,6 +36,11 @@ const FILTER_SECTION_BG = "#eff6ff" as const;
 const FILTER_CARD_BG = "#f8fafc" as const;
 const FILTER_REASON_BADGE_BG = "#e0e7ff" as const;
 const FILTER_REASON_BADGE_TEXT = "#3730a3" as const;
+const WARNING_SECTION_BG = "#fff7ed" as const;
+const WARNING_CARD_BG = "#fffaf0" as const;
+const WARNING_BADGE_BG = "#ffedd5" as const;
+const WARNING_BADGE_TEXT = "#9a3412" as const;
+const WARNING_TEXT = "#7c2d12" as const;
 const UNKNOWN_COMPANY_LABEL = "Unknown company";
 
 function buildSections(data: CampaignPushData): CampaignSection[] {
@@ -61,10 +71,14 @@ function formatDate(): string {
 function buildFilteredOutReasonGroups(entries: FilteredOutCampaignEntry[]): FilteredOutReasonGroup[] {
   const openToWork = entries.filter((entry) => entry.reason === "open_to_work");
   const frontendRole = entries.filter((entry) => entry.reason === "frontend_role");
+  const contractEmployment = entries.filter((entry) => entry.reason === "contract_employment");
   const groups: FilteredOutReasonGroup[] = [];
 
   if (openToWork.length > 0) {
     groups.push({ label: "Filtered for OpenToWork", entries: openToWork });
+  }
+  if (contractEmployment.length > 0) {
+    groups.push({ label: "Filtered for Contract Employment", entries: contractEmployment });
   }
   if (frontendRole.length > 0) {
     groups.push({ label: "Filtered for Frontend Role", entries: frontendRole });
@@ -128,8 +142,12 @@ export function generateCampaignPdf(data: CampaignPushData): PDFKit.PDFDocument 
     renderSection(doc, section, pageWidth, sIdx < sections.length - 1);
   }
 
-  if (data.filteredOutNormalEngineers.length > 0) {
-    renderFilteredOutSection(doc, data.filteredOutNormalEngineers, pageWidth);
+  if (data.filteredOutCandidates.length > 0) {
+    renderFilteredOutSection(doc, data.filteredOutCandidates, pageWidth);
+  }
+
+  if (data.normalEngineerApifyWarnings.length > 0) {
+    renderNormalEngineerApifyWarningSection(doc, data.normalEngineerApifyWarnings, pageWidth);
   }
 
   return doc;
@@ -339,7 +357,7 @@ function renderFilteredOutSection(
     .font("Helvetica-Bold")
     .fontSize(12)
     .fillColor(ACCENT_COLOR)
-    .text("Filtered Out — Normal Engineer Search", PAGE_MARGIN + 8, doc.y + 8, { width: pageWidth - 16 });
+    .text("Filtered Out Candidates", PAGE_MARGIN + 8, doc.y + 8, { width: pageWidth - 16 });
 
   doc.y += 42;
   doc
@@ -383,7 +401,11 @@ function renderFilteredOutEntry(
     .fill(FILTER_CARD_BG)
     .restore();
 
-  const reasonLabel = entry.reason === "open_to_work" ? "Reason: OpenToWork profile" : "Reason: Frontend-focused role";
+  const reasonLabel = entry.reason === "open_to_work"
+    ? "Reason: OpenToWork profile"
+    : entry.reason === "contract_employment"
+      ? "Reason: Contract employment type"
+      : "Reason: Frontend-focused role";
   const reasonTextWidth = doc.font("Helvetica-Bold").fontSize(7.5).widthOfString(reasonLabel);
   const badgeWidth = reasonTextWidth + 10;
   const badgeX = cardX + cardWidth - badgeWidth - 10;
@@ -429,6 +451,122 @@ function renderFilteredOutEntry(
       .fillColor(MUTED_COLOR)
       .text("LinkedIn URL: —", cardX + 10, cardY + 44, { width: cardWidth - 20 });
   }
+
+  doc.y = cardY + cardHeight + 8;
+}
+
+function renderNormalEngineerApifyWarningSection(
+  doc: PDFKit.PDFDocument,
+  entries: NormalEngineerApifyWarningEntry[],
+  pageWidth: number
+): void {
+  doc.y += 8;
+  ensureSpace(doc, 96);
+  doc
+    .save()
+    .moveTo(PAGE_MARGIN, doc.y)
+    .lineTo(PAGE_MARGIN + pageWidth, doc.y)
+    .strokeColor("#fed7aa")
+    .lineWidth(1)
+    .stroke()
+    .restore();
+
+  doc.y += 18;
+  ensureSpace(doc, 64);
+  doc
+    .save()
+    .roundedRect(PAGE_MARGIN - 4, doc.y, pageWidth + 8, 34, 6)
+    .fill(WARNING_SECTION_BG)
+    .restore();
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(12)
+    .fillColor(WARNING_TEXT)
+    .text("Warnings — Normal Engineer Apify Match", PAGE_MARGIN + 8, doc.y + 8, { width: pageWidth - 16 });
+
+  doc.y += 42;
+  doc
+    .font("Helvetica")
+    .fontSize(9)
+    .fillColor(MUTED_COLOR)
+    .text(`${entries.length} candidate${entries.length === 1 ? "" : "s"} passed with warning`, PAGE_MARGIN, doc.y);
+  doc.y += 14;
+
+  for (const entry of entries) {
+    renderNormalEngineerApifyWarningEntry(doc, entry, pageWidth);
+  }
+}
+
+function renderNormalEngineerApifyWarningEntry(
+  doc: PDFKit.PDFDocument,
+  entry: NormalEngineerApifyWarningEntry,
+  pageWidth: number
+): void {
+  ensureSpace(doc, 96);
+  const cardX = PAGE_MARGIN + 4;
+  const cardY = doc.y;
+  const cardWidth = pageWidth - 8;
+  const cardHeight = 84;
+
+  doc
+    .save()
+    .roundedRect(cardX, cardY, cardWidth, cardHeight, 6)
+    .fill(WARNING_CARD_BG)
+    .restore();
+
+  const warningBadgeLabel = "Warning";
+  const badgeTextWidth = doc.font("Helvetica-Bold").fontSize(7.5).widthOfString(warningBadgeLabel);
+  const badgeWidth = badgeTextWidth + 10;
+  const badgeX = cardX + cardWidth - badgeWidth - 10;
+  const badgeY = cardY + 8;
+
+  doc
+    .save()
+    .roundedRect(badgeX, badgeY, badgeWidth, 14, 6)
+    .fill(WARNING_BADGE_BG)
+    .restore();
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(7.5)
+    .fillColor(WARNING_BADGE_TEXT)
+    .text(warningBadgeLabel, badgeX + 5, badgeY + 4, { width: badgeTextWidth + 1 });
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(10)
+    .fillColor("#111827")
+    .text(entry.name, cardX + 10, cardY + 9, { width: Math.max(90, badgeX - (cardX + 16)) });
+
+  doc
+    .font("Helvetica")
+    .fontSize(9)
+    .fillColor(MUTED_COLOR)
+    .text(entry.title || "—", cardX + 10, cardY + 28, { width: cardWidth - 20 });
+
+  if (entry.linkedinUrl) {
+    doc
+      .font("Helvetica")
+      .fontSize(8.5)
+      .fillColor(LINK_COLOR)
+      .text(entry.linkedinUrl, cardX + 10, cardY + 44, {
+        width: cardWidth - 20,
+        link: normalizeLink(entry.linkedinUrl),
+        underline: true,
+      });
+  } else {
+    doc
+      .font("Helvetica")
+      .fontSize(8.5)
+      .fillColor(MUTED_COLOR)
+      .text("LinkedIn URL: —", cardX + 10, cardY + 44, { width: cardWidth - 20 });
+  }
+
+  doc
+    .font("Helvetica")
+    .fontSize(8.5)
+    .fillColor(WARNING_TEXT)
+    .text(`Problem: ${entry.problem}`, cardX + 10, cardY + 60, { width: cardWidth - 20 });
 
   doc.y = cardY + cardHeight + 8;
 }

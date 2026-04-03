@@ -194,6 +194,14 @@ export function splitByTenure(
 export interface ApifyFilterResult {
   kept: EnrichedEmployee[];
   warnings: string[];
+  filteredOut: ApifyFilteredCandidate[];
+}
+
+export type ApifyFilteredReason = "open_to_work" | "contract_employment";
+
+export interface ApifyFilteredCandidate {
+  employee: EnrichedEmployee;
+  reason: ApifyFilteredReason;
 }
 
 export async function scrapeAndFilterOpenToWork(
@@ -202,7 +210,7 @@ export async function scrapeAndFilterOpenToWork(
   context: { companyName: string; companyDomain: string }
 ): Promise<ApifyFilterResult> {
   if (employees.length === 0) {
-    return { kept: [], warnings: [] };
+    return { kept: [], warnings: [], filteredOut: [] };
   }
 
   const apiKey = getRequiredEnv("APIFY_API_KEY");
@@ -211,6 +219,7 @@ export async function scrapeAndFilterOpenToWork(
 
   const tableRows: TableRow[] = [];
   const kept: EnrichedEmployee[] = [];
+  const filteredOut: ApifyFilteredCandidate[] = [];
   const counts = { kept: 0, removed: 0, cached: 0, skipped: 0, errors: 0 };
 
   const withUrl: { employee: EnrichedEmployee; normalizedUrl: string }[] = [];
@@ -236,12 +245,23 @@ export async function scrapeAndFilterOpenToWork(
     if (cache.has(normalizedUrl)) {
       const cached = cache.get(normalizedUrl)!;
       if (cached.openToWork) {
+        filteredOut.push({ employee, reason: "open_to_work" });
         counts.removed += 1;
         tableRows.push({
           name: employee.name,
           linkedinUrl: employee.linkedinUrl,
           openToWork: "true",
           status: "REMOVED (cached)",
+        });
+      } else if (shouldRejectForContractEmployment(cached.experience, context.companyDomain, context.companyName)) {
+        filteredOut.push({ employee, reason: "contract_employment" });
+        counts.removed += 1;
+        counts.cached += 1;
+        tableRows.push({
+          name: employee.name,
+          linkedinUrl: employee.linkedinUrl,
+          openToWork: "false",
+          status: "REMOVED (contract, cached)",
         });
       } else {
         kept.push(employee);
@@ -282,12 +302,22 @@ export async function scrapeAndFilterOpenToWork(
             cache.set(normalizedUrl, { openToWork: result.openToWork, experience: result.experience });
 
             if (result.openToWork) {
+              filteredOut.push({ employee, reason: "open_to_work" });
               counts.removed += 1;
               tableRows.push({
                 name: employee.name,
                 linkedinUrl: employee.linkedinUrl,
                 openToWork: "true",
                 status: "REMOVED",
+              });
+            } else if (shouldRejectForContractEmployment(result.experience, context.companyDomain, context.companyName)) {
+              filteredOut.push({ employee, reason: "contract_employment" });
+              counts.removed += 1;
+              tableRows.push({
+                name: employee.name,
+                linkedinUrl: employee.linkedinUrl,
+                openToWork: "false",
+                status: "REMOVED (contract)",
               });
             } else {
               kept.push(employee);
@@ -346,7 +376,7 @@ export async function scrapeAndFilterOpenToWork(
     );
   }
 
-  return { kept, warnings };
+  return { kept, warnings, filteredOut };
 }
 
 function extractDomainBase(domain: string): string {
@@ -391,28 +421,61 @@ function isCurrentRole(entry: ApifyExperienceEntry): boolean {
   return text === "present" || text === "";
 }
 
-function findCurrentCompanyExperience(
+function findCompanyExperienceMatch(
   experience: ApifyExperienceEntry[],
   companyDomain: string,
   companyName: string
-): ApifyExperienceEntry | null {
+): { currentMatchedEntry: ApifyExperienceEntry | null; fallbackMatchedEntry: ApifyExperienceEntry | null } {
   for (const entry of experience) {
     if (isCurrentRole(entry) && matchesCompany(entry, companyDomain, companyName)) {
-      return entry;
+      return { currentMatchedEntry: entry, fallbackMatchedEntry: entry };
     }
   }
   for (const entry of experience) {
     if (matchesCompany(entry, companyDomain, companyName)) {
-      return entry;
+      return { currentMatchedEntry: null, fallbackMatchedEntry: entry };
     }
   }
-  return null;
+  return { currentMatchedEntry: null, fallbackMatchedEntry: null };
+}
+
+function isContractEmploymentType(employmentType: string | undefined): boolean {
+  const normalized = (employmentType ?? "").trim().toLowerCase();
+  return normalized === "contract"
+    || normalized === "contractor"
+    || normalized === "freelance"
+    || normalized === "freelancer";
+}
+
+function shouldRejectForContractEmployment(
+  experience: ApifyExperienceEntry[],
+  companyDomain: string,
+  companyName: string
+): boolean {
+  const { currentMatchedEntry, fallbackMatchedEntry } = findCompanyExperienceMatch(
+    experience,
+    companyDomain,
+    companyName
+  );
+  const matchedEntry = currentMatchedEntry ?? fallbackMatchedEntry;
+  if (!matchedEntry) {
+    return false;
+  }
+  return isContractEmploymentType(matchedEntry.employmentType);
 }
 
 export interface FrontendFilterResult {
   kept: EnrichedEmployee[];
   rejectedFrontend: EnrichedEmployee[];
-  warnings: string[];
+  warningCandidates: FrontendWarningCandidate[];
+}
+
+export type FrontendWarningReason = "company_not_matched" | "company_not_current_role";
+
+export interface FrontendWarningCandidate {
+  employee: EnrichedEmployee;
+  reason: FrontendWarningReason;
+  problem: string;
 }
 
 export function filterFrontendEngineers(
@@ -422,7 +485,7 @@ export function filterFrontendEngineers(
 ): FrontendFilterResult {
   const kept: EnrichedEmployee[] = [];
   const rejectedFrontend: EnrichedEmployee[] = [];
-  const warnings: string[] = [];
+  const warningCandidates: FrontendWarningCandidate[] = [];
   const rows: { name: string; companyMatch: string; result: string }[] = [];
 
   for (const emp of employees) {
@@ -435,16 +498,47 @@ export function filterFrontendEngineers(
       continue;
     }
 
-    const matchedEntry = findCurrentCompanyExperience(
+    const { currentMatchedEntry, fallbackMatchedEntry } = findCompanyExperienceMatch(
       cached.experience,
       company.companyDomain,
       company.companyName
     );
+    const matchedEntry = currentMatchedEntry ?? fallbackMatchedEntry ?? null;
 
     if (!matchedEntry) {
       kept.push(emp);
-      warnings.push(`Could not match company for ${emp.name} at ${company.companyName}`);
+      warningCandidates.push({
+        employee: emp,
+        reason: "company_not_matched",
+        problem: `Could not match this profile to ${company.companyName} in Apify experience data.`,
+      });
       rows.push({ name: emp.name, companyMatch: "no match", result: "KEPT (no company match)" });
+      continue;
+    }
+
+    if (!currentMatchedEntry) {
+      const desc = matchedEntry.description ?? "";
+      if (FRONTEND_REGEX.test(desc) && !FRONTEND_OVERRIDE_REGEX.test(desc)) {
+        rejectedFrontend.push(emp);
+        rows.push({
+          name: emp.name,
+          companyMatch: matchedEntry.companyName ?? "—",
+          result: "REJECTED (frontend, past role)",
+        });
+        continue;
+      }
+
+      kept.push(emp);
+      warningCandidates.push({
+        employee: emp,
+        reason: "company_not_current_role",
+        problem: `Found ${company.companyName} in history, but not as current/present role in Apify data.`,
+      });
+      rows.push({
+        name: emp.name,
+        companyMatch: matchedEntry.companyName ?? "—",
+        result: "KEPT (not current role)",
+      });
       continue;
     }
 
@@ -468,9 +562,11 @@ export function filterFrontendEngineers(
       const match = row.companyMatch.length > 22 ? row.companyMatch.slice(0, 21) + "…" : row.companyMatch;
       print(`    ${name.padEnd(22)}${match.padEnd(24)}${row.result}`);
     }
-    print(`    Result: ${kept.length} kept · ${rejectedFrontend.length} rejected · ${warnings.length} no match`);
+    print(
+      `    Result: ${kept.length} kept · ${rejectedFrontend.length} rejected · ${warningCandidates.length} warning`
+    );
     print("");
   }
 
-  return { kept, rejectedFrontend, warnings };
+  return { kept, rejectedFrontend, warningCandidates };
 }

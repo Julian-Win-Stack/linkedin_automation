@@ -22,17 +22,23 @@ export interface TaggedEmailCandidate {
   campaignBucket: EmailCampaignBucket;
 }
 
-export type NormalEngineerFilteredReason = "open_to_work" | "frontend_role";
+export type EmailWaterfallFilteredReason = "open_to_work" | "frontend_role" | "contract_employment";
 
-export interface FilteredNormalEngineerCandidate {
+export interface FilteredEmailCandidate {
   employee: EnrichedEmployee;
-  reason: NormalEngineerFilteredReason;
+  reason: EmailWaterfallFilteredReason;
 }
 
 export interface EmailWaterfallResult {
   candidates: TaggedEmailCandidate[];
-  filteredOutNormalEngineers: FilteredNormalEngineerCandidate[];
+  filteredOutCandidates: FilteredEmailCandidate[];
   warnings: string[];
+  normalEngineerApifyWarnings: NormalEngineerApifyWarningCandidate[];
+}
+
+export interface NormalEngineerApifyWarningCandidate {
+  employee: EnrichedEmployee;
+  problem: string;
 }
 
 const MAX_PER_COMPANY = 7;
@@ -47,13 +53,13 @@ const SPLIT_LEADERSHIP_BUCKET: EmailCampaignBucket = "engLead";
 const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
   {
     currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
-    notTitles: ["contract"],
+    notTitles: ["contract", "contractor", "freelance", "freelancer"],
     minTenureMonths: 2,
     campaignBucket: "sre",
   },
   {
     pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
-    notTitles: ["contract"],
+    notTitles: ["contract", "contractor", "freelance", "freelancer"],
     minTenureMonths: 2,
     campaignBucket: "sre",
   },
@@ -63,6 +69,9 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "data",
       "corporate",
       "contract",
+      "contractor",
+      "freelance",
+      "freelancer",
       "IT",
       "helpdesk",
       "desktop",
@@ -143,6 +152,9 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
     notTitles: [
       "data",
       "contract",
+      "contractor",
+      "freelance",
+      "freelancer",
       "AI",
       "artificial intelligence",
       "machine learning",
@@ -181,6 +193,9 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "IT",
       "corporate",
       "contract",
+      "contractor",
+      "freelance",
+      "freelancer",
       "enterprise", 
       "internal systems",
       "workplace",
@@ -236,6 +251,9 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "machine learning",
       "data",
       "contract",
+      "contractor",
+      "freelance",
+      "freelancer",
       "frontend",
       "front-end",
       "front end",
@@ -487,8 +505,9 @@ export async function runEmailCandidateWaterfall(
 ): Promise<EmailWaterfallResult> {
   const listA: TaggedEmailCandidate[] = [];
   const listAKeys = new Set<string>();
-  const filteredOutNormalEngineers: FilteredNormalEngineerCandidate[] = [];
+  const filteredOutCandidates: FilteredEmailCandidate[] = [];
   const warnings: string[] = [];
+  const normalEngineerApifyWarnings: NormalEngineerApifyWarningCandidate[] = [];
 
   print("");
   print(HEAVY_LINE);
@@ -579,20 +598,16 @@ export async function runEmailCandidateWaterfall(
     }
 
     const isNormalEngineerStage = STAGE_LABELS[stageIndex] === NORMAL_ENGINEER_STAGE_LABEL;
-    const { kept: apifyFiltered, warnings: apifyWarnings } = await scrapeAndFilterOpenToWork(tenureEligible, apifyCache, { companyName: company.companyName, companyDomain: company.domain });
+    const {
+      kept: apifyFiltered,
+      warnings: apifyWarnings,
+      filteredOut: apifyFilteredOut,
+    } = await scrapeAndFilterOpenToWork(tenureEligible, apifyCache, {
+      companyName: company.companyName,
+      companyDomain: company.domain,
+    });
     warnings.push(...apifyWarnings);
-
-    if (isNormalEngineerStage) {
-      const apifyKeptKeys = new Set<string>();
-      for (const employee of apifyFiltered) {
-        addEmployeeIdentifiers(apifyKeptKeys, employee);
-      }
-      for (const employee of tenureEligible) {
-        if (!hasEmployeeIdentifier(apifyKeptKeys, employee)) {
-          filteredOutNormalEngineers.push({ employee, reason: "open_to_work" });
-        }
-      }
-    }
+    filteredOutCandidates.push(...apifyFilteredOut);
 
     if (apifyFiltered.length === 0) {
       printStageSkip("all candidates removed by openToWork filter");
@@ -607,21 +622,21 @@ export async function runEmailCandidateWaterfall(
         companyDomain: company.domain,
       });
       candidatesForRanking = frontendResult.kept;
-      filteredOutNormalEngineers.push(
+      filteredOutCandidates.push(
         ...frontendResult.rejectedFrontend.map((employee) => ({
           employee,
           reason: "frontend_role" as const,
         }))
       );
+      normalEngineerApifyWarnings.push(
+        ...frontendResult.warningCandidates.map((warningCandidate) => ({
+          employee: warningCandidate.employee,
+          problem: warningCandidate.problem,
+        }))
+      );
 
       if (frontendResult.rejectedFrontend.length > 0) {
         print(`    Frontend     ${apifyFiltered.length} → ${frontendResult.kept.length}  (rejected ${frontendResult.rejectedFrontend.length} frontend)`);
-      }
-
-      if (frontendResult.warnings.length > 0) {
-        warnings.push(
-          `Normal Engineer Search at ${company.companyName}: could not match company for ${frontendResult.warnings.length} candidate(s) — candidates kept`
-        );
       }
 
       if (candidatesForRanking.length === 0) {
@@ -697,5 +712,5 @@ export async function runEmailCandidateWaterfall(
   print(HEAVY_LINE);
   print("");
 
-  return { candidates: listA, filteredOutNormalEngineers, warnings };
+  return { candidates: listA, filteredOutCandidates, warnings, normalEngineerApifyWarnings };
 }

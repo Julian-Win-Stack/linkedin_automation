@@ -69,6 +69,7 @@ export interface ApifyExperienceEntry {
   companyUniversalName?: string;
   companyLinkedinUrl?: string;
   description?: string;
+  employmentType?: string;
   position?: string;
   endDate?: { text?: string } | null;
 }

@@ -108,7 +108,7 @@ function makeEmployees(count: number, prefix: string): EnrichedEmployee[] {
 }
 
 function emptyWaterfallResult(): EmailWaterfallResult {
-  return { candidates: [], filteredOutNormalEngineers: [], warnings: [] };
+  return { candidates: [], filteredOutCandidates: [], warnings: [], normalEngineerApifyWarnings: [] };
 }
 
 describe("runResearchPipeline orchestration", () => {
@@ -166,6 +166,7 @@ describe("runResearchPipeline orchestration", () => {
     scrapeAndFilterOpenToWorkMock.mockImplementation(async (employees: EnrichedEmployee[]) => ({
       kept: employees,
       warnings: [],
+      filteredOut: [],
     }));
     splitByTenureMock.mockImplementation((employees: EnrichedEmployee[]) => ({ eligible: employees }));
     process.env.LEMLIST_PUSH_ENABLED = "true";
@@ -286,8 +287,9 @@ describe("runResearchPipeline orchestration", () => {
     ];
     runEmailCandidateWaterfallMock.mockResolvedValueOnce({
       candidates: waterfallCandidates,
-      filteredOutNormalEngineers: [],
+      filteredOutCandidates: [],
       warnings: [],
+      normalEngineerApifyWarnings: [],
     });
     pushPeopleToLemlistEmailCampaignMock.mockResolvedValueOnce({
       attempted: 2,
@@ -354,8 +356,9 @@ describe("runResearchPipeline orchestration", () => {
     ];
     runEmailCandidateWaterfallMock.mockResolvedValueOnce({
       candidates: waterfallCandidates,
-      filteredOutNormalEngineers: [],
+      filteredOutCandidates: [],
       warnings: [],
+      normalEngineerApifyWarnings: [],
     });
     enrichMissingEmailsWithLemlistMock.mockImplementationOnce(
       async (candidates: Array<{ employee: EnrichedEmployee }>) => {
@@ -476,5 +479,58 @@ describe("runResearchPipeline orchestration", () => {
     const job = getJob(jobId);
     expect(job?.skippedCompanies).toEqual(["Skipped Co"]);
     expect(job?.summary?.skippedMissingWebsiteAndApolloAccountIdCount).toBe(1);
+  });
+
+  it("stores normal engineer Apify warning entries in campaign push data and not UI warnings", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
+      candidates: [],
+      filteredOutCandidates: [],
+      warnings: [],
+      normalEngineerApifyWarnings: [
+        {
+          employee: {
+            id: "warn-1",
+            startDate: "2022-01-01",
+            endDate: null,
+            name: "Warn Person",
+            email: null,
+            linkedinUrl: "https://linkedin.com/in/warn-person",
+            currentTitle: "Staff Engineer",
+            tenure: 12,
+          },
+          problem: "Could not match this profile to Acme in Apify experience data.",
+        },
+      ],
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian");
+
+    const job = getJob(jobId);
+    expect(job?.warnings).toEqual([]);
+    expect(job?.campaignPushData?.normalEngineerApifyWarnings).toEqual([
+      {
+        companyName: "Acme",
+        name: "Warn Person",
+        title: "Staff Engineer",
+        linkedinUrl: "https://linkedin.com/in/warn-person",
+        problem: "Could not match this profile to Acme in Apify experience data.",
+      },
+    ]);
   });
 });

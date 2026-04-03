@@ -209,7 +209,8 @@ export async function runResearchPipeline(
     emailSre: [],
     emailEng: [],
     emailEngLead: [],
-    filteredOutNormalEngineers: [],
+    filteredOutCandidates: [],
+    normalEngineerApifyWarnings: [],
   };
 
   const _originalConsoleLog = console.log;
@@ -379,8 +380,24 @@ export async function runResearchPipeline(
         const { eligible: tenureEligibleSre } = splitByTenure(enrichedEmployees, 2);
         process.stdout.write(`  ▸ Checking openToWork for ${tenureEligibleSre.length} current SRE candidates...\n`);
         logPipelineStage("APIFY_CURRENT_SRE", `Checking openToWork for ${tenureEligibleSre.length} current SRE candidates.`, companyContext);
-        const { kept: apifyFilteredSre, warnings: apifyWarnsSre } = await scrapeAndFilterOpenToWork(tenureEligibleSre, apifyCache, { companyName: row.companyName, companyDomain: row.companyDomain });
+        const {
+          kept: apifyFilteredSre,
+          warnings: apifyWarnsSre,
+          filteredOut: apifyFilteredOutSre,
+        } = await scrapeAndFilterOpenToWork(tenureEligibleSre, apifyCache, {
+          companyName: row.companyName,
+          companyDomain: row.companyDomain,
+        });
         for (const w of apifyWarnsSre) { addJobWarning(jobId, w); }
+        campaignPushData.filteredOutCandidates.push(
+          ...apifyFilteredOutSre.map(({ employee, reason }) => ({
+            companyName: company.companyName,
+            name: employee.name,
+            title: employee.currentTitle,
+            linkedinUrl: employee.linkedinUrl ?? null,
+            reason,
+          }))
+        );
         const selectedCurrentSre = selectTopSreForLemlist(apifyFilteredSre, 7);
         process.stdout.write(`  ▸ Selected ${selectedCurrentSre.length} current SRE for LinkedIn seed\n`);
         logPipelineStage(
@@ -407,8 +424,24 @@ export async function runResearchPipeline(
           const { eligible: tenureEligiblePastSre } = splitByTenure(pastSreEnriched, 2);
           process.stdout.write(`  ▸ Checking openToWork for ${tenureEligiblePastSre.length} past SRE candidates...\n`);
           logPipelineStage("APIFY_PAST_SRE", `Checking openToWork for ${tenureEligiblePastSre.length} past SRE candidates.`, companyContext);
-          const { kept: apifyFilteredPastSre, warnings: apifyWarnsPastSre } = await scrapeAndFilterOpenToWork(tenureEligiblePastSre, apifyCache, { companyName: row.companyName, companyDomain: row.companyDomain });
+          const {
+            kept: apifyFilteredPastSre,
+            warnings: apifyWarnsPastSre,
+            filteredOut: apifyFilteredOutPastSre,
+          } = await scrapeAndFilterOpenToWork(tenureEligiblePastSre, apifyCache, {
+            companyName: row.companyName,
+            companyDomain: row.companyDomain,
+          });
           for (const w of apifyWarnsPastSre) { addJobWarning(jobId, w); }
+          campaignPushData.filteredOutCandidates.push(
+            ...apifyFilteredOutPastSre.map(({ employee, reason }) => ({
+              companyName: company.companyName,
+              name: employee.name,
+              title: employee.currentTitle,
+              linkedinUrl: employee.linkedinUrl ?? null,
+              reason,
+            }))
+          );
           selectedForLemlist = fillToMinimumWithBackfill(selectedCurrentSre, apifyFilteredPastSre, [], {
             minimum: 5,
             max: 7,
@@ -436,8 +469,24 @@ export async function runResearchPipeline(
             const { eligible: tenureEligiblePlatform } = splitByTenure(platformEnriched, 11);
             process.stdout.write(`  ▸ Checking openToWork for ${tenureEligiblePlatform.length} platform candidates...\n`);
             logPipelineStage("APIFY_PLATFORM", `Checking openToWork for ${tenureEligiblePlatform.length} platform candidates.`, companyContext);
-            const { kept: apifyFilteredPlatform, warnings: apifyWarnsPlatform } = await scrapeAndFilterOpenToWork(tenureEligiblePlatform, apifyCache, { companyName: row.companyName, companyDomain: row.companyDomain });
+            const {
+              kept: apifyFilteredPlatform,
+              warnings: apifyWarnsPlatform,
+              filteredOut: apifyFilteredOutPlatform,
+            } = await scrapeAndFilterOpenToWork(tenureEligiblePlatform, apifyCache, {
+              companyName: row.companyName,
+              companyDomain: row.companyDomain,
+            });
             for (const w of apifyWarnsPlatform) { addJobWarning(jobId, w); }
+            campaignPushData.filteredOutCandidates.push(
+              ...apifyFilteredOutPlatform.map(({ employee, reason }) => ({
+                companyName: company.companyName,
+                name: employee.name,
+                title: employee.currentTitle,
+                linkedinUrl: employee.linkedinUrl ?? null,
+                reason,
+              }))
+            );
             selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, [], apifyFilteredPlatform, {
               minimum: 5,
               max: 5,
@@ -519,8 +568,20 @@ export async function runResearchPipeline(
             addJobWarning(jobId, warning);
           }
 
-          if (waterfallResult.filteredOutNormalEngineers.length > 0) {
-            const filteredEntries: FilteredOutCampaignEntry[] = waterfallResult.filteredOutNormalEngineers.map(
+          if (waterfallResult.normalEngineerApifyWarnings.length > 0) {
+            campaignPushData.normalEngineerApifyWarnings.push(
+              ...waterfallResult.normalEngineerApifyWarnings.map(({ employee, problem }) => ({
+                companyName: company.companyName,
+                name: employee.name,
+                title: employee.currentTitle,
+                linkedinUrl: employee.linkedinUrl ?? null,
+                problem,
+              }))
+            );
+          }
+
+          if (waterfallResult.filteredOutCandidates.length > 0) {
+            const filteredEntries: FilteredOutCampaignEntry[] = waterfallResult.filteredOutCandidates.map(
               ({ employee, reason }) => ({
                 companyName: company.companyName,
                 name: employee.name,
@@ -529,7 +590,7 @@ export async function runResearchPipeline(
                 reason,
               })
             );
-            campaignPushData.filteredOutNormalEngineers.push(...filteredEntries);
+            campaignPushData.filteredOutCandidates.push(...filteredEntries);
           }
 
           if (waterfallResult.candidates.length > 0) {
