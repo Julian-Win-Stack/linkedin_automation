@@ -444,19 +444,7 @@ describe("runEmailCandidateWaterfall", () => {
       currentTitles: undefined,
       pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
       notTitles: ["contract"],
-      notPastTitles: [
-        "client",
-        "account",
-        "sales",
-        "customer",
-        "insight",
-        "research",
-        "marketing",
-        "consultant",
-        "analyst",
-        "partner",
-        "commercial",
-      ],
+      notPastTitles: undefined,
     });
   });
 
