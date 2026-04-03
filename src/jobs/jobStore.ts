@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 export type JobStatus = "pending" | "processing" | "cancelled" | "done" | "error";
 
 export interface CampaignPushEntry {
+  companyName: string;
   name: string;
   title: string;
   linkedinUrl: string | null;
@@ -26,6 +27,7 @@ export interface JobSummary {
   apolloProcessedCompanyCount: number;
   totalSreFound: number;
   totalLinkedinCampaignSuccessful: number;
+  totalLinkedinCampaignFailed: number;
   totalLemlistSuccessful: number;
   totalLemlistFailed: number;
   totalEmailCampaignSuccessful: number;

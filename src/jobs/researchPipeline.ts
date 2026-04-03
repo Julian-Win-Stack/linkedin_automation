@@ -129,11 +129,13 @@ function toOutcomeMap(outcomes: LemlistPushOutcome[]): Map<string, LemlistPushOu
 
 function toCampaignPushEntry(
   employee: EnrichedEmployee,
-  outcomeByKey: Map<string, LemlistPushOutcome>
+  outcomeByKey: Map<string, LemlistPushOutcome>,
+  companyName: string
 ): CampaignPushEntry {
   const outcome = outcomeByKey.get(toEmployeeKey(employee));
   if (!outcome) {
     return {
+      companyName,
       name: employee.name,
       title: employee.currentTitle,
       linkedinUrl: employee.linkedinUrl ?? null,
@@ -142,6 +144,7 @@ function toCampaignPushEntry(
     };
   }
   return {
+    companyName,
     name: employee.name,
     title: employee.currentTitle,
     linkedinUrl: employee.linkedinUrl ?? null,
@@ -193,6 +196,7 @@ export async function runResearchPipeline(
   let apolloProcessedCompanyCount = 0;
   let totalSreFound = 0;
   let totalLinkedinCampaignSuccessful = 0;
+  let totalLinkedinCampaignFailed = 0;
   let totalLemlistSuccessful = 0;
   let totalLemlistFailed = 0;
   let totalEmailCampaignSuccessful = 0;
@@ -471,7 +475,7 @@ export async function runResearchPipeline(
           );
           const linkedinOutcomeByKey = toOutcomeMap(lemlistMeta.outcomes);
           for (const tagged of taggedForLemlist) {
-            const entry = toCampaignPushEntry(tagged.employee, linkedinOutcomeByKey);
+            const entry = toCampaignPushEntry(tagged.employee, linkedinOutcomeByKey, row.companyName);
             if (tagged.linkedinBucket === "sre") {
               campaignPushData.linkedinSre.push(entry);
             } else {
@@ -481,6 +485,7 @@ export async function runResearchPipeline(
           lemlistSuccessful = lemlistMeta.successful;
           lemlistFailed = lemlistMeta.failed;
           totalLinkedinCampaignSuccessful += lemlistSuccessful;
+          totalLinkedinCampaignFailed += lemlistFailed;
           totalLemlistSuccessful += lemlistSuccessful;
           totalLemlistFailed += lemlistFailed;
           process.stdout.write(`  ▸ LinkedIn push done — ${lemlistSuccessful} successful, ${lemlistFailed} failed\n`);
@@ -670,7 +675,7 @@ export async function runResearchPipeline(
         );
         const emailOutcomeByKey = toOutcomeMap(emailPushMeta.outcomes);
         for (const { employee, campaignBucket } of batch.candidates) {
-          const entry = toCampaignPushEntry(employee, emailOutcomeByKey);
+          const entry = toCampaignPushEntry(employee, emailOutcomeByKey, batch.companyName);
           if (campaignBucket === "sre") {
             campaignPushData.emailSre.push(entry);
           } else if (campaignBucket === "engLead") {
@@ -706,6 +711,7 @@ export async function runResearchPipeline(
       apolloProcessedCompanyCount,
       totalSreFound,
       totalLinkedinCampaignSuccessful,
+      totalLinkedinCampaignFailed,
       totalLemlistSuccessful,
       totalLemlistFailed,
       totalEmailCampaignSuccessful,

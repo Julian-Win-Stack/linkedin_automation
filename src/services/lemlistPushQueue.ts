@@ -22,6 +22,7 @@ const DEFAULT_LEMLIST_QUERY = {
 };
 const LEMLIST_ERROR_COLOR = "\x1b[31m";
 const ANSI_RESET = "\x1b[0m";
+const ALREADY_IN_CAMPAIGN_ERROR = "lead already in the campaign";
 
 type QueueTask = () => Promise<void>;
 
@@ -90,6 +91,10 @@ function groupByBucket(candidates: TaggedLinkedinCandidate[]): Record<LinkedinCa
 
 function toEmployeeKey(employee: EnrichedEmployee): string {
   return employee.id ?? `${employee.name}|${employee.currentTitle}|${employee.linkedinUrl ?? ""}`;
+}
+
+function isAlreadyInCampaignError(message: string): boolean {
+  return message.toLowerCase().includes(ALREADY_IN_CAMPAIGN_ERROR);
 }
 
 export async function pushPeopleToLemlistCampaign(
@@ -165,6 +170,18 @@ export async function pushPeopleToLemlistCampaign(
               });
             } catch (error) {
               const message = error instanceof Error ? error.message : "Unknown Lemlist push error.";
+              if (isAlreadyInCampaignError(message)) {
+                successful += 1;
+                successItems.push(employee.name);
+                outcomes.push({
+                  key: toEmployeeKey(employee),
+                  name: employee.name,
+                  title: employee.currentTitle,
+                  linkedinUrl: employee.linkedinUrl ?? null,
+                  status: "succeed",
+                });
+                continue;
+              }
               console.error(
                 `${LEMLIST_ERROR_COLOR}[Lemlist][LinkedIn][ERROR] company=${companyName} person=${employee.name} campaign=${bucket.campaignId} message=${message}${ANSI_RESET}`
               );

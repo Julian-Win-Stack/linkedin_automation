@@ -28,15 +28,6 @@ const completedJobId = ref<string | null>(null);
 
 const canRun = computed(() => !isLoading.value && !!selectedFile.value && !!selectedUser.value);
 const workflowSignal = "Upload → Qualify → Outreach";
-const zeroEngineerCountRejectedCompanyNames = computed(() =>
-  rejectedCompanies.value
-    .filter((company) => company.toLowerCase().includes("engineer count (0)"))
-    .map((company) => company.split(" was rejected because")[0]?.trim() ?? "")
-    .filter((companyName) => companyName.length > 0)
-);
-const hasZeroEngineerCountRejectedCompany = computed(
-  () => zeroEngineerCountRejectedCompanyNames.value.length > 0
-);
 const selectedUserLabel = computed(() => {
   if (!selectedUser.value) {
     return null;
@@ -457,6 +448,9 @@ async function cancelAndReset(): Promise<void> {
               <strong>LinkedIn campaign pushed:</strong> {{ summary.totalLinkedinCampaignSuccessful ?? 0 }}
             </p>
             <p>
+              <strong>Failed to push to LinkedIn campaigns:</strong> {{ summary.totalLinkedinCampaignFailed ?? 0 }}
+            </p>
+            <p>
               <strong>Email campaign pushed:</strong> {{ summary.totalEmailCampaignSuccessful ?? 0 }}
             </p>
             <p>
@@ -469,13 +463,6 @@ async function cancelAndReset(): Promise<void> {
             class="rounded-md border border-zinc-700 bg-zinc-900/50 p-3 text-sm space-y-2"
           >
             <p class="font-medium">Rejected Companies</p>
-            <p
-              v-if="hasZeroEngineerCountRejectedCompany"
-              class="rounded-md border border-amber-700/70 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-200"
-            >
-              Warning: Engineer count is 0 for {{ zeroEngineerCountRejectedCompanyNames.join(", ") }}. Please manually
-              check the company's information.
-            </p>
             <ul class="list-disc pl-5 text-xs text-zinc-300 space-y-1">
               <li v-for="company in rejectedCompanies" :key="company">
                 {{ company }}

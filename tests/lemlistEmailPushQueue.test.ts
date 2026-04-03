@@ -220,4 +220,40 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
       "[EmailPush][MissingEmail] company=Acme person=No Email title=SRE"
     );
   });
+
+  it('counts "Lead already in the campaign" as email push success', async () => {
+    createLeadInCampaignMock.mockRejectedValueOnce(
+      new Error("Lemlist API error (400): Lead already in the campaign")
+    );
+
+    const candidates: TaggedEmailCandidate[] = [
+      {
+        employee: {
+          id: "person-1",
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "Already Added",
+          email: "already.added@example.com",
+          linkedinUrl: "https://linkedin.com/in/already-added",
+          currentTitle: "Staff Engineer",
+          tenure: 24,
+        },
+        campaignBucket: "eng",
+      },
+    ];
+
+    const result = await pushPeopleToLemlistEmailCampaign(candidates, "Acme", "acme.com", "julian");
+
+    expect(result.attempted).toBe(1);
+    expect(result.successful).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.successItems).toEqual(["Already Added"]);
+    expect(result.failedItems).toEqual([]);
+    expect(result.outcomes).toEqual([
+      expect.objectContaining({
+        name: "Already Added",
+        status: "succeed",
+      }),
+    ]);
+  });
 });

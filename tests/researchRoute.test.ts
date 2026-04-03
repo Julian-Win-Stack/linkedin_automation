@@ -145,6 +145,7 @@ describe("research job routes", () => {
       apolloProcessedCompanyCount: 1,
       totalSreFound: 3,
       totalLinkedinCampaignSuccessful: 1,
+      totalLinkedinCampaignFailed: 0,
       totalLemlistSuccessful: 2,
       totalLemlistFailed: 1,
       totalEmailCampaignSuccessful: 1,

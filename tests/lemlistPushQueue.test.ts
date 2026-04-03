@@ -244,4 +244,38 @@ describe("pushPeopleToLemlistCampaign", () => {
     expect(result.failed).toBe(0);
     expect(result.successItems).toEqual(["Short Stay", "Eligible Person"]);
   });
+
+  it('treats "Lead already in the campaign" as successful push', async () => {
+    createLeadInCampaignMock.mockRejectedValueOnce(
+      new Error("Lemlist API error (400): Lead already in the campaign")
+    );
+
+    const candidates: TaggedLinkedinCandidate[] = [
+      {
+        employee: {
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "Already Added",
+          linkedinUrl: "https://linkedin.com/in/already-added",
+          currentTitle: "SRE",
+          tenure: 12,
+        },
+        linkedinBucket: "sre",
+      },
+    ];
+
+    const result = await pushPeopleToLemlistCampaign(candidates, "Acme", "acme.com", "julian");
+
+    expect(result.attempted).toBe(1);
+    expect(result.successful).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.successItems).toEqual(["Already Added"]);
+    expect(result.failedItems).toEqual([]);
+    expect(result.outcomes).toEqual([
+      expect.objectContaining({
+        name: "Already Added",
+        status: "succeed",
+      }),
+    ]);
+  });
 });

@@ -6,6 +6,11 @@ interface CampaignSection {
   entries: CampaignPushEntry[];
 }
 
+interface CompanyGroup {
+  companyName: string;
+  entries: CampaignPushEntry[];
+}
+
 const PAGE_MARGIN = 50;
 const ACCENT_COLOR = "#1a1a2e" as const;
 const SECTION_BG = "#f0f0f5" as const;
@@ -15,6 +20,9 @@ const SUCCESS_BG = "#dcfce7" as const;
 const SUCCESS_TEXT = "#166534" as const;
 const FAILURE_BG = "#fee2e2" as const;
 const FAILURE_TEXT = "#991b1b" as const;
+const COMPANY_GROUP_BG = "#eef2ff" as const;
+const COMPANY_GROUP_TEXT = "#312e81" as const;
+const UNKNOWN_COMPANY_LABEL = "Unknown company";
 
 function buildSections(data: CampaignPushData): CampaignSection[] {
   const mapping: { key: keyof CampaignPushData; label: string }[] = [
@@ -103,6 +111,30 @@ function ensureSpace(doc: PDFKit.PDFDocument, needed: number): void {
   }
 }
 
+function normalizeCompanyName(companyName: string | undefined): string {
+  const trimmed = (companyName ?? "").trim();
+  return trimmed.length > 0 ? trimmed : UNKNOWN_COMPANY_LABEL;
+}
+
+function groupEntriesByCompany(entries: CampaignPushEntry[]): CompanyGroup[] {
+  const byCompany = new Map<string, CampaignPushEntry[]>();
+
+  for (const entry of entries) {
+    const companyName = normalizeCompanyName(entry.companyName);
+    const existing = byCompany.get(companyName);
+    if (existing) {
+      existing.push(entry);
+    } else {
+      byCompany.set(companyName, [entry]);
+    }
+  }
+
+  return [...byCompany.entries()].map(([companyName, groupedEntries]) => ({
+    companyName,
+    entries: groupedEntries,
+  }));
+}
+
 function renderSection(
   doc: PDFKit.PDFDocument,
   section: CampaignSection,
@@ -133,8 +165,13 @@ function renderSection(
 
   doc.y += 16;
 
-  for (const entry of section.entries) {
-    renderEntry(doc, entry, pageWidth);
+  const companyGroups = groupEntriesByCompany(section.entries);
+  for (const group of companyGroups) {
+    renderCompanyHeader(doc, group, pageWidth);
+    for (const entry of group.entries) {
+      renderEntry(doc, entry, pageWidth);
+    }
+    doc.y += 4;
   }
 
   if (hasMore) {
@@ -149,6 +186,26 @@ function renderSection(
       .restore();
     doc.y += 18;
   }
+}
+
+function renderCompanyHeader(doc: PDFKit.PDFDocument, group: CompanyGroup, pageWidth: number): void {
+  ensureSpace(doc, 34);
+
+  const label = `${group.companyName} (${group.entries.length})`;
+
+  doc
+    .save()
+    .roundedRect(PAGE_MARGIN + 8, doc.y, pageWidth - 16, 22, 4)
+    .fill(COMPANY_GROUP_BG)
+    .restore();
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(9)
+    .fillColor(COMPANY_GROUP_TEXT)
+    .text(label, PAGE_MARGIN + 16, doc.y + 7, { width: pageWidth - 32 });
+
+  doc.y += 28;
 }
 
 function renderEntry(
