@@ -194,14 +194,12 @@ export async function pushPeopleToLemlistEmailCampaign(
             } catch (error) {
               const message = error instanceof Error ? error.message : "Unknown Lemlist push error.";
               if (isAlreadyInCampaignError(message)) {
-                successful += 1;
-                successItems.push(employee.name);
                 outcomes.push({
                   key: toEmployeeKey(employee),
                   name: employee.name,
                   title: employee.currentTitle,
                   linkedinUrl: employee.linkedinUrl ?? null,
-                  status: "succeed",
+                  status: "skipped",
                 });
                 continue;
               }

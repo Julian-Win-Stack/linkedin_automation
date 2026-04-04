@@ -30,6 +30,8 @@ const SUCCESS_BG = "#dcfce7" as const;
 const SUCCESS_TEXT = "#166534" as const;
 const FAILURE_BG = "#fee2e2" as const;
 const FAILURE_TEXT = "#991b1b" as const;
+const SKIPPED_BG = "#e5e7eb" as const;
+const SKIPPED_TEXT = "#374151" as const;
 const COMPANY_GROUP_BG = "#eef2ff" as const;
 const COMPANY_GROUP_TEXT = "#312e81" as const;
 const FILTER_SECTION_BG = "#eff6ff" as const;
@@ -271,9 +273,21 @@ function renderEntry(
     .fillColor("#111827")
     .text(entry.name, PAGE_MARGIN + 8, doc.y, { width: pageWidth - 16 });
 
-  const statusLabel = entry.lemlistStatus === "succeed" ? "Lemlist succeed" : "Lemlist failed";
-  const statusBg = entry.lemlistStatus === "succeed" ? SUCCESS_BG : FAILURE_BG;
-  const statusText = entry.lemlistStatus === "succeed" ? SUCCESS_TEXT : FAILURE_TEXT;
+  const statusLabel = entry.lemlistStatus === "succeed"
+    ? "Lemlist succeed"
+    : entry.lemlistStatus === "failed"
+      ? "Lemlist failed"
+      : "Already in campaign";
+  const statusBg = entry.lemlistStatus === "succeed"
+    ? SUCCESS_BG
+    : entry.lemlistStatus === "failed"
+      ? FAILURE_BG
+      : SKIPPED_BG;
+  const statusText = entry.lemlistStatus === "succeed"
+    ? SUCCESS_TEXT
+    : entry.lemlistStatus === "failed"
+      ? FAILURE_TEXT
+      : SKIPPED_TEXT;
   const statusY = doc.y + 2;
   const statusX = PAGE_MARGIN + 8;
   const statusFontSize = 8;

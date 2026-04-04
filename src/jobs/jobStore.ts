@@ -7,7 +7,7 @@ export interface CampaignPushEntry {
   name: string;
   title: string;
   linkedinUrl: string | null;
-  lemlistStatus: "succeed" | "failed";
+  lemlistStatus: "succeed" | "failed" | "skipped";
   lemlistError?: string;
 }
 

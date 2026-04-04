@@ -245,7 +245,7 @@ describe("pushPeopleToLemlistCampaign", () => {
     expect(result.successItems).toEqual(["Short Stay", "Eligible Person"]);
   });
 
-  it('treats "Lead already in the campaign" as successful push', async () => {
+  it('does not count "Lead already in the campaign" as success or failure', async () => {
     createLeadInCampaignMock.mockRejectedValueOnce(
       new Error("Lemlist API error (400): Lead already in the campaign")
     );
@@ -267,14 +267,14 @@ describe("pushPeopleToLemlistCampaign", () => {
     const result = await pushPeopleToLemlistCampaign(candidates, "Acme", "acme.com", "julian");
 
     expect(result.attempted).toBe(1);
-    expect(result.successful).toBe(1);
+    expect(result.successful).toBe(0);
     expect(result.failed).toBe(0);
-    expect(result.successItems).toEqual(["Already Added"]);
+    expect(result.successItems).toEqual([]);
     expect(result.failedItems).toEqual([]);
     expect(result.outcomes).toEqual([
       expect.objectContaining({
         name: "Already Added",
-        status: "succeed",
+        status: "skipped",
       }),
     ]);
   });

@@ -5,6 +5,7 @@ import { createJob, getJob, markJobCancelled } from "../jobs/jobStore";
 import { runResearchPipeline } from "../jobs/researchPipeline";
 import { isSelectedUser, SelectedUser } from "../shared/selectedUser";
 import { generateCampaignPdf } from "../services/pdfReportGenerator";
+import { getWeeklySuccessCounts } from "../services/weeklySuccessStore";
 
 const upload = multer({ storage: multer.memoryStorage() });
 const router = Router();
@@ -86,6 +87,32 @@ router.get("/status/:jobId", (req, res) => {
     currentRow: job.currentRow,
     warnings: job.warnings,
   });
+});
+
+router.get("/weekly-counts", (req, res) => {
+  const selectedUserRaw = typeof req.query?.selectedUser === "string" ? req.query.selectedUser : "";
+  const normalizedSelectedUser = selectedUserRaw.trim().toLowerCase();
+  if (!isSelectedUser(normalizedSelectedUser)) {
+    return res.status(400).json({
+      error: "selectedUser is required and must be one of: raihan, cherry, julian.",
+    });
+  }
+  const selectedUser: SelectedUser = normalizedSelectedUser;
+
+  const weekStartMsRaw = typeof req.query?.weekStartMs === "string" ? req.query.weekStartMs : "";
+  const weekStartMs = Number(weekStartMsRaw);
+  if (!Number.isFinite(weekStartMs) || weekStartMs < 0) {
+    return res.status(400).json({
+      error: "weekStartMs query param is required and must be a valid timestamp in milliseconds.",
+    });
+  }
+
+  const counts = getWeeklySuccessCounts({
+    selectedUser,
+    weekStartMs,
+  });
+
+  return res.status(200).json(counts);
 });
 
 router.post("/cancel/:jobId", (req, res) => {

@@ -27,6 +27,7 @@ const splitByTenureMock = vi.fn();
 const filterByKeywordsInApifyDataMock = vi.fn();
 const syncApolloAccountsFromOutputRowsMock = vi.fn();
 const syncAttioCompaniesFromOutputRowsMock = vi.fn();
+const saveWeeklySuccessForJobMock = vi.fn();
 
 vi.mock("../src/services/observability/csvReader", () => ({
   readCompanies: (...args: unknown[]) => readCompaniesMock(...args),
@@ -96,6 +97,10 @@ vi.mock("../src/services/attioAssertCompanyRecords", () => ({
   syncAttioCompaniesFromOutputRows: (...args: unknown[]) => syncAttioCompaniesFromOutputRowsMock(...args),
 }));
 
+vi.mock("../src/services/weeklySuccessStore", () => ({
+  saveWeeklySuccessForJob: (...args: unknown[]) => saveWeeklySuccessForJobMock(...args),
+}));
+
 function asyncCompanyRows(
   rows: Array<{ companyName: string; companyDomain: string; apolloAccountId?: string; rowNumber: number }>
 ) {
@@ -155,6 +160,7 @@ describe("runResearchPipeline orchestration", () => {
     filterByKeywordsInApifyDataMock.mockReset();
     syncApolloAccountsFromOutputRowsMock.mockReset();
     syncAttioCompaniesFromOutputRowsMock.mockReset();
+    saveWeeklySuccessForJobMock.mockReset();
 
     rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
     pushPeopleToLemlistCampaignMock.mockResolvedValue({
@@ -604,6 +610,72 @@ describe("runResearchPipeline orchestration", () => {
         problem: "Could not match this profile to Acme in Apify experience data.",
       },
     ]);
+  });
+
+  it("stores per-job weekly success counts for selected user", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+    pushPeopleToLemlistCampaignMock.mockResolvedValueOnce({
+      attempted: 1,
+      successful: 2,
+      failed: 1,
+      successItems: ["A", "B"],
+      failedItems: [{ name: "C", error: "x" }],
+      outcomes: [],
+    });
+    pushPeopleToLemlistEmailCampaignMock.mockResolvedValueOnce({
+      attempted: 1,
+      successful: 3,
+      failed: 0,
+      successItems: ["E1", "E2", "E3"],
+      failedItems: [],
+      outcomes: [],
+    });
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
+      candidates: [
+        {
+          employee: {
+            id: "email-1",
+            startDate: "2022-01-01",
+            endDate: null,
+            name: "Email Person",
+            email: "email@example.com",
+            linkedinUrl: "https://linkedin.com/in/email-person",
+            currentTitle: "Engineer",
+            tenure: 12,
+          },
+          campaignBucket: "eng",
+        },
+      ],
+      filteredOutCandidates: [],
+      warnings: [],
+      normalEngineerApifyWarnings: [],
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian");
+
+    expect(saveWeeklySuccessForJobMock).toHaveBeenCalledTimes(1);
+    expect(saveWeeklySuccessForJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId,
+        selectedUser: "julian",
+        linkedinSuccessCount: 0,
+        emailSuccessCount: 3,
+      })
+    );
   });
 
   it("triggers Apollo and Attio sync with combined output rows", async () => {

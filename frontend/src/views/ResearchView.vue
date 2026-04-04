@@ -25,6 +25,7 @@ const pollingSwitchTimeoutId = ref<number | null>(null);
 const selectedUser = ref<SelectedUser | null>(null);
 const currentJobId = ref<string | null>(null);
 const completedJobId = ref<string | null>(null);
+const weeklySuccessTotals = ref({ linkedin: 0, email: 0 });
 
 const canRun = computed(() => !isLoading.value && !!selectedFile.value && !!selectedUser.value);
 const workflowSignal = "Upload → Qualify → Outreach";
@@ -44,17 +45,60 @@ const selectedUserLabel = computed(() => {
 const storedUser = localStorage.getItem(SELECTED_USER_STORAGE_KEY);
 if (isSelectedUser(storedUser)) {
   selectedUser.value = storedUser;
+  void refreshWeeklySuccessTotals();
 }
 
 function setSelectedUser(user: SelectedUser): void {
   selectedUser.value = user;
   localStorage.setItem(SELECTED_USER_STORAGE_KEY, user);
+  void refreshWeeklySuccessTotals();
 }
 
 async function logoutSelectedUser(): Promise<void> {
   await cancelAndReset();
   selectedUser.value = null;
   localStorage.removeItem(SELECTED_USER_STORAGE_KEY);
+  weeklySuccessTotals.value = { linkedin: 0, email: 0 };
+}
+
+function getCurrentWeekStartMsLocal(nowMs = Date.now()): number {
+  const now = new Date(nowMs);
+  now.setHours(0, 0, 0, 0);
+  const dayOfWeek = now.getDay();
+  const daysSinceSaturday = (dayOfWeek + 1) % 7;
+  return now.getTime() - daysSinceSaturday * 24 * 60 * 60 * 1000;
+}
+
+async function refreshWeeklySuccessTotals(): Promise<void> {
+  if (!selectedUser.value) {
+    weeklySuccessTotals.value = { linkedin: 0, email: 0 };
+    return;
+  }
+
+  try {
+    const query = new URLSearchParams({
+      selectedUser: selectedUser.value,
+      weekStartMs: String(getCurrentWeekStartMsLocal()),
+    });
+    const response = await fetch(`${API_URL}/weekly-counts?${query.toString()}`, {
+      method: "GET",
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(text || `Failed to fetch weekly counts (${response.status}).`);
+    }
+    const payload = (await response.json()) as {
+      linkedinCount?: number;
+      emailCount?: number;
+    };
+    weeklySuccessTotals.value = {
+      linkedin: Number(payload.linkedinCount ?? 0),
+      email: Number(payload.emailCount ?? 0),
+    };
+  } catch {
+    // Weekly counters are secondary UI signals; keep the page usable on failure.
+    weeklySuccessTotals.value = { linkedin: 0, email: 0 };
+  }
 }
 
 watch(resultBlob, (blob) => {
@@ -265,6 +309,7 @@ async function pollJob(jobId: string): Promise<void> {
       rejectedReason.value = donePayload.rejectedReason ?? null;
       summary.value = donePayload.summary ?? null;
       completedJobId.value = jobId;
+      await refreshWeeklySuccessTotals();
       return "stop";
     };
 
@@ -337,6 +382,10 @@ async function cancelAndReset(): Promise<void> {
         class="rounded-full border border-indigo-400/40 bg-[#121a2c]/90 px-3 py-1.5 text-xs font-semibold tracking-wide text-indigo-200 shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
       >
         User: {{ selectedUserLabel }}
+      </div>
+      <div class="w-full rounded-xl border border-indigo-400/25 bg-[#10192b]/90 px-3 py-2 text-[11px] text-indigo-100 shadow-[0_8px_20px_rgba(0,0,0,0.28)]">
+        <p class="font-medium">LinkedIn count: {{ weeklySuccessTotals.linkedin }}</p>
+        <p class="mt-1 font-medium">Email count: {{ weeklySuccessTotals.email }}</p>
       </div>
       <button
         class="rounded-full border border-zinc-500/50 bg-[#0f1728]/90 px-2.5 py-1 text-[11px] font-medium tracking-wide text-zinc-300 transition hover:border-zinc-400/70 hover:bg-[#16233a]"

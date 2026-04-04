@@ -49,6 +49,7 @@ import { runEmailCandidateWaterfall, TaggedEmailCandidate, LINKEDIN_KEYWORD_STAG
 import { scrapeAndFilterOpenToWork, splitByTenure, filterByKeywordsInApifyData } from "../services/apifyClient";
 import { syncApolloAccountsFromOutputRows } from "../services/apolloBulkUpdateAccounts";
 import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompanyRecords";
+import { saveWeeklySuccessForJob } from "../services/weeklySuccessStore";
 
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"];
@@ -923,6 +924,13 @@ export async function runResearchPipeline(
       totalEmailCampaignFailed,
     };
     setJobSummary(jobId, summary);
+    saveWeeklySuccessForJob({
+      jobId,
+      selectedUser,
+      completedAtMs: Date.now(),
+      linkedinSuccessCount: totalLinkedinCampaignSuccessful,
+      emailSuccessCount: totalEmailCampaignSuccessful,
+    });
     setCampaignPushData(jobId, campaignPushData);
 
     const combinedOutputRows: OutputRow[] = [

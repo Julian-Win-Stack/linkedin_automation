@@ -16,6 +16,7 @@ import {
 
 const runResearchPipelineMock = vi.fn();
 const loadPipelineConfigMock = vi.fn();
+const getWeeklySuccessCountsMock = vi.fn();
 
 vi.mock("../src/jobs/researchPipeline", () => ({
   runResearchPipeline: (...args: unknown[]) => runResearchPipelineMock(...args),
@@ -23,6 +24,10 @@ vi.mock("../src/jobs/researchPipeline", () => ({
 
 vi.mock("../src/config/pipelineConfig", () => ({
   loadPipelineConfig: (...args: unknown[]) => loadPipelineConfigMock(...args),
+}));
+
+vi.mock("../src/services/weeklySuccessStore", () => ({
+  getWeeklySuccessCounts: (...args: unknown[]) => getWeeklySuccessCountsMock(...args),
 }));
 
 function createTestApp() {
@@ -35,6 +40,7 @@ describe("research job routes", () => {
   beforeEach(() => {
     runResearchPipelineMock.mockReset();
     loadPipelineConfigMock.mockReset();
+    getWeeklySuccessCountsMock.mockReset();
     loadPipelineConfigMock.mockReturnValue({
       azureOpenAiApiKey: "k",
       azureOpenAiBaseUrl: "u",
@@ -44,6 +50,10 @@ describe("research job routes", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
+    });
+    getWeeklySuccessCountsMock.mockReturnValue({
+      linkedinCount: 0,
+      emailCount: 0,
     });
   });
 
@@ -167,6 +177,52 @@ describe("research job routes", () => {
     const app = createTestApp();
     const response = await request(app).get("/status/not-a-real-job");
     expect(response.status).toBe(404);
+  });
+
+  it("returns weekly counts for valid selected user and week start", async () => {
+    const app = createTestApp();
+    getWeeklySuccessCountsMock.mockReturnValueOnce({
+      linkedinCount: 7,
+      emailCount: 9,
+    });
+    const weekStartMs = Date.now();
+
+    const response = await request(app).get("/weekly-counts").query({
+      selectedUser: "julian",
+      weekStartMs,
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      linkedinCount: 7,
+      emailCount: 9,
+    });
+    expect(getWeeklySuccessCountsMock).toHaveBeenCalledWith({
+      selectedUser: "julian",
+      weekStartMs,
+    });
+  });
+
+  it("returns 400 for weekly counts when selectedUser is invalid", async () => {
+    const app = createTestApp();
+    const response = await request(app).get("/weekly-counts").query({
+      selectedUser: "someone",
+      weekStartMs: Date.now(),
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("selectedUser is required");
+  });
+
+  it("returns 400 for weekly counts when weekStartMs is invalid", async () => {
+    const app = createTestApp();
+    const response = await request(app).get("/weekly-counts").query({
+      selectedUser: "julian",
+      weekStartMs: "not-a-number",
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("weekStartMs");
   });
 
   it("returns processing payload contract for in-progress job", async () => {

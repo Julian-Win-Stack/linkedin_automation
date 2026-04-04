@@ -20,7 +20,7 @@ export interface LemlistFailedLead {
   error: string;
 }
 
-export type LemlistPushStatus = "succeed" | "failed";
+export type LemlistPushStatus = "succeed" | "failed" | "skipped";
 
 export interface LemlistPushOutcome {
   key: string;
