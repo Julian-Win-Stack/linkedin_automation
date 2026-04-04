@@ -1,5 +1,5 @@
 import { getRequiredEnv } from "../config/env";
-import { EnrichedEmployee, ApifyOpenToWorkCache, ApifyExperienceEntry } from "../types/prospect";
+import { EnrichedEmployee, ApifyOpenToWorkCache, ApifyExperienceEntry, ApifyProfileSkill } from "../types/prospect";
 
 const APIFY_ACTOR_ID = "harvestapi~linkedin-profile-scraper";
 const APIFY_BASE_URL = "https://api.apify.com/v2";
@@ -57,15 +57,22 @@ interface ApifyDatasetItem {
   linkedinUrl?: string;
   openToWork?: boolean;
   experience?: ApifyExperienceEntry[];
+  skills?: { name: string }[];
   originalQuery?: { query?: string } | string;
   [key: string]: unknown;
+}
+
+interface ScrapedProfile {
+  openToWork: boolean;
+  experience: ApifyExperienceEntry[];
+  profileSkills: ApifyProfileSkill[];
 }
 
 async function scrapeBatch(
   urls: string[],
   apiKey: string,
   signal: AbortSignal
-): Promise<Map<string, { openToWork: boolean; experience: ApifyExperienceEntry[] }>> {
+): Promise<Map<string, ScrapedProfile>> {
   const endpoint =
     `${APIFY_BASE_URL}/acts/${APIFY_ACTOR_ID}/run-sync-get-dataset-items` +
     `?token=${apiKey}&timeout=${PER_RUN_TIMEOUT_SECONDS}`;
@@ -93,15 +100,27 @@ async function scrapeBatch(
         throw new Error("Invalid response from Apify");
       }
 
-      const resultMap = new Map<string, { openToWork: boolean; experience: ApifyExperienceEntry[] }>();
+      const resultMap = new Map<string, ScrapedProfile>();
       for (const item of data) {
         if (!item.linkedinUrl) continue;
         const key = normalizeLinkedinUrl(item.linkedinUrl);
         const openToWork = item.openToWork === true;
-        const experience = Array.isArray(item.experience)
-          ? item.experience
+        const experience: ApifyExperienceEntry[] = Array.isArray(item.experience)
+          ? item.experience.map((exp) => ({
+              companyName: exp.companyName,
+              companyUniversalName: exp.companyUniversalName,
+              companyLinkedinUrl: exp.companyLinkedinUrl,
+              description: exp.description,
+              employmentType: exp.employmentType,
+              position: exp.position,
+              endDate: exp.endDate,
+              skills: Array.isArray(exp.skills) ? exp.skills : [],
+            }))
           : [];
-        const entry = { openToWork, experience };
+        const profileSkills: ApifyProfileSkill[] = Array.isArray(item.skills)
+          ? item.skills.filter((s): s is { name: string } => typeof s?.name === "string")
+          : [];
+        const entry: ScrapedProfile = { openToWork, experience, profileSkills };
         resultMap.set(key, entry);
 
         const oq = item.originalQuery;
@@ -299,7 +318,7 @@ export async function scrapeAndFilterOpenToWork(
           const result = batchResults.get(normalizedUrl);
 
           if (result) {
-            cache.set(normalizedUrl, { openToWork: result.openToWork, experience: result.experience });
+            cache.set(normalizedUrl, { openToWork: result.openToWork, experience: result.experience, profileSkills: result.profileSkills });
 
             if (result.openToWork) {
               filteredOut.push({ employee, reason: "open_to_work" });
@@ -569,4 +588,81 @@ export function filterFrontendEngineers(
   }
 
   return { kept, rejectedFrontend, warningCandidates };
+}
+
+export interface SreKeywordFilterResult {
+  matched: EnrichedEmployee[];
+  unmatched: EnrichedEmployee[];
+}
+
+export function filterByKeywordsInApifyData(
+  employees: EnrichedEmployee[],
+  cache: ApifyOpenToWorkCache,
+  company: { companyName: string; companyDomain: string },
+  keywords: string[]
+): SreKeywordFilterResult {
+  const matched: EnrichedEmployee[] = [];
+  const unmatched: EnrichedEmployee[] = [];
+  const rows: { name: string; companyMatch: string; result: string }[] = [];
+  const lowerKeywords = keywords.map((k) => k.toLowerCase());
+
+  for (const emp of employees) {
+    const normalizedUrl = emp.linkedinUrl ? normalizeLinkedinUrl(emp.linkedinUrl) : null;
+    const cached = normalizedUrl ? cache.get(normalizedUrl) : null;
+
+    if (!cached) {
+      unmatched.push(emp);
+      rows.push({ name: emp.name, companyMatch: "—", result: "UNMATCHED (no Apify data)" });
+      continue;
+    }
+
+    const { currentMatchedEntry, fallbackMatchedEntry } = findCompanyExperienceMatch(
+      cached.experience,
+      company.companyDomain,
+      company.companyName
+    );
+    const matchedEntry = currentMatchedEntry ?? fallbackMatchedEntry ?? null;
+
+    const textsToSearch: string[] = [];
+
+    if (matchedEntry) {
+      if (matchedEntry.description) {
+        textsToSearch.push(matchedEntry.description);
+      }
+      if (matchedEntry.skills) {
+        textsToSearch.push(...matchedEntry.skills);
+      }
+    }
+
+    for (const skill of cached.profileSkills) {
+      textsToSearch.push(skill.name);
+    }
+
+    const combined = textsToSearch.join(" ").toLowerCase();
+    const hasKeyword = lowerKeywords.some((keyword) => combined.includes(keyword));
+
+    if (hasKeyword) {
+      matched.push(emp);
+      rows.push({ name: emp.name, companyMatch: matchedEntry?.companyName ?? "—", result: "MATCHED" });
+    } else {
+      unmatched.push(emp);
+      rows.push({ name: emp.name, companyMatch: matchedEntry?.companyName ?? "—", result: "UNMATCHED" });
+    }
+  }
+
+  if (rows.length > 0) {
+    print("");
+    print(`    SRE KEYWORD CHECK (LinkedIn Keyword Expansion)`);
+    print(`    ${"Name".padEnd(22)}${"Company Match".padEnd(24)}Result`);
+    print(`    ${"─".repeat(22)}${"─".repeat(24)}${"─".repeat(24)}`);
+    for (const row of rows) {
+      const name = row.name.length > 20 ? row.name.slice(0, 19) + "…" : row.name;
+      const match = row.companyMatch.length > 22 ? row.companyMatch.slice(0, 21) + "…" : row.companyMatch;
+      print(`    ${name.padEnd(22)}${match.padEnd(24)}${row.result}`);
+    }
+    print(`    Result: ${matched.length} matched · ${unmatched.length} unmatched`);
+    print("");
+  }
+
+  return { matched, unmatched };
 }

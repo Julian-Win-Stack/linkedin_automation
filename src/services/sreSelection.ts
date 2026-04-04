@@ -221,3 +221,27 @@ export function fillToMinimumWithBackfill(
 
   return selected;
 }
+
+export interface KeywordMatchedSelection {
+  forLinkedin: EnrichedEmployee[];
+  forEmailRecycling: EnrichedEmployee[];
+}
+
+export function selectKeywordMatchedByTenure(
+  allKeywordMatched: EnrichedEmployee[],
+  alreadySelected: EnrichedEmployee[],
+  maxTotal: number
+): KeywordMatchedSelection {
+  const selectedKeys = new Set(alreadySelected.map((emp) => toEmployeeKey(emp)));
+  const eligible = dedupeEmployees(allKeywordMatched).filter(
+    (emp) => !selectedKeys.has(toEmployeeKey(emp))
+  );
+
+  eligible.sort(compareByTrimPriority);
+
+  const slotsAvailable = Math.max(0, maxTotal - alreadySelected.length);
+  const forLinkedin = eligible.slice(0, slotsAvailable);
+  const forEmailRecycling = eligible.slice(slotsAvailable);
+
+  return { forLinkedin, forEmailRecycling };
+}

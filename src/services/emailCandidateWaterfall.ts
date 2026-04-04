@@ -1,12 +1,12 @@
 import { ResolvedCompany } from "./getCompany";
 import { bulkEnrichPeople, EnrichmentCache } from "./bulkEnrichPeople";
-import { searchEmailCandidatePeople, PeopleSearchFilters } from "./searchPeople";
+import { searchEmailCandidatePeople, searchEmailCandidatePeopleCached, ApolloSearchCache, PeopleSearchFilters } from "./searchPeople";
 import { EnrichedEmployee, Prospect, ApifyOpenToWorkCache } from "../types/prospect";
 import { scrapeAndFilterOpenToWork, splitByTenure, filterFrontendEngineers } from "./apifyClient";
 
 export type EmailCampaignBucket = "sre" | "eng" | "engLead";
 
-interface EmailSearchStageConfig {
+export interface EmailSearchStageConfig {
   currentTitles?: string[];
   pastTitles?: string[];
   notTitles?: string[];
@@ -38,6 +38,8 @@ export interface EmailWaterfallResult {
 
 export interface EmailWaterfallOptions {
   rawSreCount?: number;
+  apolloSearchCache?: ApolloSearchCache;
+  recycledKeywordMatched?: EnrichedEmployee[];
 }
 
 export interface NormalEngineerApifyWarningCandidate {
@@ -363,6 +365,10 @@ const STAGE_LABELS = [
   "Eng Leader Search",
 ];
 
+export const LINKEDIN_KEYWORD_STAGE_INFRA = EMAIL_CANDIDATE_STAGES[2];
+export const LINKEDIN_KEYWORD_STAGE_DEVOPS = EMAIL_CANDIDATE_STAGES[4];
+export const LINKEDIN_KEYWORD_STAGE_NORMAL_ENG = EMAIL_CANDIDATE_STAGES[5];
+
 function print(line: string): void {
   process.stdout.write(line + "\n");
 }
@@ -515,17 +521,40 @@ export async function runEmailCandidateWaterfall(
   const warnings: string[] = [];
   const normalEngineerApifyWarnings: NormalEngineerApifyWarningCandidate[] = [];
   const rawSreCount = options.rawSreCount ?? Number.POSITIVE_INFINITY;
+  const apolloSearchCache = options.apolloSearchCache;
+  const recycledKeywordMatched = options.recycledKeywordMatched ?? [];
 
   print("");
   print(HEAVY_LINE);
   print(`  EMAIL WATERFALL — ${company.companyName} (${company.domain})`);
   print(`  LinkedIn exclusion keys: ${linkedinAttemptedKeys.size}`);
+  if (recycledKeywordMatched.length > 0) {
+    print(`  Recycled keyword-matched candidates: ${recycledKeywordMatched.length}`);
+  }
   print(HEAVY_LINE);
 
   for (let stageIndex = 0; stageIndex < EMAIL_CANDIDATE_STAGES.length; stageIndex += 1) {
     const stage = EMAIL_CANDIDATE_STAGES[stageIndex];
     const stageLabel = STAGE_LABELS[stageIndex] ?? `Stage ${stageIndex + 1}`;
     const isSreSearchStage = stageLabel === "SRE Search" || stageLabel === "Past SRE Search";
+
+    if (stageIndex === 1 && recycledKeywordMatched.length > 0 && listA.length < MAX_PER_COMPANY) {
+      print("");
+      print(`─── Recycled Keyword-Matched (from LinkedIn overflow) ${"─".repeat(8)}`);
+      const slotsForRecycled = MAX_PER_COMPANY - listA.length;
+      let recycledAdded = 0;
+      for (const emp of recycledKeywordMatched) {
+        if (recycledAdded >= slotsForRecycled) break;
+        if (hasEmployeeIdentifier(linkedinAttemptedKeys, emp)) continue;
+        if (hasEmployeeIdentifier(listAKeys, emp)) continue;
+        listA.push({ employee: emp, campaignBucket: "sre" });
+        addEmployeeIdentifiers(listAKeys, emp);
+        recycledAdded += 1;
+      }
+      print(`    Inserted ${recycledAdded} recycled keyword-matched candidates (SRE bucket)`);
+      print(`    ▸ List A: ${listA.length} / ${MAX_PER_COMPANY}`);
+      print(LIGHT_LINE);
+    }
 
     if (isSreSearchStage && rawSreCount < MIN_SRE_COUNT_FOR_EMAIL_SRE_STAGES) {
       printStageHeader(stageIndex);
@@ -553,12 +582,10 @@ export async function runEmailCandidateWaterfall(
     print(`    Campaign bucket  : ${stage.campaignBucket}`);
     print("");
 
-    const rawProspects = await searchEmailCandidatePeople(
-      company,
-      MAX_SEARCH_RESULTS,
-      { currentTitles: stage.currentTitles, pastTitles: stage.pastTitles, notTitles: stage.notTitles, notPastTitles: stage.notPastTitles },
-      filters
-    );
+    const searchParams = { currentTitles: stage.currentTitles, pastTitles: stage.pastTitles, notTitles: stage.notTitles, notPastTitles: stage.notPastTitles };
+    const rawProspects = apolloSearchCache
+      ? await searchEmailCandidatePeopleCached(company, MAX_SEARCH_RESULTS, searchParams, filters, apolloSearchCache)
+      : await searchEmailCandidatePeople(company, MAX_SEARCH_RESULTS, searchParams, filters);
 
     const prospects = dedupeProspectsById(rawProspects);
 

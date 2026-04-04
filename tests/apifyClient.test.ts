@@ -10,6 +10,7 @@ vi.mock("../src/config/env", () => ({
 import {
   splitByTenure,
   filterFrontendEngineers,
+  filterByKeywordsInApifyData,
   scrapeAndFilterOpenToWork,
 } from "../src/services/apifyClient";
 
@@ -132,6 +133,7 @@ describe("filterFrontendEngineers", () => {
     const cache: ApifyOpenToWorkCache = new Map();
     cache.set("linkedin.com/in/alice", {
       openToWork: false,
+      profileSkills: [],
       experience: [
         {
           companyName: "Acme",
@@ -158,6 +160,7 @@ describe("filterFrontendEngineers", () => {
     const cache: ApifyOpenToWorkCache = new Map();
     cache.set("linkedin.com/in/bob", {
       openToWork: false,
+      profileSkills: [],
       experience: [
         {
           companyName: "Acme",
@@ -184,6 +187,7 @@ describe("filterFrontendEngineers", () => {
     const cache: ApifyOpenToWorkCache = new Map();
     cache.set("linkedin.com/in/charlie", {
       openToWork: false,
+      profileSkills: [],
       experience: [
         {
           companyName: "Other Corp",
@@ -214,6 +218,7 @@ describe("filterFrontendEngineers", () => {
     const cache: ApifyOpenToWorkCache = new Map();
     cache.set("linkedin.com/in/dave", {
       openToWork: false,
+      profileSkills: [],
       experience: [
         {
           companyName: "Acme",
@@ -240,6 +245,7 @@ describe("filterFrontendEngineers", () => {
     const cache: ApifyOpenToWorkCache = new Map();
     cache.set("linkedin.com/in/eve", {
       openToWork: false,
+      profileSkills: [],
       experience: [
         {
           companyName: "Acme",
@@ -265,6 +271,7 @@ describe("filterFrontendEngineers", () => {
     const cache: ApifyOpenToWorkCache = new Map();
     cache.set("linkedin.com/in/frank", {
       openToWork: false,
+      profileSkills: [],
       experience: [
         {
           companyName: "Totally Different Name",
@@ -290,6 +297,7 @@ describe("filterFrontendEngineers", () => {
     const cache: ApifyOpenToWorkCache = new Map();
     cache.set("linkedin.com/in/grace", {
       openToWork: false,
+      profileSkills: [],
       experience: [],
     });
 
@@ -321,6 +329,7 @@ describe("filterFrontendEngineers", () => {
     };
     cache.set("linkedin.com/in/helen", {
       openToWork: false,
+      profileSkills: [],
       experience: [currentOtherRole, pastRole],
     });
 
@@ -354,6 +363,7 @@ describe("filterFrontendEngineers", () => {
     };
     cache.set("linkedin.com/in/harry", {
       openToWork: false,
+      profileSkills: [],
       experience: [currentOtherRole, pastRole],
     });
 
@@ -410,7 +420,7 @@ describe("scrapeAndFilterOpenToWork", () => {
 
   it("uses cache to remove open-to-work candidates without API call", async () => {
     const cache: ApifyOpenToWorkCache = new Map();
-    cache.set("linkedin.com/in/cached-otw", { openToWork: true, experience: [] });
+    cache.set("linkedin.com/in/cached-otw", { openToWork: true, experience: [], profileSkills: [] });
 
     const employees = [
       makeEmployee({ name: "CachedOtw", linkedinUrl: "https://linkedin.com/in/cached-otw" }),
@@ -429,7 +439,7 @@ describe("scrapeAndFilterOpenToWork", () => {
 
   it("uses cache to keep non-open-to-work candidates without API call", async () => {
     const cache: ApifyOpenToWorkCache = new Map();
-    cache.set("linkedin.com/in/cached-not-otw", { openToWork: false, experience: [] });
+    cache.set("linkedin.com/in/cached-not-otw", { openToWork: false, experience: [], profileSkills: [] });
 
     const employees = [
       makeEmployee({ name: "CachedNotOtw", linkedinUrl: "https://linkedin.com/in/cached-not-otw" }),
@@ -691,5 +701,205 @@ describe("scrapeAndFilterOpenToWork", () => {
     expect(cached).toBeDefined();
     expect(cached!.openToWork).toBe(false);
     expect(cached!.experience).toHaveLength(1);
+  });
+});
+
+describe("filterByKeywordsInApifyData", () => {
+  it("matches when keyword is in experience description", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/alice", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "Managed incident response and on-call rotations",
+          endDate: { text: "Present" },
+        },
+      ],
+    });
+
+    const employees = [
+      makeEmployee({ name: "Alice", linkedinUrl: "https://linkedin.com/in/alice" }),
+    ];
+
+    const result = filterByKeywordsInApifyData(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    }, ["incident response", "SRE"]);
+
+    expect(result.matched).toHaveLength(1);
+    expect(result.unmatched).toHaveLength(0);
+  });
+
+  it("matches when keyword is in experience skills array", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/bob", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "Built microservices",
+          skills: ["Kubernetes", "PagerDuty", "Terraform"],
+          endDate: { text: "Present" },
+        },
+      ],
+    });
+
+    const employees = [
+      makeEmployee({ name: "Bob", linkedinUrl: "https://linkedin.com/in/bob" }),
+    ];
+
+    const result = filterByKeywordsInApifyData(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    }, ["PagerDuty"]);
+
+    expect(result.matched).toHaveLength(1);
+  });
+
+  it("matches when keyword is in profile-level skills", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/charlie", {
+      openToWork: false,
+      profileSkills: [{ name: "SRE" }, { name: "Kubernetes" }],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "General engineering work",
+          endDate: { text: "Present" },
+        },
+      ],
+    });
+
+    const employees = [
+      makeEmployee({ name: "Charlie", linkedinUrl: "https://linkedin.com/in/charlie" }),
+    ];
+
+    const result = filterByKeywordsInApifyData(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    }, ["SRE"]);
+
+    expect(result.matched).toHaveLength(1);
+  });
+
+  it("does not match when no keywords found", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/dave", {
+      openToWork: false,
+      profileSkills: [{ name: "React" }],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "Built frontend components",
+          skills: ["React", "TypeScript"],
+          endDate: { text: "Present" },
+        },
+      ],
+    });
+
+    const employees = [
+      makeEmployee({ name: "Dave", linkedinUrl: "https://linkedin.com/in/dave" }),
+    ];
+
+    const result = filterByKeywordsInApifyData(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    }, ["incident response", "SRE", "on-call"]);
+
+    expect(result.matched).toHaveLength(0);
+    expect(result.unmatched).toHaveLength(1);
+  });
+
+  it("is case-insensitive", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/eve", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "Responsible for HIGH AVAILABILITY systems",
+          endDate: { text: "Present" },
+        },
+      ],
+    });
+
+    const employees = [
+      makeEmployee({ name: "Eve", linkedinUrl: "https://linkedin.com/in/eve" }),
+    ];
+
+    const result = filterByKeywordsInApifyData(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    }, ["high availability"]);
+
+    expect(result.matched).toHaveLength(1);
+  });
+
+  it("puts employees without Apify data in unmatched", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    const employees = [
+      makeEmployee({ name: "NoCache", linkedinUrl: "https://linkedin.com/in/nocache" }),
+      makeEmployee({ name: "NoUrl", linkedinUrl: null }),
+    ];
+
+    const result = filterByKeywordsInApifyData(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    }, ["SRE"]);
+
+    expect(result.matched).toHaveLength(0);
+    expect(result.unmatched).toHaveLength(2);
+  });
+
+  it("splits multiple employees into matched and unmatched", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/match", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "SRE team lead managing SLO dashboards",
+          endDate: { text: "Present" },
+        },
+      ],
+    });
+    cache.set("linkedin.com/in/nomatch", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "Product management",
+          endDate: { text: "Present" },
+        },
+      ],
+    });
+
+    const employees = [
+      makeEmployee({ name: "Match", linkedinUrl: "https://linkedin.com/in/match" }),
+      makeEmployee({ name: "NoMatch", linkedinUrl: "https://linkedin.com/in/nomatch" }),
+    ];
+
+    const result = filterByKeywordsInApifyData(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    }, ["SLO", "SRE"]);
+
+    expect(result.matched).toHaveLength(1);
+    expect(result.matched[0].name).toBe("Match");
+    expect(result.unmatched).toHaveLength(1);
+    expect(result.unmatched[0].name).toBe("NoMatch");
   });
 });

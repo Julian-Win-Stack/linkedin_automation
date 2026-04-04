@@ -15,10 +15,12 @@ import {
   searchPastSrePeople,
   PeopleSearchFilters,
   searchPeople,
+  searchEmailCandidatePeopleCached,
+  ApolloSearchCache,
 } from "../services/searchPeople";
 import { readCompanies } from "../services/observability/csvReader";
 import { researchCompany } from "../services/observability/openaiClient";
-import { fillToMinimumWithBackfill, selectTopSreForLemlist } from "../services/sreSelection";
+import { fillToMinimumWithBackfill, selectTopSreForLemlist, selectKeywordMatchedByTenure } from "../services/sreSelection";
 import {
   OutputRow,
   RejectedOutputRow,
@@ -43,8 +45,8 @@ import {
 } from "./jobStore";
 import { EnrichedEmployee, ApifyOpenToWorkCache, LemlistPushOutcome, Prospect } from "../types/prospect";
 import { SelectedUser } from "../shared/selectedUser";
-import { runEmailCandidateWaterfall, TaggedEmailCandidate } from "../services/emailCandidateWaterfall";
-import { scrapeAndFilterOpenToWork, splitByTenure } from "../services/apifyClient";
+import { runEmailCandidateWaterfall, TaggedEmailCandidate, LINKEDIN_KEYWORD_STAGE_INFRA, LINKEDIN_KEYWORD_STAGE_DEVOPS, LINKEDIN_KEYWORD_STAGE_NORMAL_ENG } from "../services/emailCandidateWaterfall";
+import { scrapeAndFilterOpenToWork, splitByTenure, filterByKeywordsInApifyData } from "../services/apifyClient";
 
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"];
@@ -63,6 +65,39 @@ const ENGINEER_RANGE_REJECTION_NOTE = "Engineer count not in BACCA's optimal ran
 const LARGE_ENGINEER_COUNT_MASK = "> 1000";
 const EMAIL_WATERFALL_WAIT_MS = 20 * 60 * 1000;
 const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
+
+const SRE_WORK_KEYWORDS: string[] = [
+  "incident response",
+  "SRE",
+  "reliability",
+  "on-call",
+  "on call",
+  "incident management",
+  "postmortem",
+  "post-mortem",
+  "RCA",
+  "alerting systems",
+  "alert fatigue",
+  "escalation",
+  "uptime",
+  "SLA",
+  "SLO",
+  "SLI",
+  "error budgets",
+  "high availability",
+  "fault tolerance",
+  "pager duty",
+  "PagerDuty",
+  "Opsgenie",
+  "incidents",
+  "incident",
+];
+
+const LINKEDIN_KEYWORD_STAGES = [
+  { label: "DevOps", config: LINKEDIN_KEYWORD_STAGE_DEVOPS },
+  { label: "Infrastructure", config: LINKEDIN_KEYWORD_STAGE_INFRA },
+  { label: "Normal Engineer", config: LINKEDIN_KEYWORD_STAGE_NORMAL_ENG },
+];
 
 interface RowResearchResult {
   companyName: string;
@@ -407,9 +442,91 @@ export async function runResearchPipeline(
         );
         let selectedForLemlist = selectedCurrentSre;
         let prePlatformKeys: Set<string> | null = null;
+        let keywordMatchedEmailRecycled: EnrichedEmployee[] = [];
+        const apolloSearchCache: ApolloSearchCache = new Map();
 
-        // Backfill only runs if we have at least one current SRE candidate selected.
-        if (selectedCurrentSre.length > 0 && selectedCurrentSre.length < 5 && rawSreCount > 0) {
+        // LinkedIn Keyword Expansion: search DevOps/Infra/Normal Eng for SRE-keyword matches
+        {
+          process.stdout.write(`\n${"═".repeat(78)}\n  LINKEDIN KEYWORD EXPANSION — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
+          logPipelineStage("KEYWORD_EXPANSION_START", "LinkedIn keyword expansion started.", companyContext);
+
+          const allKeywordMatched: EnrichedEmployee[] = [];
+          const sreProspectIds = new Set(currentSreProspects.map((p) => p.id));
+
+          for (const { label, config: stageConfig } of LINKEDIN_KEYWORD_STAGES) {
+            process.stdout.write(`  ▸ Searching ${label} candidates...\n`);
+            const searchParams = {
+              currentTitles: stageConfig.currentTitles,
+              pastTitles: stageConfig.pastTitles,
+              notTitles: stageConfig.notTitles,
+              notPastTitles: stageConfig.notPastTitles,
+            };
+            const rawProspects = await searchEmailCandidatePeopleCached(
+              company,
+              MAX_RESULTS,
+              searchParams,
+              row.peopleSearchFilters,
+              apolloSearchCache
+            );
+            const prospects = dedupeProspectsById(rawProspects).filter((p) => !sreProspectIds.has(p.id));
+            process.stdout.write(`  ▸ ${label}: ${rawProspects.length} raw → ${prospects.length} after dedup\n`);
+
+            if (prospects.length === 0) continue;
+
+            const enriched = await bulkEnrichPeople(prospects, enrichmentCache);
+            const { eligible: tenureEligible } = splitByTenure(enriched, 2);
+            process.stdout.write(`  ▸ ${label}: ${enriched.length} enriched → ${tenureEligible.length} after tenure filter (2mo)\n`);
+
+            if (tenureEligible.length === 0) continue;
+
+            const {
+              kept: apifyFiltered,
+              warnings: apifyWarns,
+              filteredOut: apifyFilteredOut,
+            } = await scrapeAndFilterOpenToWork(tenureEligible, apifyCache, {
+              companyName: row.companyName,
+              companyDomain: row.companyDomain,
+            });
+            for (const w of apifyWarns) { addJobWarning(jobId, w); }
+            campaignPushData.filteredOutCandidates.push(
+              ...apifyFilteredOut.map(({ employee, reason }) => ({
+                companyName: company.companyName,
+                name: employee.name,
+                title: employee.currentTitle,
+                linkedinUrl: employee.linkedinUrl ?? null,
+                reason,
+              }))
+            );
+
+            if (apifyFiltered.length === 0) continue;
+
+            const { matched } = filterByKeywordsInApifyData(apifyFiltered, apifyCache, {
+              companyName: row.companyName,
+              companyDomain: row.companyDomain,
+            }, SRE_WORK_KEYWORDS);
+            process.stdout.write(`  ▸ ${label}: ${matched.length} matched SRE keywords\n`);
+            allKeywordMatched.push(...matched);
+          }
+
+          if (allKeywordMatched.length > 0) {
+            const { forLinkedin, forEmailRecycling } = selectKeywordMatchedByTenure(
+              allKeywordMatched,
+              selectedForLemlist,
+              7
+            );
+            selectedForLemlist = [...selectedForLemlist, ...forLinkedin];
+            keywordMatchedEmailRecycled = forEmailRecycling;
+            process.stdout.write(`  ▸ Keyword expansion: ${forLinkedin.length} added to LinkedIn, ${forEmailRecycling.length} recycled to email\n`);
+          }
+
+          logPipelineStage(
+            "KEYWORD_EXPANSION_DONE",
+            `Keyword expansion complete. linkedin_total=${selectedForLemlist.length} recycled=${keywordMatchedEmailRecycled.length}`,
+            companyContext
+          );
+        }
+
+        if (selectedForLemlist.length > 0 && selectedForLemlist.length < 5) {
           process.stdout.write(`  ▸ Backfill Phase 1 — Searching past SRE candidates...\n`);
           logPipelineStage("BACKFILL_PHASE_1_START", "Backfill phase 1 (past SRE) started.", companyContext);
           const pastSreProspects = dedupeProspectsById(
@@ -557,7 +674,7 @@ export async function runResearchPipeline(
             enrichmentCache,
             row.peopleSearchFilters,
             apifyCache,
-            { rawSreCount: row.rawSreCount }
+            { rawSreCount: row.rawSreCount, apolloSearchCache, recycledKeywordMatched: keywordMatchedEmailRecycled }
           );
           logPipelineStage(
             "EMAIL_WATERFALL_DONE",

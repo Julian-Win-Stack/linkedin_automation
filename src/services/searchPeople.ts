@@ -371,3 +371,39 @@ export async function searchEmailCandidatePeople(
 
   return prospects.slice(0, normalizedMaxResults);
 }
+
+export type ApolloSearchCache = Map<string, Prospect[]>;
+
+function toSearchCacheKey(
+  company: ResolvedCompany,
+  searchParams: EmailCandidateSearchParams,
+  filters: PeopleSearchFilters
+): string {
+  const parts = {
+    domain: company.domain.trim().toLowerCase(),
+    orgId: filters.apolloOrganizationId?.trim() ?? "",
+    currentTitles: [...(searchParams.currentTitles ?? [])].sort(),
+    pastTitles: [...(searchParams.pastTitles ?? [])].sort(),
+    notTitles: [...(searchParams.notTitles ?? [])].sort(),
+    notPastTitles: [...(searchParams.notPastTitles ?? [])].sort(),
+  };
+  return JSON.stringify(parts);
+}
+
+export async function searchEmailCandidatePeopleCached(
+  company: ResolvedCompany,
+  maxResults: number,
+  searchParams: EmailCandidateSearchParams,
+  filters: PeopleSearchFilters,
+  cache: ApolloSearchCache
+): Promise<Prospect[]> {
+  const key = toSearchCacheKey(company, searchParams, filters);
+  const cached = cache.get(key);
+  if (cached) {
+    return cached.slice(0, maxResults);
+  }
+
+  const results = await searchEmailCandidatePeople(company, maxResults, searchParams, filters);
+  cache.set(key, results);
+  return results;
+}

@@ -11,17 +11,20 @@ const countEngineerPeopleMock = vi.fn();
 const searchPeopleMock = vi.fn();
 const searchPastSrePeopleMock = vi.fn();
 const searchCurrentPlatformEngineerPeopleMock = vi.fn();
+const searchEmailCandidatePeopleCachedMock = vi.fn();
 const bulkEnrichPeopleMock = vi.fn();
 const runWaterfallEmailForPersonIdsMock = vi.fn();
 const enrichMissingEmailsWithLemlistMock = vi.fn();
 const selectTopSreForLemlistMock = vi.fn();
 const fillToMinimumWithBackfillMock = vi.fn();
+const selectKeywordMatchedByTenureMock = vi.fn();
 const pushPeopleToLemlistCampaignMock = vi.fn();
 const pushPeopleToLemlistEmailCampaignMock = vi.fn();
 const runEmailCandidateWaterfallMock = vi.fn();
 const rowsToCsvStringMock = vi.fn();
 const scrapeAndFilterOpenToWorkMock = vi.fn();
 const splitByTenureMock = vi.fn();
+const filterByKeywordsInApifyDataMock = vi.fn();
 
 vi.mock("../src/services/observability/csvReader", () => ({
   readCompanies: (...args: unknown[]) => readCompaniesMock(...args),
@@ -40,6 +43,7 @@ vi.mock("../src/services/searchPeople", () => ({
   searchPeople: (...args: unknown[]) => searchPeopleMock(...args),
   searchPastSrePeople: (...args: unknown[]) => searchPastSrePeopleMock(...args),
   searchCurrentPlatformEngineerPeople: (...args: unknown[]) => searchCurrentPlatformEngineerPeopleMock(...args),
+  searchEmailCandidatePeopleCached: (...args: unknown[]) => searchEmailCandidatePeopleCachedMock(...args),
 }));
 
 vi.mock("../src/services/bulkEnrichPeople", () => ({
@@ -54,6 +58,7 @@ vi.mock("../src/services/lemlistBulkEmailEnrichment", () => ({
 vi.mock("../src/services/sreSelection", () => ({
   selectTopSreForLemlist: (...args: unknown[]) => selectTopSreForLemlistMock(...args),
   fillToMinimumWithBackfill: (...args: unknown[]) => fillToMinimumWithBackfillMock(...args),
+  selectKeywordMatchedByTenure: (...args: unknown[]) => selectKeywordMatchedByTenureMock(...args),
 }));
 
 vi.mock("../src/services/lemlistPushQueue", () => ({
@@ -66,6 +71,9 @@ vi.mock("../src/services/lemlistEmailPushQueue", () => ({
 
 vi.mock("../src/services/emailCandidateWaterfall", () => ({
   runEmailCandidateWaterfall: (...args: unknown[]) => runEmailCandidateWaterfallMock(...args),
+  LINKEDIN_KEYWORD_STAGE_INFRA: { currentTitles: ["Infrastructure"], minTenureMonths: 11, campaignBucket: "eng" },
+  LINKEDIN_KEYWORD_STAGE_DEVOPS: { currentTitles: ["DevOps"], minTenureMonths: 11, campaignBucket: "eng" },
+  LINKEDIN_KEYWORD_STAGE_NORMAL_ENG: { currentTitles: ["Engineer"], minTenureMonths: 11, campaignBucket: "eng" },
 }));
 
 vi.mock("../src/services/observability/csvWriter", () => ({
@@ -75,6 +83,7 @@ vi.mock("../src/services/observability/csvWriter", () => ({
 vi.mock("../src/services/apifyClient", () => ({
   scrapeAndFilterOpenToWork: (...args: unknown[]) => scrapeAndFilterOpenToWorkMock(...args),
   splitByTenure: (...args: unknown[]) => splitByTenureMock(...args),
+  filterByKeywordsInApifyData: (...args: unknown[]) => filterByKeywordsInApifyDataMock(...args),
 }));
 
 function asyncCompanyRows(
@@ -120,17 +129,20 @@ describe("runResearchPipeline orchestration", () => {
     searchPeopleMock.mockReset();
     searchPastSrePeopleMock.mockReset();
     searchCurrentPlatformEngineerPeopleMock.mockReset();
+    searchEmailCandidatePeopleCachedMock.mockReset();
     bulkEnrichPeopleMock.mockReset();
     runWaterfallEmailForPersonIdsMock.mockReset();
     enrichMissingEmailsWithLemlistMock.mockReset();
     selectTopSreForLemlistMock.mockReset();
     fillToMinimumWithBackfillMock.mockReset();
+    selectKeywordMatchedByTenureMock.mockReset();
     pushPeopleToLemlistCampaignMock.mockReset();
     pushPeopleToLemlistEmailCampaignMock.mockReset();
     runEmailCandidateWaterfallMock.mockReset();
     rowsToCsvStringMock.mockReset();
     scrapeAndFilterOpenToWorkMock.mockReset();
     splitByTenureMock.mockReset();
+    filterByKeywordsInApifyDataMock.mockReset();
 
     rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
     pushPeopleToLemlistCampaignMock.mockResolvedValue({
@@ -169,6 +181,9 @@ describe("runResearchPipeline orchestration", () => {
       filteredOut: [],
     }));
     splitByTenureMock.mockImplementation((employees: EnrichedEmployee[]) => ({ eligible: employees }));
+    searchEmailCandidatePeopleCachedMock.mockResolvedValue([]);
+    selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [], forEmailRecycling: [] });
+    filterByKeywordsInApifyDataMock.mockReturnValue({ matched: [], unmatched: [] });
     process.env.LEMLIST_PUSH_ENABLED = "true";
     process.env.LEMLIST_BULK_FIND_EMAIL_ENABLED = "true";
     delete process.env.APOLLO_WATERFALL_ENABLED;
@@ -319,7 +334,7 @@ describe("runResearchPipeline orchestration", () => {
       expect.any(Map),
       { apolloOrganizationId: "org_1" },
       expect.any(Map),
-      { rawSreCount: 0 }
+      { rawSreCount: 0, apolloSearchCache: expect.any(Map), recycledKeywordMatched: [] }
     );
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledWith(

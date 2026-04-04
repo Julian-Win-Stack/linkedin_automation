@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fillToMinimumWithBackfill, selectTopSreForLemlist } from "../src/services/sreSelection";
+import { fillToMinimumWithBackfill, selectTopSreForLemlist, selectKeywordMatchedByTenure } from "../src/services/sreSelection";
 import { EnrichedEmployee } from "../src/types/prospect";
 
 function employee(overrides: Partial<EnrichedEmployee>): EnrichedEmployee {
@@ -309,5 +309,95 @@ describe("fillToMinimumWithBackfill", () => {
 
     const result = fillToMinimumWithBackfill(currentSelected, [], platformCandidates, { minimum: 3, max: 5 });
     expect(result.map((item) => item.id)).toEqual(["current-1", "candidate-c", "candidate-b"]);
+  });
+});
+
+describe("selectKeywordMatchedByTenure", () => {
+  it("fills LinkedIn slots up to maxTotal after already selected", () => {
+    const alreadySelected = [
+      employee({ id: "sre-1", name: "SRE 1", tenure: 12 }),
+      employee({ id: "sre-2", name: "SRE 2", tenure: 10 }),
+      employee({ id: "sre-3", name: "SRE 3", tenure: 8 }),
+    ];
+    const keywordMatched = [
+      employee({ id: "kw-1", name: "KW 1", tenure: 20 }),
+      employee({ id: "kw-2", name: "KW 2", tenure: 15 }),
+      employee({ id: "kw-3", name: "KW 3", tenure: 10 }),
+      employee({ id: "kw-4", name: "KW 4", tenure: 5 }),
+      employee({ id: "kw-5", name: "KW 5", tenure: 3 }),
+      employee({ id: "kw-6", name: "KW 6", tenure: 2 }),
+    ];
+
+    const result = selectKeywordMatchedByTenure(keywordMatched, alreadySelected, 7);
+
+    expect(result.forLinkedin).toHaveLength(4);
+    expect(result.forLinkedin.map((e) => e.id)).toEqual(["kw-1", "kw-2", "kw-3", "kw-4"]);
+    expect(result.forEmailRecycling).toHaveLength(2);
+    expect(result.forEmailRecycling.map((e) => e.id)).toEqual(["kw-5", "kw-6"]);
+  });
+
+  it("returns all as forLinkedin when enough slots available", () => {
+    const alreadySelected = [
+      employee({ id: "sre-1", name: "SRE 1", tenure: 12 }),
+    ];
+    const keywordMatched = [
+      employee({ id: "kw-1", name: "KW 1", tenure: 20 }),
+      employee({ id: "kw-2", name: "KW 2", tenure: 15 }),
+    ];
+
+    const result = selectKeywordMatchedByTenure(keywordMatched, alreadySelected, 7);
+
+    expect(result.forLinkedin).toHaveLength(2);
+    expect(result.forEmailRecycling).toHaveLength(0);
+  });
+
+  it("returns all as forEmailRecycling when no slots available", () => {
+    const alreadySelected = Array.from({ length: 7 }, (_, i) =>
+      employee({ id: `sre-${i}`, name: `SRE ${i}`, tenure: 12 })
+    );
+    const keywordMatched = [
+      employee({ id: "kw-1", name: "KW 1", tenure: 20 }),
+    ];
+
+    const result = selectKeywordMatchedByTenure(keywordMatched, alreadySelected, 7);
+
+    expect(result.forLinkedin).toHaveLength(0);
+    expect(result.forEmailRecycling).toHaveLength(1);
+  });
+
+  it("dedupes keyword-matched against already selected", () => {
+    const alreadySelected = [
+      employee({ id: "shared-1", name: "Shared", tenure: 12 }),
+    ];
+    const keywordMatched = [
+      employee({ id: "shared-1", name: "Shared", tenure: 12 }),
+      employee({ id: "kw-2", name: "KW 2", tenure: 15 }),
+    ];
+
+    const result = selectKeywordMatchedByTenure(keywordMatched, alreadySelected, 7);
+
+    expect(result.forLinkedin).toHaveLength(1);
+    expect(result.forLinkedin[0].id).toBe("kw-2");
+    expect(result.forEmailRecycling).toHaveLength(0);
+  });
+
+  it("sorts by tenure descending with null tenure at end", () => {
+    const keywordMatched = [
+      employee({ id: "kw-null", name: "KW Null", tenure: null }),
+      employee({ id: "kw-3", name: "KW 3", tenure: 3 }),
+      employee({ id: "kw-10", name: "KW 10", tenure: 10 }),
+    ];
+
+    const result = selectKeywordMatchedByTenure(keywordMatched, [], 2);
+
+    expect(result.forLinkedin.map((e) => e.id)).toEqual(["kw-10", "kw-3"]);
+    expect(result.forEmailRecycling.map((e) => e.id)).toEqual(["kw-null"]);
+  });
+
+  it("handles empty keyword-matched input", () => {
+    const result = selectKeywordMatchedByTenure([], [employee({ id: "sre-1", name: "SRE 1", tenure: 12 })], 7);
+
+    expect(result.forLinkedin).toHaveLength(0);
+    expect(result.forEmailRecycling).toHaveLength(0);
   });
 });

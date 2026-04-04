@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   countEngineerPeople,
   searchEmailCandidatePeople,
+  searchEmailCandidatePeopleCached,
+  ApolloSearchCache,
   searchCurrentPlatformEngineerPeople,
   searchPastSrePeople,
   searchPeople,
@@ -489,5 +491,65 @@ describe("searchPeople", () => {
 
     const params = apolloPostWithQueryMock.mock.calls[0][1];
     expect(params).not.toHaveProperty("person_not_past_titles[]");
+  });
+
+  it("searchEmailCandidatePeopleCached returns cached results on second call", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [{ id: "sre-1", name: "SRE One", title: "SRE" }],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const cache: ApolloSearchCache = new Map();
+    const params = { currentTitles: ["SRE"] };
+
+    const result1 = await searchEmailCandidatePeopleCached(company, 10, params, {}, cache);
+    expect(result1).toHaveLength(1);
+    expect(apolloPostWithQueryMock).toHaveBeenCalledTimes(1);
+
+    const result2 = await searchEmailCandidatePeopleCached(company, 10, params, {}, cache);
+    expect(result2).toHaveLength(1);
+    expect(result2[0].id).toBe("sre-1");
+    expect(apolloPostWithQueryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("searchEmailCandidatePeopleCached differentiates by search params", async () => {
+    apolloPostWithQueryMock
+      .mockResolvedValueOnce({
+        people: [{ id: "infra-1", name: "Infra One", title: "Infrastructure" }],
+        pagination: { page: 1, total_pages: 1 },
+      })
+      .mockResolvedValueOnce({
+        people: [{ id: "devops-1", name: "DevOps One", title: "DevOps" }],
+        pagination: { page: 1, total_pages: 1 },
+      });
+
+    const cache: ApolloSearchCache = new Map();
+
+    const result1 = await searchEmailCandidatePeopleCached(company, 10, { currentTitles: ["Infrastructure"] }, {}, cache);
+    const result2 = await searchEmailCandidatePeopleCached(company, 10, { currentTitles: ["DevOps"] }, {}, cache);
+
+    expect(result1).toHaveLength(1);
+    expect(result1[0].id).toBe("infra-1");
+    expect(result2).toHaveLength(1);
+    expect(result2[0].id).toBe("devops-1");
+    expect(apolloPostWithQueryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("searchEmailCandidatePeopleCached respects maxResults from cache", async () => {
+    apolloPostWithQueryMock.mockResolvedValueOnce({
+      people: [
+        { id: "p-1", name: "P1", title: "SRE" },
+        { id: "p-2", name: "P2", title: "SRE" },
+        { id: "p-3", name: "P3", title: "SRE" },
+      ],
+      pagination: { page: 1, total_pages: 1 },
+    });
+
+    const cache: ApolloSearchCache = new Map();
+
+    await searchEmailCandidatePeopleCached(company, 10, { currentTitles: ["SRE"] }, {}, cache);
+    const result = await searchEmailCandidatePeopleCached(company, 2, { currentTitles: ["SRE"] }, {}, cache);
+
+    expect(result).toHaveLength(2);
   });
 });

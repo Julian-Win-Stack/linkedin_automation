@@ -72,11 +72,17 @@ export interface ApifyExperienceEntry {
   employmentType?: string;
   position?: string;
   endDate?: { text?: string } | null;
+  skills?: string[];
+}
+
+export interface ApifyProfileSkill {
+  name: string;
 }
 
 export interface ApifyCacheEntry {
   openToWork: boolean;
   experience: ApifyExperienceEntry[];
+  profileSkills: ApifyProfileSkill[];
 }
 
 export type ApifyOpenToWorkCache = Map<string, ApifyCacheEntry>;
