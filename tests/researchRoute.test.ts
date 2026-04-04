@@ -17,6 +17,14 @@ import {
 const runResearchPipelineMock = vi.fn();
 const loadPipelineConfigMock = vi.fn();
 const getWeeklySuccessCountsMock = vi.fn();
+const enqueueQueueItemMock = vi.fn();
+const claimNextQueuedItemForUserMock = vi.fn();
+const setQueueItemJobIdMock = vi.fn();
+const recoverRunningItemsToQueuedMock = vi.fn();
+const listQueueItemsForUserMock = vi.fn();
+const getQueueItemByIdMock = vi.fn();
+const completeQueueItemMock = vi.fn();
+const toQueueLabelMock = vi.fn();
 
 vi.mock("../src/jobs/researchPipeline", () => ({
   runResearchPipeline: (...args: unknown[]) => runResearchPipelineMock(...args),
@@ -30,6 +38,17 @@ vi.mock("../src/services/weeklySuccessStore", () => ({
   getWeeklySuccessCounts: (...args: unknown[]) => getWeeklySuccessCountsMock(...args),
 }));
 
+vi.mock("../src/services/queueStore", () => ({
+  enqueueQueueItem: (...args: unknown[]) => enqueueQueueItemMock(...args),
+  claimNextQueuedItemForUser: (...args: unknown[]) => claimNextQueuedItemForUserMock(...args),
+  setQueueItemJobId: (...args: unknown[]) => setQueueItemJobIdMock(...args),
+  recoverRunningItemsToQueued: (...args: unknown[]) => recoverRunningItemsToQueuedMock(...args),
+  listQueueItemsForUser: (...args: unknown[]) => listQueueItemsForUserMock(...args),
+  getQueueItemById: (...args: unknown[]) => getQueueItemByIdMock(...args),
+  completeQueueItem: (...args: unknown[]) => completeQueueItemMock(...args),
+  toQueueLabel: (...args: unknown[]) => toQueueLabelMock(...args),
+}));
+
 function createTestApp() {
   const app = express();
   app.use(researchRouter);
@@ -41,6 +60,14 @@ describe("research job routes", () => {
     runResearchPipelineMock.mockReset();
     loadPipelineConfigMock.mockReset();
     getWeeklySuccessCountsMock.mockReset();
+    enqueueQueueItemMock.mockReset();
+    claimNextQueuedItemForUserMock.mockReset();
+    setQueueItemJobIdMock.mockReset();
+    recoverRunningItemsToQueuedMock.mockReset();
+    listQueueItemsForUserMock.mockReset();
+    getQueueItemByIdMock.mockReset();
+    completeQueueItemMock.mockReset();
+    toQueueLabelMock.mockReset();
     loadPipelineConfigMock.mockReturnValue({
       azureOpenAiApiKey: "k",
       azureOpenAiBaseUrl: "u",
@@ -55,6 +82,15 @@ describe("research job routes", () => {
       linkedinCount: 0,
       emailCount: 0,
     });
+    enqueueQueueItemMock.mockReturnValue({
+      queueItemId: "queue-1",
+      queueOrder: 1,
+      status: "queued",
+    });
+    claimNextQueuedItemForUserMock.mockReturnValue(null);
+    recoverRunningItemsToQueuedMock.mockReturnValue(0);
+    listQueueItemsForUserMock.mockReturnValue([]);
+    toQueueLabelMock.mockReturnValue("1st queue");
   });
 
   it("returns 400 when no csv file is sent", async () => {
@@ -63,7 +99,7 @@ describe("research job routes", () => {
     expect(response.status).toBe(400);
   });
 
-  it("starts a job and returns jobId", async () => {
+  it("enqueues a csv and returns queue item metadata", async () => {
     const app = createTestApp();
     const csv = "Company Name,Website\nAcme,acme.com\n";
     const response = await request(app)
@@ -72,15 +108,10 @@ describe("research job routes", () => {
       .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
 
     expect(response.status).toBe(200);
-    expect(typeof response.body.jobId).toBe("string");
-    expect(runResearchPipelineMock).toHaveBeenCalledTimes(1);
-    expect(runResearchPipelineMock).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(String),
-      expect.any(Object),
-      "julian",
-      expect.any(Number)
-    );
+    expect(response.body.queueItemId).toBe("queue-1");
+    expect(response.body.queueOrder).toBe(1);
+    expect(response.body.queueLabel).toBe("1st queue");
+    expect(enqueueQueueItemMock).toHaveBeenCalledTimes(1);
   });
 
   it("starts a job when website column is missing but apollo account id column exists", async () => {
@@ -92,8 +123,7 @@ describe("research job routes", () => {
       .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
 
     expect(response.status).toBe(200);
-    expect(typeof response.body.jobId).toBe("string");
-    expect(runResearchPipelineMock).toHaveBeenCalledTimes(1);
+    expect(response.body.queueItemId).toBe("queue-1");
   });
 
   it("returns 400 when company name column is missing", async () => {
@@ -179,6 +209,55 @@ describe("research job routes", () => {
     const app = createTestApp();
     const response = await request(app).get("/status/not-a-real-job");
     expect(response.status).toBe(404);
+  });
+
+  it("lists queue items for selected user", async () => {
+    const app = createTestApp();
+    listQueueItemsForUserMock.mockReturnValueOnce([
+      {
+        queueItemId: "queue-1",
+        selectedUser: "julian",
+        queueOrder: 1,
+        status: "done",
+        weekStartMs: 0,
+        csvInput: "Company Name,Website\nAcme,acme.com\n",
+        jobId: null,
+        csvOutputBase64: "YQ==",
+        summary: null,
+        warnings: [],
+        skippedCompanies: [],
+        rejectedCompanies: [],
+        rejectedReason: null,
+        errorMessage: null,
+        campaignPushData: null,
+        createdAtMs: 1,
+        updatedAtMs: 2,
+        startedAtMs: 3,
+        completedAtMs: 4,
+      },
+    ]);
+    toQueueLabelMock.mockReturnValueOnce("1st queue");
+
+    const response = await request(app).get("/queue").query({ selectedUser: "julian" });
+    expect(response.status).toBe(200);
+    expect(Array.isArray(response.body.items)).toBe(true);
+    expect(response.body.items[0].queueLabel).toBe("1st queue");
+    expect(response.body.items[0].status).toBe("done");
+  });
+
+  it("returns 409 when queue limit is reached", async () => {
+    const app = createTestApp();
+    enqueueQueueItemMock.mockImplementationOnce(() => {
+      throw new Error("Queue limit reached (10) for julian.");
+    });
+    const csv = "Company Name,Website\nAcme,acme.com\n";
+    const response = await request(app)
+      .post("/research")
+      .field("selectedUser", "julian")
+      .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain("Queue limit reached");
   });
 
   it("returns weekly counts for valid selected user and week start", async () => {
