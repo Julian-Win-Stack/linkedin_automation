@@ -556,7 +556,8 @@ export async function runResearchPipeline(
             attemptedLinkedinKeys,
             enrichmentCache,
             row.peopleSearchFilters,
-            apifyCache
+            apifyCache,
+            { rawSreCount: row.rawSreCount }
           );
           logPipelineStage(
             "EMAIL_WATERFALL_DONE",

@@ -318,7 +318,8 @@ describe("runResearchPipeline orchestration", () => {
       expect.any(Set),
       expect.any(Map),
       { apolloOrganizationId: "org_1" },
-      expect.any(Map)
+      expect.any(Map),
+      { rawSreCount: 0 }
     );
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledWith(

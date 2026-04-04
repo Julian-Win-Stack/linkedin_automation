@@ -36,6 +36,10 @@ export interface EmailWaterfallResult {
   normalEngineerApifyWarnings: NormalEngineerApifyWarningCandidate[];
 }
 
+export interface EmailWaterfallOptions {
+  rawSreCount?: number;
+}
+
 export interface NormalEngineerApifyWarningCandidate {
   employee: EnrichedEmployee;
   problem: string;
@@ -49,16 +53,17 @@ const LIGHT_LINE = "─".repeat(LINE_WIDTH);
 const LEADERSHIP_TITLE_KEYWORDS = ["vp", "manager", "director", "head", "chief", "principal"];
 const NORMAL_ENGINEER_STAGE_LABEL = "Normal Engineer Search";
 const SPLIT_LEADERSHIP_BUCKET: EmailCampaignBucket = "engLead";
+const MIN_SRE_COUNT_FOR_EMAIL_SRE_STAGES = 8;
 
 const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
   {
-    currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
+    currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
     notTitles: ["contract", "contractor", "freelance", "freelancer"],
     minTenureMonths: 2,
     campaignBucket: "sre",
   },
   {
-    pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
+    pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
     notTitles: ["contract", "contractor", "freelance", "freelancer"],
     minTenureMonths: 2,
     campaignBucket: "sre",
@@ -501,13 +506,15 @@ export async function runEmailCandidateWaterfall(
   linkedinAttemptedKeys: Set<string>,
   enrichmentCache: EnrichmentCache,
   filters: PeopleSearchFilters,
-  apifyCache: ApifyOpenToWorkCache
+  apifyCache: ApifyOpenToWorkCache,
+  options: EmailWaterfallOptions = {}
 ): Promise<EmailWaterfallResult> {
   const listA: TaggedEmailCandidate[] = [];
   const listAKeys = new Set<string>();
   const filteredOutCandidates: FilteredEmailCandidate[] = [];
   const warnings: string[] = [];
   const normalEngineerApifyWarnings: NormalEngineerApifyWarningCandidate[] = [];
+  const rawSreCount = options.rawSreCount ?? Number.POSITIVE_INFINITY;
 
   print("");
   print(HEAVY_LINE);
@@ -517,6 +524,16 @@ export async function runEmailCandidateWaterfall(
 
   for (let stageIndex = 0; stageIndex < EMAIL_CANDIDATE_STAGES.length; stageIndex += 1) {
     const stage = EMAIL_CANDIDATE_STAGES[stageIndex];
+    const stageLabel = STAGE_LABELS[stageIndex] ?? `Stage ${stageIndex + 1}`;
+    const isSreSearchStage = stageLabel === "SRE Search" || stageLabel === "Past SRE Search";
+
+    if (isSreSearchStage && rawSreCount < MIN_SRE_COUNT_FOR_EMAIL_SRE_STAGES) {
+      printStageHeader(stageIndex);
+      printStageSkip(
+        `skipped because pre-filter SRE count is ${rawSreCount} (< ${MIN_SRE_COUNT_FOR_EMAIL_SRE_STAGES})`
+      );
+      continue;
+    }
 
     if (listA.length >= MAX_PER_COMPANY) {
       printStageHeader(stageIndex);

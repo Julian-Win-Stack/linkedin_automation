@@ -87,6 +87,24 @@ describe("runEmailCandidateWaterfall", () => {
     expect(searchEmailCandidatePeopleMock).toHaveBeenCalledTimes(7);
   });
 
+  it("skips first two SRE stages when pre-filter SRE count is below 8", async () => {
+    await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS,
+      APIFY_CACHE,
+      { rawSreCount: 7 }
+    );
+
+    expect(searchEmailCandidatePeopleMock).toHaveBeenCalledTimes(5);
+    const firstCallSearchParams = searchEmailCandidatePeopleMock.mock.calls[0][2];
+    expect(firstCallSearchParams).toMatchObject({
+      currentTitles: ["Infrastructure"],
+      pastTitles: undefined,
+    });
+  });
+
   it("selects SRE candidates from stage 1 with sre bucket", async () => {
     searchEmailCandidatePeopleMock.mockResolvedValueOnce([
       makeProspect("sre-1", "SRE"),
@@ -462,14 +480,14 @@ describe("runEmailCandidateWaterfall", () => {
     const stage2Call = searchEmailCandidatePeopleMock.mock.calls[1];
 
     expect(stage1Call[2]).toEqual({
-      currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
+      currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
       pastTitles: undefined,
       notTitles: ["contract", "contractor", "freelance", "freelancer"],
       notPastTitles: undefined,
     });
     expect(stage2Call[2]).toEqual({
       currentTitles: undefined,
-      pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
+      pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
       notTitles: ["contract", "contractor", "freelance", "freelancer"],
       notPastTitles: undefined,
     });
