@@ -494,6 +494,63 @@ describe("scrapeAndFilterOpenToWork", () => {
     expect(cache.get("linkedin.com/in/bob")?.openToWork).toBe(false);
   });
 
+  it("uses Apify canonical profile URL when it differs from input URL", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          linkedinUrl: "https://www.linkedin.com/in/alice-updated/",
+          originalQuery: "https://linkedin.com/in/alice-old",
+          openToWork: false,
+          experience: [],
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const employees = [
+      makeEmployee({ name: "Alice", linkedinUrl: "https://linkedin.com/in/alice-old" }),
+    ];
+    const cache: ApifyOpenToWorkCache = new Map();
+
+    const result = await scrapeAndFilterOpenToWork(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.kept).toHaveLength(1);
+    expect(result.kept[0].linkedinUrl).toBe("https://www.linkedin.com/in/alice-updated/");
+    expect(cache.get("linkedin.com/in/alice-old")?.canonicalLinkedinUrl).toBe(
+      "https://www.linkedin.com/in/alice-updated/"
+    );
+  });
+
+  it("falls back to original linkedin URL when Apify has no matching profile entry", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          linkedinUrl: "https://linkedin.com/in/someone-else",
+          openToWork: false,
+          experience: [],
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const employees = [
+      makeEmployee({ name: "Alice", linkedinUrl: "https://linkedin.com/in/alice-original" }),
+    ];
+
+    const result = await scrapeAndFilterOpenToWork(employees, new Map(), {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.kept).toHaveLength(1);
+    expect(result.kept[0].linkedinUrl).toBe("https://linkedin.com/in/alice-original");
+  });
+
   it("filters contract employment when matched current company role is contract", async () => {
     const mockFetch = vi.fn().mockResolvedValueOnce({
       ok: true,

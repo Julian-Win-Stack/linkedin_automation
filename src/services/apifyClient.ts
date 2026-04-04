@@ -66,6 +66,15 @@ interface ScrapedProfile {
   openToWork: boolean;
   experience: ApifyExperienceEntry[];
   profileSkills: ApifyProfileSkill[];
+  canonicalLinkedinUrl: string;
+}
+
+function toCanonicalLinkedinUrl(url: string): string {
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.replace(/^http:\/\//i, "https://");
+  }
+  return `https://${trimmed}`;
 }
 
 async function scrapeBatch(
@@ -120,7 +129,12 @@ async function scrapeBatch(
         const profileSkills: ApifyProfileSkill[] = Array.isArray(item.skills)
           ? item.skills.filter((s): s is { name: string } => typeof s?.name === "string")
           : [];
-        const entry: ScrapedProfile = { openToWork, experience, profileSkills };
+        const entry: ScrapedProfile = {
+          openToWork,
+          experience,
+          profileSkills,
+          canonicalLinkedinUrl: toCanonicalLinkedinUrl(item.linkedinUrl),
+        };
         resultMap.set(key, entry);
 
         const oq = item.originalQuery;
@@ -263,6 +277,9 @@ export async function scrapeAndFilterOpenToWork(
   for (const { employee, normalizedUrl } of withUrl) {
     if (cache.has(normalizedUrl)) {
       const cached = cache.get(normalizedUrl)!;
+      if (cached.canonicalLinkedinUrl) {
+        employee.linkedinUrl = cached.canonicalLinkedinUrl;
+      }
       if (cached.openToWork) {
         filteredOut.push({ employee, reason: "open_to_work" });
         counts.removed += 1;
@@ -318,7 +335,13 @@ export async function scrapeAndFilterOpenToWork(
           const result = batchResults.get(normalizedUrl);
 
           if (result) {
-            cache.set(normalizedUrl, { openToWork: result.openToWork, experience: result.experience, profileSkills: result.profileSkills });
+            cache.set(normalizedUrl, {
+              openToWork: result.openToWork,
+              experience: result.experience,
+              profileSkills: result.profileSkills,
+              canonicalLinkedinUrl: result.canonicalLinkedinUrl,
+            });
+            employee.linkedinUrl = result.canonicalLinkedinUrl;
 
             if (result.openToWork) {
               filteredOut.push({ employee, reason: "open_to_work" });
