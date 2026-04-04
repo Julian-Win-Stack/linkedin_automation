@@ -152,6 +152,9 @@ function getEngineerCountDisplayValue(engineerCount: number): number | "> 1000" 
   if (engineerCount > 1000) {
     return LARGE_ENGINEER_COUNT_MASK;
   }
+  if (engineerCount === 18 || engineerCount === 19) {
+    return 20;
+  }
   return engineerCount;
 }
 
@@ -405,6 +408,7 @@ export async function runResearchPipeline(
         const apifyCache: ApifyOpenToWorkCache = new Map();
         const company = row.company;
         const engineerCount = row.engineerCount;
+        const engineerCountDisplayValue = row.engineerCountDisplayValue;
         const currentSreProspects = row.currentSreProspects;
         const rawSreCount = row.rawSreCount;
         process.stdout.write(`\n${"═".repeat(78)}\n  LINKEDIN CAMPAIGN — SRE Search — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
@@ -737,7 +741,7 @@ export async function runResearchPipeline(
           observability_tool_research: row.observability,
           stage: "ChasingPOC",
           sre_count: rawSreCount,
-          engineer_count: engineerCount,
+          engineer_count: engineerCountDisplayValue,
           notes: "",
         });
         logPipelineStage("COMPANY_DONE", "Company processing complete.", companyContext);

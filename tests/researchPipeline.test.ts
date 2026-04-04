@@ -428,6 +428,31 @@ describe("runResearchPipeline orchestration", () => {
     expect(job?.rejectedCompanies[0]).toContain("> 1000");
   });
 
+  it("rounds engineer count 18 or 19 to 20 in output csv rows", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "CountCo", companyDomain: "count.co", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    countEngineerPeopleMock.mockResolvedValueOnce(19);
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian");
+
+    const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    const passRow = combinedRowsArg.find((row) => row.company_name === "CountCo");
+    expect(passRow?.engineer_count).toBe(20);
+  });
+
   it("builds combined import csv with passed rows first and rejected rows last", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([
