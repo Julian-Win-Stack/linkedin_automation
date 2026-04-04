@@ -78,7 +78,8 @@ describe("research job routes", () => {
       expect.any(String),
       expect.any(String),
       expect.any(Object),
-      "julian"
+      "julian",
+      expect.any(Number)
     );
   });
 
@@ -160,6 +161,7 @@ describe("research job routes", () => {
       totalLemlistFailed: 1,
       totalEmailCampaignSuccessful: 1,
       totalEmailCampaignFailed: 0,
+      weeklyLimitSkippedCompanyCount: 0,
     });
     markJobDone(jobId, Buffer.from("a,b\n1,2\n", "utf8").toString("base64"));
 

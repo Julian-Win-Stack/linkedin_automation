@@ -52,6 +52,7 @@ export interface JobSummary {
   totalLemlistFailed: number;
   totalEmailCampaignSuccessful: number;
   totalEmailCampaignFailed: number;
+  weeklyLimitSkippedCompanyCount: number;
 }
 
 export type JobState = {

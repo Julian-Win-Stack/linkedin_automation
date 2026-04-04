@@ -28,6 +28,7 @@ const filterByKeywordsInApifyDataMock = vi.fn();
 const syncApolloAccountsFromOutputRowsMock = vi.fn();
 const syncAttioCompaniesFromOutputRowsMock = vi.fn();
 const saveWeeklySuccessForJobMock = vi.fn();
+const getWeeklySuccessCountsMock = vi.fn();
 
 vi.mock("../src/services/observability/csvReader", () => ({
   readCompanies: (...args: unknown[]) => readCompaniesMock(...args),
@@ -99,6 +100,7 @@ vi.mock("../src/services/attioAssertCompanyRecords", () => ({
 
 vi.mock("../src/services/weeklySuccessStore", () => ({
   saveWeeklySuccessForJob: (...args: unknown[]) => saveWeeklySuccessForJobMock(...args),
+  getWeeklySuccessCounts: (...args: unknown[]) => getWeeklySuccessCountsMock(...args),
 }));
 
 function asyncCompanyRows(
@@ -161,6 +163,7 @@ describe("runResearchPipeline orchestration", () => {
     syncApolloAccountsFromOutputRowsMock.mockReset();
     syncAttioCompaniesFromOutputRowsMock.mockReset();
     saveWeeklySuccessForJobMock.mockReset();
+    getWeeklySuccessCountsMock.mockReset();
 
     rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
     pushPeopleToLemlistCampaignMock.mockResolvedValue({
@@ -221,6 +224,10 @@ describe("runResearchPipeline orchestration", () => {
       duplicateDomainCount: 0,
       warnings: [],
     });
+    getWeeklySuccessCountsMock.mockReturnValue({
+      linkedinCount: 0,
+      emailCount: 0,
+    });
     process.env.LEMLIST_PUSH_ENABLED = "true";
     process.env.LEMLIST_BULK_FIND_EMAIL_ENABLED = "true";
     delete process.env.APOLLO_WATERFALL_ENABLED;
@@ -252,7 +259,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     expect(fillToMinimumWithBackfillMock).toHaveBeenCalledTimes(2);
     expect(fillToMinimumWithBackfillMock).toHaveBeenNthCalledWith(
@@ -295,7 +302,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     expect(searchPastSrePeopleMock).not.toHaveBeenCalled();
     expect(fillToMinimumWithBackfillMock).not.toHaveBeenCalled();
@@ -362,7 +369,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     expect(runEmailCandidateWaterfallMock).toHaveBeenCalledTimes(1);
     expect(runEmailCandidateWaterfallMock).toHaveBeenCalledWith(
@@ -433,7 +440,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     expect(enrichMissingEmailsWithLemlistMock).toHaveBeenCalledTimes(1);
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
@@ -455,7 +462,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
     const rejectedRow = combinedRowsArg.find((row) => row.company_name === "BigCo");
@@ -483,7 +490,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
     const passRow = combinedRowsArg.find((row) => row.company_name === "CountCo");
@@ -515,7 +522,8 @@ describe("runResearchPipeline orchestration", () => {
         domainColumn: "Website",
         apolloAccountIdColumn: "Apollo Account Id",
       },
-      "julian"
+      "julian",
+      Date.now()
     );
 
     const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
@@ -552,11 +560,125 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     const job = getJob(jobId);
     expect(job?.skippedCompanies).toEqual(["Skipped Co"]);
     expect(job?.summary?.skippedMissingWebsiteAndApolloAccountIdCount).toBe(1);
+  });
+
+  it("fully skips all companies when weekly LinkedIn limit is already reached", async () => {
+    getWeeklySuccessCountsMock.mockReturnValueOnce({
+      linkedinCount: 100,
+      emailCount: 0,
+    });
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([
+        { companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 },
+        { companyName: "Beta", companyDomain: "beta.com", apolloAccountId: "org_2", rowNumber: 3 },
+      ])
+    );
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    expect(countEngineerPeopleMock).not.toHaveBeenCalled();
+    expect(searchPeopleMock).not.toHaveBeenCalled();
+    expect(researchCompanyMock).not.toHaveBeenCalled();
+    expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledWith([]);
+    expect(syncAttioCompaniesFromOutputRowsMock).toHaveBeenCalledWith([]);
+
+    const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(combinedRowsArg).toHaveLength(2);
+    expect(combinedRowsArg[0]).toMatchObject({
+      company_name: "Acme",
+      stage: "",
+      sre_count: "",
+      engineer_count: "",
+      notes: "",
+    });
+    expect(combinedRowsArg[1]).toMatchObject({
+      company_name: "Beta",
+      stage: "",
+      sre_count: "",
+      engineer_count: "",
+      notes: "",
+    });
+
+    const job = getJob(jobId);
+    expect(job?.summary?.weeklyLimitSkippedCompanyCount).toBe(2);
+  });
+
+  it("stops processing later companies after weekly limit is reached mid-job", async () => {
+    getWeeklySuccessCountsMock.mockReturnValueOnce({
+      linkedinCount: 95,
+      emailCount: 0,
+    });
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([
+        { companyName: "FirstCo", companyDomain: "first.co", apolloAccountId: "org_1", rowNumber: 2 },
+        { companyName: "SecondCo", companyDomain: "second.co", apolloAccountId: "org_2", rowNumber: 3 },
+      ])
+    );
+    searchPeopleMock.mockResolvedValueOnce(makeProspects(5, "current"));
+    bulkEnrichPeopleMock.mockResolvedValueOnce(makeEmployees(5, "current"));
+    selectTopSreForLemlistMock.mockReturnValueOnce(makeEmployees(5, "selected-current"));
+    pushPeopleToLemlistCampaignMock.mockResolvedValueOnce({
+      attempted: 1,
+      successful: 7,
+      failed: 0,
+      successItems: ["A", "B", "C", "D", "E", "F", "G"],
+      failedItems: [],
+      outcomes: [],
+    });
+    countEngineerPeopleMock
+      .mockResolvedValueOnce(120)
+      .mockResolvedValueOnce(120);
+    researchCompanyMock
+      .mockResolvedValueOnce("Datadog")
+      .mockResolvedValueOnce("Datadog");
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    expect(countEngineerPeopleMock).toHaveBeenCalledTimes(1);
+    expect(researchCompanyMock).toHaveBeenCalledTimes(1);
+    expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledTimes(1);
+    const syncRows = syncApolloAccountsFromOutputRowsMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(syncRows).toHaveLength(1);
+    expect(syncRows[0].company_name).toBe("FirstCo");
+
+    const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(combinedRowsArg).toHaveLength(2);
+    expect(combinedRowsArg[0]).toMatchObject({ company_name: "FirstCo", stage: "ChasingPOC" });
+    expect(combinedRowsArg[1]).toMatchObject({
+      company_name: "SecondCo",
+      stage: "",
+      sre_count: "",
+      engineer_count: "",
+      notes: "",
+    });
+
+    const job = getJob(jobId);
+    expect(job?.summary?.weeklyLimitSkippedCompanyCount).toBe(1);
   });
 
   it("stores normal engineer Apify warning entries in campaign push data and not UI warnings", async () => {
@@ -597,7 +719,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     const job = getJob(jobId);
     expect(job?.warnings).toEqual([]);
@@ -665,7 +787,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     expect(saveWeeklySuccessForJobMock).toHaveBeenCalledTimes(1);
     expect(saveWeeklySuccessForJobMock).toHaveBeenCalledWith(
@@ -695,7 +817,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledTimes(1);
     const syncRows = syncApolloAccountsFromOutputRowsMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
@@ -729,7 +851,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     const job = getJob(jobId);
     expect(job?.status).toBe("done");
@@ -754,7 +876,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     const job = getJob(jobId);
     expect(job?.status).toBe("done");
@@ -788,7 +910,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     const job = getJob(jobId);
     expect(job?.warnings).toContain("Uploading Acme to Attio failed. Please contact Julian");

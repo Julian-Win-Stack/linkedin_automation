@@ -10,6 +10,14 @@ import { getWeeklySuccessCounts } from "../services/weeklySuccessStore";
 const upload = multer({ storage: multer.memoryStorage() });
 const router = Router();
 
+function getWeekStartMsLocal(nowMs = Date.now()): number {
+  const now = new Date(nowMs);
+  now.setHours(0, 0, 0, 0);
+  const dayOfWeek = now.getDay();
+  const daysSinceSaturday = (dayOfWeek + 1) % 7;
+  return now.getTime() - daysSinceSaturday * 24 * 60 * 60 * 1000;
+}
+
 router.post("/research", upload.single("csv"), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: "No CSV file provided. Use form field 'csv'." });
@@ -39,8 +47,14 @@ router.post("/research", upload.single("csv"), async (req, res) => {
       });
     }
 
+    const weekStartMsRaw = typeof req.body?.weekStartMs === "string" ? req.body.weekStartMs : "";
+    const parsedWeekStartMs = Number(weekStartMsRaw);
+    const weekStartMs = Number.isFinite(parsedWeekStartMs) && parsedWeekStartMs >= 0
+      ? parsedWeekStartMs
+      : getWeekStartMsLocal();
+
     const jobId = createJob();
-    void runResearchPipeline(jobId, csvBuffer, config, selectedUser);
+    void runResearchPipeline(jobId, csvBuffer, config, selectedUser, weekStartMs);
     return res.status(200).json({ jobId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected server error.";

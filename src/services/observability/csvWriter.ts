@@ -6,7 +6,7 @@ export type OutputRow = {
   company_linkedin_url: string;
   apollo_account_id?: string;
   observability_tool_research: string;
-  stage: "ChasingPOC" | "NotActionableNow";
+  stage: "ChasingPOC" | "NotActionableNow" | "";
   sre_count: "" | number;
   engineer_count: "" | number | "> 1000";
   notes: string;

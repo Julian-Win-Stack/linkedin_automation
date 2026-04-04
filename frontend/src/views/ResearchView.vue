@@ -209,6 +209,7 @@ async function runResearch(): Promise<void> {
   const formData = new FormData();
   formData.append("csv", selectedFile.value);
   formData.append("selectedUser", selectedUser.value);
+  formData.append("weekStartMs", String(getCurrentWeekStartMsLocal()));
 
   try {
     const startResponse = await fetch(`${API_URL}/research`, {
