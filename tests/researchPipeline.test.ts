@@ -26,6 +26,7 @@ const scrapeAndFilterOpenToWorkMock = vi.fn();
 const splitByTenureMock = vi.fn();
 const filterByKeywordsInApifyDataMock = vi.fn();
 const syncApolloAccountsFromOutputRowsMock = vi.fn();
+const syncAttioCompaniesFromOutputRowsMock = vi.fn();
 
 vi.mock("../src/services/observability/csvReader", () => ({
   readCompanies: (...args: unknown[]) => readCompaniesMock(...args),
@@ -91,6 +92,10 @@ vi.mock("../src/services/apolloBulkUpdateAccounts", () => ({
   syncApolloAccountsFromOutputRows: (...args: unknown[]) => syncApolloAccountsFromOutputRowsMock(...args),
 }));
 
+vi.mock("../src/services/attioAssertCompanyRecords", () => ({
+  syncAttioCompaniesFromOutputRows: (...args: unknown[]) => syncAttioCompaniesFromOutputRowsMock(...args),
+}));
+
 function asyncCompanyRows(
   rows: Array<{ companyName: string; companyDomain: string; apolloAccountId?: string; rowNumber: number }>
 ) {
@@ -149,6 +154,7 @@ describe("runResearchPipeline orchestration", () => {
     splitByTenureMock.mockReset();
     filterByKeywordsInApifyDataMock.mockReset();
     syncApolloAccountsFromOutputRowsMock.mockReset();
+    syncAttioCompaniesFromOutputRowsMock.mockReset();
 
     rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
     pushPeopleToLemlistCampaignMock.mockResolvedValue({
@@ -197,6 +203,16 @@ describe("runResearchPipeline orchestration", () => {
       skippedMissingAccountIdCount: 0,
       skippedNoMappableFieldsCount: 0,
       duplicateAccountIdCount: 0,
+      warnings: [],
+    });
+    syncAttioCompaniesFromOutputRowsMock.mockResolvedValue({
+      attemptedRows: 0,
+      dedupedDomains: 0,
+      assertedCount: 0,
+      failedCount: 0,
+      skippedMissingDomainCount: 0,
+      skippedNoMappableFieldsCount: 0,
+      duplicateDomainCount: 0,
       warnings: [],
     });
     process.env.LEMLIST_PUSH_ENABLED = "true";
@@ -590,7 +606,7 @@ describe("runResearchPipeline orchestration", () => {
     ]);
   });
 
-  it("triggers Apollo account bulk sync with combined output rows", async () => {
+  it("triggers Apollo and Attio sync with combined output rows", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
     );
@@ -614,6 +630,12 @@ describe("runResearchPipeline orchestration", () => {
     expect(syncRows[0]).toMatchObject({
       company_name: "Acme",
       apollo_account_id: "org_1",
+    });
+    expect(syncAttioCompaniesFromOutputRowsMock).toHaveBeenCalledTimes(1);
+    const attioRows = syncAttioCompaniesFromOutputRowsMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(attioRows[0]).toMatchObject({
+      company_name: "Acme",
+      company_domain: "acme.com",
     });
   });
 
@@ -640,5 +662,63 @@ describe("runResearchPipeline orchestration", () => {
     const job = getJob(jobId);
     expect(job?.status).toBe("done");
     expect(job?.warnings).toContain("Apollo bulk account sync failed: bulk sync fail");
+  });
+
+  it("adds warning when Attio company sync fails and still completes job", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+    syncAttioCompaniesFromOutputRowsMock.mockRejectedValueOnce(new Error("attio sync fail"));
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian");
+
+    const job = getJob(jobId);
+    expect(job?.status).toBe("done");
+    expect(job?.warnings).toContain("Attio company sync failed: attio sync fail");
+  });
+
+  it("stores per-company Attio upload warnings in UI warnings section", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+    syncAttioCompaniesFromOutputRowsMock.mockResolvedValueOnce({
+      attemptedRows: 1,
+      dedupedDomains: 1,
+      assertedCount: 0,
+      failedCount: 1,
+      skippedMissingDomainCount: 0,
+      skippedNoMappableFieldsCount: 0,
+      duplicateDomainCount: 0,
+      warnings: ["Uploading Acme to Attio failed. Please contact Julian"],
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian");
+
+    const job = getJob(jobId);
+    expect(job?.warnings).toContain("Uploading Acme to Attio failed. Please contact Julian");
   });
 });

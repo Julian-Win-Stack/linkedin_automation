@@ -48,6 +48,7 @@ import { SelectedUser } from "../shared/selectedUser";
 import { runEmailCandidateWaterfall, TaggedEmailCandidate, LINKEDIN_KEYWORD_STAGE_INFRA, LINKEDIN_KEYWORD_STAGE_DEVOPS, LINKEDIN_KEYWORD_STAGE_NORMAL_ENG } from "../services/emailCandidateWaterfall";
 import { scrapeAndFilterOpenToWork, splitByTenure, filterByKeywordsInApifyData } from "../services/apifyClient";
 import { syncApolloAccountsFromOutputRows } from "../services/apolloBulkUpdateAccounts";
+import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompanyRecords";
 
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"];
@@ -939,15 +940,33 @@ export async function runResearchPipeline(
       })),
     ];
 
-    try {
-      const apolloSyncResult = await syncApolloAccountsFromOutputRows(combinedOutputRows);
-      for (const warning of apolloSyncResult.warnings) {
+    const [apolloSyncOutcome, attioSyncOutcome] = await Promise.allSettled([
+      syncApolloAccountsFromOutputRows(combinedOutputRows),
+      syncAttioCompaniesFromOutputRows(combinedOutputRows),
+    ]);
+
+    if (apolloSyncOutcome.status === "fulfilled") {
+      for (const warning of apolloSyncOutcome.value.warnings) {
         addJobWarning(jobId, warning);
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown Apollo bulk account sync error";
+    } else {
+      const message =
+        apolloSyncOutcome.reason instanceof Error
+          ? apolloSyncOutcome.reason.message
+          : "Unknown Apollo bulk account sync error";
       addJobWarning(jobId, `Apollo bulk account sync failed: ${message}`);
       logPipelineStage("APOLLO_BULK_ACCOUNT_SYNC_FAILED", `Apollo bulk account sync failed. error=${message}`);
+    }
+
+    if (attioSyncOutcome.status === "fulfilled") {
+      for (const warning of attioSyncOutcome.value.warnings) {
+        addJobWarning(jobId, warning);
+      }
+    } else {
+      const message =
+        attioSyncOutcome.reason instanceof Error ? attioSyncOutcome.reason.message : "Unknown Attio assert sync error";
+      addJobWarning(jobId, `Attio company sync failed: ${message}`);
+      logPipelineStage("ATTIO_COMPANY_SYNC_FAILED", `Attio company sync failed. error=${message}`);
     }
 
     const csvString = await rowsToCsvString(combinedOutputRows);
