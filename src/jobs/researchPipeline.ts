@@ -47,6 +47,7 @@ import { EnrichedEmployee, ApifyOpenToWorkCache, LemlistPushOutcome, Prospect } 
 import { SelectedUser } from "../shared/selectedUser";
 import { runEmailCandidateWaterfall, TaggedEmailCandidate, LINKEDIN_KEYWORD_STAGE_INFRA, LINKEDIN_KEYWORD_STAGE_DEVOPS, LINKEDIN_KEYWORD_STAGE_NORMAL_ENG } from "../services/emailCandidateWaterfall";
 import { scrapeAndFilterOpenToWork, splitByTenure, filterByKeywordsInApifyData } from "../services/apifyClient";
+import { syncApolloAccountsFromOutputRows } from "../services/apolloBulkUpdateAccounts";
 
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"];
@@ -307,6 +308,7 @@ export async function runResearchPipeline(
           company_name: row.companyName,
           company_domain: row.companyDomain,
           company_linkedin_url: row.companyLinkedinUrl,
+          apollo_account_id: row.apolloAccountId ?? "",
           observability_tool_research: "",
           sre_count: "",
           engineer_count: engineerCountDisplayValue,
@@ -330,6 +332,7 @@ export async function runResearchPipeline(
           company_name: row.companyName,
           company_domain: row.companyDomain,
           company_linkedin_url: row.companyLinkedinUrl,
+          apollo_account_id: row.apolloAccountId ?? "",
           observability_tool_research: "",
           sre_count: rawSreCount,
           engineer_count: engineerCountDisplayValue,
@@ -738,6 +741,7 @@ export async function runResearchPipeline(
           company_name: row.companyName,
           company_domain: row.companyDomain,
           company_linkedin_url: row.companyLinkedinUrl,
+          apollo_account_id: row.apolloAccountId ?? "",
           observability_tool_research: row.observability,
           stage: "ChasingPOC",
           sre_count: rawSreCount,
@@ -753,6 +757,7 @@ export async function runResearchPipeline(
           company_name: row.companyName,
           company_domain: row.companyDomain,
           company_linkedin_url: row.companyLinkedinUrl,
+          apollo_account_id: row.apolloAccountId ?? "",
           observability_tool_research: row.observability,
           stage: "ChasingPOC",
           sre_count: 0,
@@ -768,6 +773,7 @@ export async function runResearchPipeline(
         company_name: row.companyName,
         company_domain: row.companyDomain,
         company_linkedin_url: row.companyLinkedinUrl,
+        apollo_account_id: row.apolloAccountId ?? "",
         observability_tool_research: row.observability,
         sre_count: row.rawSreCount,
         engineer_count: row.engineerCountDisplayValue,
@@ -924,6 +930,7 @@ export async function runResearchPipeline(
         company_name: row.company_name,
         company_domain: row.company_domain,
         company_linkedin_url: row.company_linkedin_url,
+        apollo_account_id: row.apollo_account_id,
         observability_tool_research: row.observability_tool_research,
         stage: row.status,
         sre_count: row.sre_count,
@@ -931,6 +938,17 @@ export async function runResearchPipeline(
         notes: row.notes,
       })),
     ];
+
+    try {
+      const apolloSyncResult = await syncApolloAccountsFromOutputRows(combinedOutputRows);
+      for (const warning of apolloSyncResult.warnings) {
+        addJobWarning(jobId, warning);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown Apollo bulk account sync error";
+      addJobWarning(jobId, `Apollo bulk account sync failed: ${message}`);
+      logPipelineStage("APOLLO_BULK_ACCOUNT_SYNC_FAILED", `Apollo bulk account sync failed. error=${message}`);
+    }
 
     const csvString = await rowsToCsvString(combinedOutputRows);
     const csvBase64 = Buffer.from(csvString, "utf8").toString("base64");

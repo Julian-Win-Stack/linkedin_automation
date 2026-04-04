@@ -9,6 +9,7 @@ describe("rowsToCsvString", () => {
     expect(csv).toContain("Company Name");
     expect(csv).toContain("Website");
     expect(csv).toContain("Company Linkedin Url");
+    expect(csv).toContain("Apollo Account Id");
     expect(csv).toContain("observability_tool");
     expect(csv).toContain("Stage");
     expect(csv).toContain("Number of SREs");
@@ -22,6 +23,7 @@ describe("rowsToCsvString", () => {
         company_name: "Acme Corp",
         company_domain: "acme.com",
         company_linkedin_url: "https://linkedin.com/company/acme",
+        apollo_account_id: "acc_123",
         observability_tool_research: "Datadog",
         stage: "ChasingPOC",
         sre_count: 5,
@@ -36,6 +38,7 @@ describe("rowsToCsvString", () => {
     expect(lines).toHaveLength(2);
     expect(lines[1]).toContain("Acme Corp");
     expect(lines[1]).toContain("acme.com");
+    expect(lines[1]).toContain("acc_123");
     expect(lines[1]).toContain("ChasingPOC");
   });
 
@@ -114,6 +117,7 @@ describe("rejectedRowsToCsvString", () => {
 
     expect(csv).toContain("Company Name");
     expect(csv).toContain("Website");
+    expect(csv).toContain("Apollo Account Id");
     expect(csv).toContain("Stage");
     expect(csv).toContain("Notes");
   });

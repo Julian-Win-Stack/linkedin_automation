@@ -25,6 +25,7 @@ const rowsToCsvStringMock = vi.fn();
 const scrapeAndFilterOpenToWorkMock = vi.fn();
 const splitByTenureMock = vi.fn();
 const filterByKeywordsInApifyDataMock = vi.fn();
+const syncApolloAccountsFromOutputRowsMock = vi.fn();
 
 vi.mock("../src/services/observability/csvReader", () => ({
   readCompanies: (...args: unknown[]) => readCompaniesMock(...args),
@@ -86,6 +87,10 @@ vi.mock("../src/services/apifyClient", () => ({
   filterByKeywordsInApifyData: (...args: unknown[]) => filterByKeywordsInApifyDataMock(...args),
 }));
 
+vi.mock("../src/services/apolloBulkUpdateAccounts", () => ({
+  syncApolloAccountsFromOutputRows: (...args: unknown[]) => syncApolloAccountsFromOutputRowsMock(...args),
+}));
+
 function asyncCompanyRows(
   rows: Array<{ companyName: string; companyDomain: string; apolloAccountId?: string; rowNumber: number }>
 ) {
@@ -143,6 +148,7 @@ describe("runResearchPipeline orchestration", () => {
     scrapeAndFilterOpenToWorkMock.mockReset();
     splitByTenureMock.mockReset();
     filterByKeywordsInApifyDataMock.mockReset();
+    syncApolloAccountsFromOutputRowsMock.mockReset();
 
     rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
     pushPeopleToLemlistCampaignMock.mockResolvedValue({
@@ -184,6 +190,15 @@ describe("runResearchPipeline orchestration", () => {
     searchEmailCandidatePeopleCachedMock.mockResolvedValue([]);
     selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [], forEmailRecycling: [] });
     filterByKeywordsInApifyDataMock.mockReturnValue({ matched: [], unmatched: [] });
+    syncApolloAccountsFromOutputRowsMock.mockResolvedValue({
+      attemptedRows: 0,
+      dedupedAccounts: 0,
+      updatedAccounts: 0,
+      skippedMissingAccountIdCount: 0,
+      skippedNoMappableFieldsCount: 0,
+      duplicateAccountIdCount: 0,
+      warnings: [],
+    });
     process.env.LEMLIST_PUSH_ENABLED = "true";
     process.env.LEMLIST_BULK_FIND_EMAIL_ENABLED = "true";
     delete process.env.APOLLO_WATERFALL_ENABLED;
@@ -573,5 +588,57 @@ describe("runResearchPipeline orchestration", () => {
         problem: "Could not match this profile to Acme in Apify experience data.",
       },
     ]);
+  });
+
+  it("triggers Apollo account bulk sync with combined output rows", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian");
+
+    expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledTimes(1);
+    const syncRows = syncApolloAccountsFromOutputRowsMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(syncRows[0]).toMatchObject({
+      company_name: "Acme",
+      apollo_account_id: "org_1",
+    });
+  });
+
+  it("adds warning when Apollo account bulk sync fails and still completes job", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+    syncApolloAccountsFromOutputRowsMock.mockRejectedValueOnce(new Error("bulk sync fail"));
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian");
+
+    const job = getJob(jobId);
+    expect(job?.status).toBe("done");
+    expect(job?.warnings).toContain("Apollo bulk account sync failed: bulk sync fail");
   });
 });
