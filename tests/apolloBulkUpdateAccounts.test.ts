@@ -135,6 +135,25 @@ describe("syncApolloAccountsFromOutputRows", () => {
     );
   });
 
+  it("maps custom fields using fallback candidate names when labels differ", async () => {
+    fetchApolloAccountCustomFieldNameToIdMapMock.mockResolvedValueOnce(
+      new Map<string, string>([
+        ["observability_tool_research", "account.field_observability"],
+        ["sre_count", "account.field_sre_count"],
+        ["notes", "account.field_notes"],
+      ])
+    );
+
+    await syncApolloAccountsFromOutputRows([makeRow()]);
+
+    expect(apolloPostMock).toHaveBeenCalledTimes(1);
+    expect(apolloPostMock.mock.calls[0]?.[1]?.account_attributes?.[0]?.typed_custom_fields).toEqual({
+      "account.field_observability": "Datadog",
+      "account.field_sre_count": "4",
+      "account.field_notes": "ready",
+    });
+  });
+
   it("skips rows without Apollo Account Id", async () => {
     const result = await syncApolloAccountsFromOutputRows([
       makeRow({ apollo_account_id: "" }),
@@ -153,6 +172,23 @@ describe("syncApolloAccountsFromOutputRows", () => {
 
     expect(apolloPostMock).not.toHaveBeenCalled();
     expect(result.skippedNoMappableFieldsCount).toBe(1);
+  });
+
+  it("returns UI warnings for unmapped custom field columns", async () => {
+    fetchApolloAccountCustomFieldNameToIdMapMock.mockResolvedValueOnce(new Map<string, string>());
+    fetchApolloAccountStageNameToIdMapMock.mockResolvedValueOnce(
+      new Map<string, string>([["ChasingPOC", "stage_chasing_poc"]])
+    );
+
+    const result = await syncApolloAccountsFromOutputRows([makeRow()]);
+
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Apollo custom field mapping missing for "Number of SREs"'),
+        expect.stringContaining('Apollo custom field mapping missing for "Notes"'),
+        expect.stringContaining('Apollo custom field mapping missing for "observability_tool"'),
+      ])
+    );
   });
 
   it("dedupes duplicate account ids with deterministic last-row-wins", async () => {

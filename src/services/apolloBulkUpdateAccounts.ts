@@ -22,6 +22,12 @@ const COLUMN_KEY_TO_HEADER: Partial<Record<keyof OutputRow, string>> = {
   notes: "Notes",
 };
 
+const COLUMN_TO_APOLLO_FIELD_CANDIDATES: Partial<Record<keyof OutputRow, string[]>> = {
+  observability_tool_research: ["observability_tool", "observability_tool_research", "Observability Tool"],
+  sre_count: ["Number of SREs", "sre_count", "number_of_sres"],
+  notes: ["Notes", "notes"],
+};
+
 const EXCLUDED_HEADERS = new Set<string>([
   "Company Name",
   "Website",
@@ -134,7 +140,10 @@ function buildAccountAttributesPayload(
         continue;
       }
 
-      const fieldId = normalizedFieldNameToId.get(normalizeMappingToken(header));
+      const candidateFieldNames = COLUMN_TO_APOLLO_FIELD_CANDIDATES[columnKey] ?? [header];
+      const fieldId = candidateFieldNames
+        .map((candidate) => normalizedFieldNameToId.get(normalizeMappingToken(candidate)))
+        .find((candidateId): candidateId is string => Boolean(candidateId));
       if (!fieldId) {
         unmappedHeadersSet.add(header);
         continue;
@@ -221,6 +230,9 @@ export async function syncApolloAccountsFromOutputRows(rows: OutputRow[]): Promi
   const payloadResult = buildAccountAttributesPayload(rows, fieldNameToId, stageNameToId);
 
   for (const header of payloadResult.unmappedHeaders) {
+    warnings.push(
+      `Apollo custom field mapping missing for "${header}". Stage updates can still succeed while this field is skipped.`
+    );
     console.error(
       `${APOLLO_ERROR_COLOR}[Apollo][BulkUpdate][ERROR] Unmapped output column "${header}" - skipping values for account updates.${ANSI_RESET}`
     );
