@@ -145,7 +145,14 @@ describe("searchPeople", () => {
       per_page: 100,
       include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
-      "person_past_titles[]": ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
+      "person_past_titles[]": [
+        "SRE",
+        "Site Reliability",
+        "Site Reliability Engineer",
+        "Site Reliability Engineering",
+        "Head of Reliability",
+        "observability",
+      ],
     });
   });
 
@@ -163,7 +170,14 @@ describe("searchPeople", () => {
       include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
       "q_organization_ids[]": ["org_456"],
-      "person_past_titles[]": ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
+      "person_past_titles[]": [
+        "SRE",
+        "Site Reliability",
+        "Site Reliability Engineer",
+        "Site Reliability Engineering",
+        "Head of Reliability",
+        "observability",
+      ],
     });
   });
 

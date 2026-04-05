@@ -51,7 +51,14 @@ import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompany
 import { getWeeklySuccessCounts, saveWeeklySuccessForJob } from "../services/weeklySuccessStore";
 
 const MAX_ROWS = 500;
-const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"];
+const SRE_PERSON_TITLES = [
+  "SRE",
+  "Site Reliability",
+  "Site Reliability Engineer",
+  "Site Reliability Engineering",
+  "Head of Reliability",
+  "observability",
+];
 const MAX_RESULTS = 30;
 /** Current-title exclusions for LinkedIn Apollo searches (SRE, past SRE, platform backfill). */
 const LINKEDIN_APOLLO_NOT_TITLES = ["contract", "junior", "jr"];
