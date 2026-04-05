@@ -5,6 +5,7 @@ import { EnrichedEmployee, Prospect } from "../src/types/prospect";
 import { TaggedEmailCandidate, EmailWaterfallResult } from "../src/services/emailCandidateWaterfall";
 
 const readCompaniesMock = vi.fn();
+const countProcessableCompaniesMock = vi.fn();
 const researchCompanyMock = vi.fn();
 const getCompanyMock = vi.fn();
 const searchPeopleMock = vi.fn();
@@ -31,6 +32,7 @@ const getWeeklySuccessCountsMock = vi.fn();
 
 vi.mock("../src/services/observability/csvReader", () => ({
   readCompanies: (...args: unknown[]) => readCompaniesMock(...args),
+  countProcessableCompanies: (...args: unknown[]) => countProcessableCompaniesMock(...args),
 }));
 
 vi.mock("../src/services/observability/openaiClient", () => ({
@@ -138,6 +140,7 @@ function emptyWaterfallResult(): EmailWaterfallResult {
 describe("runResearchPipeline orchestration", () => {
   beforeEach(() => {
     readCompaniesMock.mockReset();
+    countProcessableCompaniesMock.mockReset();
     researchCompanyMock.mockReset();
     getCompanyMock.mockReset();
     searchPeopleMock.mockReset();
@@ -224,6 +227,7 @@ describe("runResearchPipeline orchestration", () => {
       linkedinCount: 0,
       emailCount: 0,
     });
+    countProcessableCompaniesMock.mockResolvedValue(500);
     process.env.LEMLIST_PUSH_ENABLED = "true";
     process.env.LEMLIST_BULK_FIND_EMAIL_ENABLED = "true";
     delete process.env.APOLLO_WATERFALL_ENABLED;

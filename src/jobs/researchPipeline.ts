@@ -17,7 +17,7 @@ import {
   searchEmailCandidatePeopleCached,
   ApolloSearchCache,
 } from "../services/searchPeople";
-import { readCompanies } from "../services/observability/csvReader";
+import { countProcessableCompanies, readCompanies } from "../services/observability/csvReader";
 import { researchCompany } from "../services/observability/openaiClient";
 import { fillToMinimumWithBackfill, selectTopSreForLemlist, selectKeywordMatchedByTenure } from "../services/sreSelection";
 import {
@@ -242,6 +242,14 @@ export async function runResearchPipeline(
     const lemlistEnabled = getEnvBoolean("LEMLIST_PUSH_ENABLED", true);
     const waterfallEnabled = getEnvBoolean("APOLLO_WATERFALL_ENABLED", false);
     const lemlistBulkFindEmailEnabled = getEnvBoolean("LEMLIST_BULK_FIND_EMAIL_ENABLED", true);
+    const progressTotalRows = Math.min(
+      await countProcessableCompanies({
+        csvBuffer,
+        domainColumn: config.domainColumn,
+        apolloAccountIdColumn: config.apolloAccountIdColumn,
+      }),
+      MAX_ROWS
+    );
 
     for await (const row of readCompanies({
       csvBuffer,
@@ -266,9 +274,9 @@ export async function runResearchPipeline(
         break;
       }
 
-      setJobProgress(jobId, { currentRow: row.rowNumber, totalRows: MAX_ROWS });
+      setJobProgress(jobId, { currentRow: totalRows, totalRows: progressTotalRows });
       setJobMessage(jobId, `Engineer/SRE pre-filter row ${row.rowNumber}: ${row.companyName}`);
-      const companyContext = { index: totalRows - 1, total: MAX_ROWS, companyName: row.companyName };
+      const companyContext = { index: totalRows - 1, total: progressTotalRows, companyName: row.companyName };
 
       if (weeklyCounts.linkedinCount + sessionLinkedinSuccessfulCount >= WEEKLY_LINKEDIN_PUSH_LIMIT) {
         weeklyLimitSkippedCompanyCount += 1;

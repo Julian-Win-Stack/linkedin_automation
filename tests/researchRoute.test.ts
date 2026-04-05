@@ -360,6 +360,35 @@ describe("research job routes", () => {
     expect(response.status).toBe(409);
   });
 
+  it("downloads queue csv with clean filename", async () => {
+    const app = createTestApp();
+    getQueueItemByIdMock.mockReturnValueOnce({
+      queueItemId: "queue-1",
+      selectedUser: "julian",
+      queueOrder: 1,
+      status: "done",
+      weekStartMs: 0,
+      csvInput: "Company Name,Website\nAcme,acme.com\n",
+      jobId: null,
+      csvOutputBase64: Buffer.from("Company Name,Website\nAcme,acme.com\n", "utf8").toString("base64"),
+      summary: null,
+      warnings: [],
+      skippedCompanies: [],
+      rejectedCompanies: [],
+      rejectedReason: null,
+      errorMessage: null,
+      campaignPushData: null,
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      startedAtMs: 3,
+      completedAtMs: 4,
+    });
+
+    const response = await request(app).get("/queue/queue-1/csv");
+    expect(response.status).toBe(200);
+    expect(response.headers["content-disposition"]).toContain('attachment; filename="research-results.csv"');
+  });
+
   it("cancels all active queue items for selected user", async () => {
     const app = createTestApp();
     const runningJobId = createJob();

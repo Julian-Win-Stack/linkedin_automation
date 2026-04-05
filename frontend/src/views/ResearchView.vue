@@ -30,6 +30,8 @@ type QueueItem = {
   hasPdf: boolean;
 };
 
+type VisibleQueueItem = QueueItem & { displayQueueLabel: string };
+
 const fileInput = ref<HTMLInputElement | null>(null);
 const selectedFile = ref<File | null>(null);
 const isDragActive = ref(false);
@@ -50,6 +52,27 @@ const selectedUserLabel = computed(() => {
 
 const activeQueueCount = computed(() =>
   queueItems.value.filter((item) => item.status === "queued" || item.status === "running").length
+);
+
+function toQueueLabel(order: number): string {
+  const mod100 = order % 100;
+  if (mod100 >= 11 && mod100 <= 13) {
+    return `${order}th queue`;
+  }
+  const mod10 = order % 10;
+  if (mod10 === 1) return `${order}st queue`;
+  if (mod10 === 2) return `${order}nd queue`;
+  if (mod10 === 3) return `${order}rd queue`;
+  return `${order}th queue`;
+}
+
+const visibleQueueItems = computed<VisibleQueueItem[]>(() =>
+  queueItems.value
+    .filter((item) => item.status !== "cancelled")
+    .map((item, index) => ({
+      ...item,
+      displayQueueLabel: toQueueLabel(index + 1),
+    }))
 );
 
 const storedUser = localStorage.getItem(SELECTED_USER_STORAGE_KEY);
@@ -356,7 +379,7 @@ async function cancelAllQueueItems(): Promise<void> {
                 :disabled="isSubmitting || activeQueueCount === 0"
                 @click="cancelAllQueueItems"
               >
-                Cancel
+                Cancel all
               </button>
               <button
                 class="rounded-md bg-indigo-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40"
@@ -375,19 +398,19 @@ async function cancelAllQueueItems(): Promise<void> {
             <h2 class="text-sm font-semibold tracking-tight text-zinc-100">Queue Timeline</h2>
           </div>
 
-          <div v-if="queueItems.length === 0" class="rounded-lg border border-zinc-800 bg-[#0a1220]/40 p-4 text-sm text-zinc-400">
+          <div v-if="visibleQueueItems.length === 0" class="rounded-lg border border-zinc-800 bg-[#0a1220]/40 p-4 text-sm text-zinc-400">
             No queue items yet. Upload a CSV and click <strong>Add to Queue</strong>.
           </div>
 
           <div v-else class="space-y-3">
             <div
-              v-for="item in queueItems"
+              v-for="item in visibleQueueItems"
               :key="item.queueItemId"
               class="rounded-lg border border-zinc-800 bg-[#0a1220]/55 p-3"
             >
               <div class="flex flex-wrap items-center justify-between gap-2">
                 <div class="flex items-center gap-2">
-                  <p class="text-sm font-semibold text-zinc-100">{{ item.queueLabel }}</p>
+                  <p class="text-sm font-semibold text-zinc-100">{{ item.displayQueueLabel }}</p>
                   <span class="rounded-full border px-2 py-0.5 text-[11px] font-medium" :class="statusBadgeClass(item.status)">
                     {{ statusLabel(item.status) }}
                   </span>
