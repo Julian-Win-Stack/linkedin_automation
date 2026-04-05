@@ -7,7 +7,6 @@ const ATTIO_CONCURRENCY = 10;
 const ATTIO_API_RETRIES = 1;
 const ATTIO_PAGE_SIZE = 200;
 const ATTIO_ERROR_COLOR = "\x1b[31m";
-const ATTIO_WARNING_COLOR = "\x1b[33m";
 const ANSI_RESET = "\x1b[0m";
 
 interface AttioAttribute {
@@ -247,8 +246,8 @@ export async function syncAttioCompaniesFromOutputRows(rows: OutputRow[]): Promi
       failedCount += 1;
       const message = error instanceof Error ? error.message : "Unknown Attio assert error";
       warnings.push(`Uploading ${task.companyName} to Attio failed. Please contact Julian`);
-      console.warn(
-        `${ATTIO_WARNING_COLOR}[Attio][Assert][WARN] company=${task.companyName} domain=${task.domain} message=${message}${ANSI_RESET}`
+      console.error(
+        `${ATTIO_ERROR_COLOR}[Attio][Assert][ERROR] company=${task.companyName} domain=${task.domain} message=${message}${ANSI_RESET}`
       );
     }
   });

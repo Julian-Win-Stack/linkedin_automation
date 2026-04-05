@@ -107,6 +107,7 @@ describe("syncAttioCompaniesFromOutputRows", () => {
     attioPutMock
       .mockResolvedValueOnce({ data: {} })
       .mockRejectedValueOnce(new Error("rate-limited"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const result = await syncAttioCompaniesFromOutputRows([
       makeRow({ company_name: "One Co", company_domain: "one.com" }),
@@ -116,5 +117,9 @@ describe("syncAttioCompaniesFromOutputRows", () => {
     expect(result.assertedCount).toBe(1);
     expect(result.failedCount).toBe(1);
     expect(result.warnings).toContain("Uploading Two Co to Attio failed. Please contact Julian");
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    expect(String(consoleErrorSpy.mock.calls[0]?.[0] ?? "")).toContain("[Attio][Assert][ERROR]");
+    expect(String(consoleErrorSpy.mock.calls[0]?.[0] ?? "")).toContain("\x1b[31m");
+    consoleErrorSpy.mockRestore();
   });
 });
