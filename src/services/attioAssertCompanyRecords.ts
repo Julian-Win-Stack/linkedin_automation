@@ -7,7 +7,6 @@ const ATTIO_CONCURRENCY = 10;
 const ATTIO_API_RETRIES = 1;
 const ATTIO_PAGE_SIZE = 200;
 const ATTIO_ERROR_COLOR = "\x1b[31m";
-const ATTIO_WARNING_COLOR = "\x1b[33m";
 const ANSI_RESET = "\x1b[0m";
 
 interface AttioAttribute {
@@ -64,6 +63,28 @@ function toDisplayValue(value: unknown): string | undefined {
   return text.length > 0 ? text : undefined;
 }
 
+function normalizeMappingToken(value: string): string {
+  return value.toLowerCase().replace(/[_\s]+/g, "");
+}
+
+function buildNormalizedSlugMap(availableSlugs: Set<string>): Map<string, string> {
+  const normalizedToSlug = new Map<string, string>();
+  for (const slug of availableSlugs) {
+    const normalizedSlug = normalizeMappingToken(slug);
+    if (normalizedSlug.length === 0) {
+      continue;
+    }
+    if (!normalizedToSlug.has(normalizedSlug)) {
+      normalizedToSlug.set(normalizedSlug, slug);
+    }
+  }
+  return normalizedToSlug;
+}
+
+function isDomainsSlug(slug: string): boolean {
+  return normalizeMappingToken(slug) === normalizeMappingToken("domains");
+}
+
 function normalizeDomain(rawValue: unknown): string | undefined {
   const text = toDisplayValue(rawValue);
   if (!text) {
@@ -112,6 +133,7 @@ function buildAssertTasks(rows: OutputRow[], availableSlugs: Set<string>): Build
   const domainToTask = new Map<string, AttioAssertTask>();
   const orderedDomains: string[] = [];
   const duplicateDomains = new Set<string>();
+  const normalizedSlugMap = buildNormalizedSlugMap(availableSlugs);
   let skippedMissingDomainCount = 0;
   let skippedNoMappableFieldsCount = 0;
 
@@ -140,13 +162,15 @@ function buildAssertTasks(rows: OutputRow[], availableSlugs: Set<string>): Build
         continue;
       }
 
-      const matchedSlug = slugCandidates.find((slug) => availableSlugs.has(slug));
+      const matchedSlug = slugCandidates
+        .map((slug) => normalizedSlugMap.get(normalizeMappingToken(slug)))
+        .find((slug): slug is string => Boolean(slug));
       if (!matchedSlug) {
         unmappedApiSlugs.add(slugCandidates[0]);
         continue;
       }
 
-      if (matchedSlug === "domains") {
+      if (isDomainsSlug(matchedSlug)) {
         values[matchedSlug] = [normalizedDomain];
       } else if (columnKey === "sre_count") {
         const numericValue = Number(displayValue);
@@ -247,8 +271,8 @@ export async function syncAttioCompaniesFromOutputRows(rows: OutputRow[]): Promi
       failedCount += 1;
       const message = error instanceof Error ? error.message : "Unknown Attio assert error";
       warnings.push(`Uploading ${task.companyName} to Attio failed. Please contact Julian`);
-      console.warn(
-        `${ATTIO_WARNING_COLOR}[Attio][Assert][WARN] company=${task.companyName} domain=${task.domain} message=${message}${ANSI_RESET}`
+      console.error(
+        `${ATTIO_ERROR_COLOR}[Attio][Assert][ERROR] company=${task.companyName} domain=${task.domain} message=${message}${ANSI_RESET}`
       );
     }
   });

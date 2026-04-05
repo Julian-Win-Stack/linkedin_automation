@@ -88,6 +88,38 @@ describe("syncApolloAccountsFromOutputRows", () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it("maps Apollo fields case, underscore, and space insensitively", async () => {
+    fetchApolloAccountCustomFieldNameToIdMapMock.mockResolvedValueOnce(
+      new Map<string, string>([
+        ["OBSERVABILITY TOOL", "account.field_observability"],
+        ["stage", "account.field_stage"],
+        ["Number_of_SREs", "account.field_sre_count"],
+        ["  notes  ", "account.field_notes"],
+      ])
+    );
+
+    await syncApolloAccountsFromOutputRows([makeRow()]);
+
+    expect(apolloPostMock).toHaveBeenCalledTimes(1);
+    expect(apolloPostMock).toHaveBeenCalledWith(
+      "/accounts/bulk_update",
+      {
+        account_attributes: [
+          {
+            id: "acc_1",
+            typed_custom_fields: {
+              "account.field_observability": "Datadog",
+              "account.field_stage": "ChasingPOC",
+              "account.field_sre_count": "4",
+              "account.field_notes": "ready",
+            },
+          },
+        ],
+      },
+      0
+    );
+  });
+
   it("skips rows without Apollo Account Id", async () => {
     const result = await syncApolloAccountsFromOutputRows([
       makeRow({ apollo_account_id: "" }),

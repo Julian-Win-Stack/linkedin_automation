@@ -514,14 +514,28 @@ describe("runEmailCandidateWaterfall", () => {
     const devopsCall = searchEmailCandidatePeopleMock.mock.calls[4];
 
     expect(stage1Call[2]).toEqual({
-      currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
+      currentTitles: [
+        "site reliability",
+        "SRE",
+        "Site Reliability Engineer",
+        "Site Reliability Engineering",
+        "Head of Reliability",
+        "observability",
+      ],
       pastTitles: undefined,
       notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
       notPastTitles: undefined,
     });
     expect(stage2Call[2]).toEqual({
       currentTitles: undefined,
-      pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
+      pastTitles: [
+        "site reliability",
+        "SRE",
+        "Site Reliability Engineer",
+        "Site Reliability Engineering",
+        "Head of Reliability",
+        "observability",
+      ],
       notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
       notPastTitles: undefined,
     });

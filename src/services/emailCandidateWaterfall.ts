@@ -61,7 +61,14 @@ const MIN_SRE_COUNT_FOR_EMAIL_SRE_STAGES = 8;
 
 const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
   {
-    currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
+    currentTitles: [
+      "site reliability",
+      "SRE",
+      "Site Reliability Engineer",
+      "Site Reliability Engineering",
+      "Head of Reliability",
+      "observability",
+    ],
     notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
     minTenureMonths: 2,
     campaignBucket: "sre",
@@ -70,7 +77,14 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
     leadershipTitleKeywords: LINKEDIN_LEADERSHIP_TITLE_KEYWORDS,
   },
   {
-    pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
+    pastTitles: [
+      "site reliability",
+      "SRE",
+      "Site Reliability Engineer",
+      "Site Reliability Engineering",
+      "Head of Reliability",
+      "observability",
+    ],
     notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
     minTenureMonths: 2,
     campaignBucket: "sre",

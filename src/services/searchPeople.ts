@@ -135,7 +135,14 @@ export async function searchPeople(
   return searchPeopleByTitleParam(company, maxResults, personTitles, "person_titles[]", filters, false);
 }
 
-const BACKFILL_PAST_SRE_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"];
+const BACKFILL_PAST_SRE_TITLES = [
+  "SRE",
+  "Site Reliability",
+  "Site Reliability Engineer",
+  "Site Reliability Engineering",
+  "Head of Reliability",
+  "observability",
+];
 const BACKFILL_PLATFORM_TITLES = ["platform engineer"];
 
 export async function searchPastSrePeople(

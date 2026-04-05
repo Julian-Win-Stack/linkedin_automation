@@ -60,11 +60,30 @@ function toDisplayValue(value: unknown): string | undefined {
   return text.length > 0 ? text : undefined;
 }
 
+function normalizeMappingToken(value: string): string {
+  return value.toLowerCase().replace(/[_\s]+/g, "");
+}
+
+function buildNormalizedFieldNameToId(fieldNameToId: Map<string, string>): Map<string, string> {
+  const normalizedToFieldId = new Map<string, string>();
+  for (const [fieldName, fieldId] of fieldNameToId.entries()) {
+    const normalizedFieldName = normalizeMappingToken(fieldName);
+    if (normalizedFieldName.length === 0) {
+      continue;
+    }
+    if (!normalizedToFieldId.has(normalizedFieldName)) {
+      normalizedToFieldId.set(normalizedFieldName, fieldId);
+    }
+  }
+  return normalizedToFieldId;
+}
+
 function buildAccountAttributesPayload(rows: OutputRow[], fieldNameToId: Map<string, string>): BuildPayloadResult {
   const unmappedHeadersSet = new Set<string>();
   const accountIdToAttributes = new Map<string, ApolloBulkUpdateAccountAttribute>();
   const dedupedAccountIdsInOrder: string[] = [];
   const duplicateAccountIds = new Set<string>();
+  const normalizedFieldNameToId = buildNormalizedFieldNameToId(fieldNameToId);
   let skippedMissingAccountIdCount = 0;
   let skippedNoMappableFieldsCount = 0;
 
@@ -88,7 +107,7 @@ function buildAccountAttributesPayload(rows: OutputRow[], fieldNameToId: Map<str
         continue;
       }
 
-      const fieldId = fieldNameToId.get(header);
+      const fieldId = normalizedFieldNameToId.get(normalizeMappingToken(header));
       if (!fieldId) {
         unmappedHeadersSet.add(header);
         continue;
