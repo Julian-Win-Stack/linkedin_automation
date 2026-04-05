@@ -103,6 +103,34 @@ describe("syncAttioCompaniesFromOutputRows", () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it("maps Attio slugs case, underscore, and space insensitively", async () => {
+    attioGetMock.mockResolvedValueOnce({
+      data: [
+        { api_slug: "NAME" },
+        { api_slug: "Domains" },
+        { api_slug: "Company Linkedin Url" },
+        { api_slug: "Observability Tool Research" },
+        { api_slug: "Stage" },
+        { api_slug: "SRE Count" },
+        { api_slug: "notes" },
+      ],
+    });
+
+    await syncAttioCompaniesFromOutputRows([makeRow()]);
+
+    expect(attioPutMock).toHaveBeenCalledTimes(1);
+    const body = attioPutMock.mock.calls[0]?.[1] as { data: { values: Record<string, unknown> } };
+    expect(body.data.values).toMatchObject({
+      NAME: "Acme",
+      Domains: ["acme.com"],
+      "Company Linkedin Url": "https://linkedin.com/company/acme",
+      "Observability Tool Research": "Datadog",
+      Stage: "ChasingPOC",
+      "SRE Count": 3,
+      notes: "important",
+    });
+  });
+
   it("captures per-domain warnings when assert fails for some rows", async () => {
     attioPutMock
       .mockResolvedValueOnce({ data: {} })

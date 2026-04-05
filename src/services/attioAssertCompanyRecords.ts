@@ -63,6 +63,28 @@ function toDisplayValue(value: unknown): string | undefined {
   return text.length > 0 ? text : undefined;
 }
 
+function normalizeMappingToken(value: string): string {
+  return value.toLowerCase().replace(/[_\s]+/g, "");
+}
+
+function buildNormalizedSlugMap(availableSlugs: Set<string>): Map<string, string> {
+  const normalizedToSlug = new Map<string, string>();
+  for (const slug of availableSlugs) {
+    const normalizedSlug = normalizeMappingToken(slug);
+    if (normalizedSlug.length === 0) {
+      continue;
+    }
+    if (!normalizedToSlug.has(normalizedSlug)) {
+      normalizedToSlug.set(normalizedSlug, slug);
+    }
+  }
+  return normalizedToSlug;
+}
+
+function isDomainsSlug(slug: string): boolean {
+  return normalizeMappingToken(slug) === normalizeMappingToken("domains");
+}
+
 function normalizeDomain(rawValue: unknown): string | undefined {
   const text = toDisplayValue(rawValue);
   if (!text) {
@@ -111,6 +133,7 @@ function buildAssertTasks(rows: OutputRow[], availableSlugs: Set<string>): Build
   const domainToTask = new Map<string, AttioAssertTask>();
   const orderedDomains: string[] = [];
   const duplicateDomains = new Set<string>();
+  const normalizedSlugMap = buildNormalizedSlugMap(availableSlugs);
   let skippedMissingDomainCount = 0;
   let skippedNoMappableFieldsCount = 0;
 
@@ -139,13 +162,15 @@ function buildAssertTasks(rows: OutputRow[], availableSlugs: Set<string>): Build
         continue;
       }
 
-      const matchedSlug = slugCandidates.find((slug) => availableSlugs.has(slug));
+      const matchedSlug = slugCandidates
+        .map((slug) => normalizedSlugMap.get(normalizeMappingToken(slug)))
+        .find((slug): slug is string => Boolean(slug));
       if (!matchedSlug) {
         unmappedApiSlugs.add(slugCandidates[0]);
         continue;
       }
 
-      if (matchedSlug === "domains") {
+      if (isDomainsSlug(matchedSlug)) {
         values[matchedSlug] = [normalizedDomain];
       } else if (columnKey === "sre_count") {
         const numericValue = Number(displayValue);
