@@ -72,6 +72,8 @@ const EMAIL_WATERFALL_WAIT_MS = 20 * 60 * 1000;
 const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
 const WEEKLY_LINKEDIN_PUSH_LIMIT = 100;
 const LINKEDIN_LEADERSHIP_TITLE_REGEX = /\b(director|svp|vp|head|chief)\b/i;
+const PIPELINE_TIMING_COLOR = "\x1b[36m";
+const ANSI_RESET = "\x1b[0m";
 
 const SRE_WORK_KEYWORDS: string[] = [
   "incident response",
@@ -181,15 +183,35 @@ function isLinkedinLeadershipTitle(title: string | null | undefined): boolean {
   return LINKEDIN_LEADERSHIP_TITLE_REGEX.test(title);
 }
 
-function logPipelineStage(
+function logPipelineInfo(_line: string): void {
+  // Intentionally muted to reduce noisy normal-color logs.
+}
+
+function createPipelineStepLogger(jobId: string): (
   step: string,
   message: string,
   companyContext?: { index: number; total: number; companyName: string }
-): void {
-  const companyTag = companyContext
-    ? `[COMPANY:${companyContext.index + 1}/${companyContext.total}:${companyContext.companyName}]`
-    : "";
-  console.log(`[Pipeline][STEP:${step}]${companyTag} ${message}`);
+)=> void {
+  const startedAt = Date.now();
+  let lastStepAt = startedAt;
+
+  return (
+    step: string,
+    message: string,
+    companyContext?: { index: number; total: number; companyName: string }
+  ): void => {
+    const now = Date.now();
+    const deltaSeconds = ((now - lastStepAt) / 1000).toFixed(2);
+    const totalSeconds = ((now - startedAt) / 1000).toFixed(2);
+    lastStepAt = now;
+    const companyTag = companyContext
+      ? `[COMPANY:${companyContext.index + 1}/${companyContext.total}:${companyContext.companyName}]`
+      : "";
+    process.stderr.write(
+      `${PIPELINE_TIMING_COLOR}[Pipeline][JOB:${jobId}][STEP:${step}]` +
+      `[+${deltaSeconds}s][total:${totalSeconds}s]${companyTag} ${message}${ANSI_RESET}\n`
+    );
+  };
 }
 
 async function resolveCompanyForApolloInput(row: {
@@ -212,6 +234,7 @@ export async function runResearchPipeline(
   selectedUser: SelectedUser,
   weekStartMs: number
 ): Promise<void> {
+  const logPipelineStage = createPipelineStepLogger(jobId);
   const outputRows: OutputRow[] = [];
   const syncableOutputRows: OutputRow[] = [];
   const rejectedOutputRows: RejectedOutputRow[] = [];
@@ -376,13 +399,13 @@ export async function runResearchPipeline(
 
       try {
         const apifyCache: ApifyOpenToWorkCache = new Map();
-        process.stdout.write(`\n${"═".repeat(78)}\n  LINKEDIN CAMPAIGN — SRE Search — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
-        process.stdout.write(`  ▸ Reusing ${rawSreCount} pre-filtered current SRE candidates\n`);
-        process.stdout.write(`  ▸ Enriching ${currentSreProspects.length} current SRE candidates...\n`);
+        logPipelineInfo(`\n${"═".repeat(78)}\n  LINKEDIN CAMPAIGN — SRE Search — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
+        logPipelineInfo(`  ▸ Reusing ${rawSreCount} pre-filtered current SRE candidates\n`);
+        logPipelineInfo(`  ▸ Enriching ${currentSreProspects.length} current SRE candidates...\n`);
         logPipelineStage("ENRICH_CURRENT_SRE", "Enriching current SRE candidates.", companyContext);
         const enrichedEmployees = await bulkEnrichPeople(currentSreProspects, enrichmentCache);
         const { eligible: tenureEligibleSre } = splitByTenure(enrichedEmployees, 2);
-        process.stdout.write(`  ▸ Checking openToWork for ${tenureEligibleSre.length} current SRE candidates...\n`);
+        logPipelineInfo(`  ▸ Checking openToWork for ${tenureEligibleSre.length} current SRE candidates...\n`);
         logPipelineStage("APIFY_CURRENT_SRE", `Checking openToWork for ${tenureEligibleSre.length} current SRE candidates.`, companyContext);
         const {
           kept: apifyFilteredSre,
@@ -403,7 +426,7 @@ export async function runResearchPipeline(
           }))
         );
         const selectedCurrentSre = selectTopSreForLemlist(apifyFilteredSre, 7);
-        process.stdout.write(`  ▸ Selected ${selectedCurrentSre.length} current SRE for LinkedIn seed\n`);
+        logPipelineInfo(`  ▸ Selected ${selectedCurrentSre.length} current SRE for LinkedIn seed\n`);
         logPipelineStage(
           "SELECT_CURRENT_SRE",
           `Current SRE selected for LinkedIn seed. selected=${selectedCurrentSre.length}`,
@@ -416,14 +439,14 @@ export async function runResearchPipeline(
 
         // LinkedIn Keyword Expansion: search DevOps/Infra/Normal Eng for SRE-keyword matches
         {
-          process.stdout.write(`\n${"═".repeat(78)}\n  LINKEDIN KEYWORD EXPANSION — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
+          logPipelineInfo(`\n${"═".repeat(78)}\n  LINKEDIN KEYWORD EXPANSION — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
           logPipelineStage("KEYWORD_EXPANSION_START", "LinkedIn keyword expansion started.", companyContext);
 
           const allKeywordMatched: EnrichedEmployee[] = [];
           const sreProspectIds = new Set(currentSreProspects.map((p) => p.id));
 
           for (const { label, config: stageConfig } of LINKEDIN_KEYWORD_STAGES) {
-            process.stdout.write(`  ▸ Searching ${label} candidates...\n`);
+            logPipelineInfo(`  ▸ Searching ${label} candidates...\n`);
             const searchParams = {
               currentTitles: stageConfig.currentTitles,
               pastTitles: stageConfig.pastTitles,
@@ -438,13 +461,13 @@ export async function runResearchPipeline(
               apolloSearchCache
             );
             const prospects = dedupeProspectsById(rawProspects).filter((p) => !sreProspectIds.has(p.id));
-            process.stdout.write(`  ▸ ${label}: ${rawProspects.length} raw → ${prospects.length} after dedup\n`);
+            logPipelineInfo(`  ▸ ${label}: ${rawProspects.length} raw → ${prospects.length} after dedup\n`);
 
             if (prospects.length === 0) continue;
 
             const enriched = await bulkEnrichPeople(prospects, enrichmentCache);
             const { eligible: tenureEligible } = splitByTenure(enriched, 2);
-            process.stdout.write(`  ▸ ${label}: ${enriched.length} enriched → ${tenureEligible.length} after tenure filter (2mo)\n`);
+            logPipelineInfo(`  ▸ ${label}: ${enriched.length} enriched → ${tenureEligible.length} after tenure filter (2mo)\n`);
 
             if (tenureEligible.length === 0) continue;
 
@@ -470,7 +493,7 @@ export async function runResearchPipeline(
             if (apifyFiltered.length === 0) continue;
 
             const { matched } = filterByKeywordsInApifyData(apifyFiltered, apifyCache, SRE_WORK_KEYWORDS);
-            process.stdout.write(`  ▸ ${label}: ${matched.length} matched SRE keywords\n`);
+            logPipelineInfo(`  ▸ ${label}: ${matched.length} matched SRE keywords\n`);
             allKeywordMatched.push(...matched);
           }
 
@@ -482,7 +505,7 @@ export async function runResearchPipeline(
             );
             selectedForLemlist = [...selectedForLemlist, ...forLinkedin];
             keywordMatchedEmailRecycled = forEmailRecycling;
-            process.stdout.write(`  ▸ Keyword expansion: ${forLinkedin.length} added to LinkedIn, ${forEmailRecycling.length} recycled to email\n`);
+            logPipelineInfo(`  ▸ Keyword expansion: ${forLinkedin.length} added to LinkedIn, ${forEmailRecycling.length} recycled to email\n`);
           }
 
           logPipelineStage(
@@ -493,7 +516,7 @@ export async function runResearchPipeline(
         }
 
         if (selectedForLemlist.length < 7) {
-          process.stdout.write(`  ▸ Backfill Phase 1 — Searching past SRE candidates...\n`);
+          logPipelineInfo(`  ▸ Backfill Phase 1 — Searching past SRE candidates...\n`);
           logPipelineStage("BACKFILL_PHASE_1_START", "Backfill phase 1 (past SRE) started.", companyContext);
           const pastSreProspects = dedupeProspectsById(
             await searchPastSrePeople(
@@ -502,10 +525,10 @@ export async function runResearchPipeline(
               linkedinApolloPeopleFilters({ apolloOrganizationId: row.apolloAccountId })
             )
           );
-          process.stdout.write(`  ▸ Enriching ${pastSreProspects.length} past SRE candidates...\n`);
+          logPipelineInfo(`  ▸ Enriching ${pastSreProspects.length} past SRE candidates...\n`);
           const pastSreEnriched = await bulkEnrichPeople(pastSreProspects, enrichmentCache);
           const { eligible: tenureEligiblePastSre } = splitByTenure(pastSreEnriched, 2);
-          process.stdout.write(`  ▸ Checking openToWork for ${tenureEligiblePastSre.length} past SRE candidates...\n`);
+          logPipelineInfo(`  ▸ Checking openToWork for ${tenureEligiblePastSre.length} past SRE candidates...\n`);
           logPipelineStage("APIFY_PAST_SRE", `Checking openToWork for ${tenureEligiblePastSre.length} past SRE candidates.`, companyContext);
           const {
             kept: apifyFilteredPastSre,
@@ -529,7 +552,7 @@ export async function runResearchPipeline(
             minimum: 7,
             max: 7,
           });
-          process.stdout.write(`  ▸ Backfill Phase 1 done — ${selectedForLemlist.length} selected so far\n`);
+          logPipelineInfo(`  ▸ Backfill Phase 1 done — ${selectedForLemlist.length} selected so far\n`);
           logPipelineStage(
             "BACKFILL_PHASE_1_DONE",
             `Backfill phase 1 complete. selected_after_phase1=${selectedForLemlist.length}`,
@@ -538,7 +561,7 @@ export async function runResearchPipeline(
 
           if (selectedForLemlist.length < 5) {
             prePlatformKeys = new Set(selectedForLemlist.map(toEmployeeKey));
-            process.stdout.write(`  ▸ Backfill Phase 2 — Searching platform candidates...\n`);
+            logPipelineInfo(`  ▸ Backfill Phase 2 — Searching platform candidates...\n`);
             logPipelineStage("BACKFILL_PHASE_2_START", "Backfill phase 2 (platform) started.", companyContext);
             const platformProspects = dedupeProspectsById(
               await searchCurrentPlatformEngineerPeople(
@@ -547,10 +570,10 @@ export async function runResearchPipeline(
                 linkedinApolloPeopleFilters({ apolloOrganizationId: row.apolloAccountId })
               )
             );
-            process.stdout.write(`  ▸ Enriching ${platformProspects.length} platform candidates...\n`);
+            logPipelineInfo(`  ▸ Enriching ${platformProspects.length} platform candidates...\n`);
             const platformEnriched = await bulkEnrichPeople(platformProspects, enrichmentCache);
             const { eligible: tenureEligiblePlatform } = splitByTenure(platformEnriched, 11);
-            process.stdout.write(`  ▸ Checking openToWork for ${tenureEligiblePlatform.length} platform candidates...\n`);
+            logPipelineInfo(`  ▸ Checking openToWork for ${tenureEligiblePlatform.length} platform candidates...\n`);
             logPipelineStage("APIFY_PLATFORM", `Checking openToWork for ${tenureEligiblePlatform.length} platform candidates.`, companyContext);
             const {
               kept: apifyFilteredPlatform,
@@ -574,7 +597,7 @@ export async function runResearchPipeline(
               minimum: 5,
               max: 5,
             });
-            process.stdout.write(`  ▸ Backfill Phase 2 done — ${selectedForLemlist.length} selected so far\n`);
+            logPipelineInfo(`  ▸ Backfill Phase 2 done — ${selectedForLemlist.length} selected so far\n`);
             logPipelineStage(
               "BACKFILL_PHASE_2_DONE",
               `Backfill phase 2 complete. selected_after_phase2=${selectedForLemlist.length}`,
@@ -600,7 +623,7 @@ export async function runResearchPipeline(
               linkedinBucket,
             };
           });
-          process.stdout.write(`  ▸ Pushing ${taggedForLemlist.length} candidates to LinkedIn campaign...\n`);
+          logPipelineInfo(`  ▸ Pushing ${taggedForLemlist.length} candidates to LinkedIn campaign...\n`);
           logPipelineStage(
             "PUSH_LINKEDIN_START",
             `Pushing LinkedIn campaigns. candidates=${taggedForLemlist.length}`,
@@ -630,7 +653,7 @@ export async function runResearchPipeline(
           totalLinkedinCampaignFailed += lemlistFailed;
           totalLemlistSuccessful += lemlistSuccessful;
           totalLemlistFailed += lemlistFailed;
-          process.stdout.write(`  ▸ LinkedIn push done — ${lemlistSuccessful} successful, ${lemlistFailed} failed\n`);
+          logPipelineInfo(`  ▸ LinkedIn push done — ${lemlistSuccessful} successful, ${lemlistFailed} failed\n`);
           logPipelineStage(
             "PUSH_LINKEDIN_DONE",
             `LinkedIn push complete. successful=${lemlistSuccessful} failed=${lemlistFailed}`,
@@ -640,7 +663,7 @@ export async function runResearchPipeline(
 
         if (lemlistEnabled) {
           const attemptedLinkedinKeys = new Set(selectedForLemlist.map((employee) => toEmployeeKey(employee)));
-          process.stdout.write(`  ▸ Starting email candidate waterfall...\n`);
+          logPipelineInfo(`  ▸ Starting email candidate waterfall...\n`);
           logPipelineStage("EMAIL_WATERFALL_START", "Email candidate waterfall started.", companyContext);
           const waterfallResult = await runEmailCandidateWaterfall(
             company,

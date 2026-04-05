@@ -409,7 +409,7 @@ export const LINKEDIN_KEYWORD_STAGE_DEVOPS = EMAIL_CANDIDATE_STAGES[4];
 export const LINKEDIN_KEYWORD_STAGE_NORMAL_ENG = EMAIL_CANDIDATE_STAGES[5];
 
 function print(line: string): void {
-  process.stdout.write(line + "\n");
+  void line;
 }
 
 function toEmployeeKey(employee: EnrichedEmployee): string {

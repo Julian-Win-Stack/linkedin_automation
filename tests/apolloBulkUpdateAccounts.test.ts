@@ -4,11 +4,14 @@ import { OutputRow } from "../src/services/observability/csvWriter";
 
 const apolloPostMock = vi.fn();
 const fetchApolloAccountCustomFieldNameToIdMapMock = vi.fn();
+const fetchApolloAccountStageNameToIdMapMock = vi.fn();
 
 vi.mock("../src/services/apolloClient", () => ({
   apolloPost: (...args: unknown[]) => apolloPostMock(...args),
   fetchApolloAccountCustomFieldNameToIdMap: (...args: unknown[]) =>
     fetchApolloAccountCustomFieldNameToIdMapMock(...args),
+  fetchApolloAccountStageNameToIdMap: (...args: unknown[]) =>
+    fetchApolloAccountStageNameToIdMapMock(...args),
 }));
 
 function makeRow(overrides: Partial<OutputRow> = {}): OutputRow {
@@ -29,18 +32,24 @@ describe("syncApolloAccountsFromOutputRows", () => {
   beforeEach(() => {
     apolloPostMock.mockReset();
     fetchApolloAccountCustomFieldNameToIdMapMock.mockReset();
+    fetchApolloAccountStageNameToIdMapMock.mockReset();
     fetchApolloAccountCustomFieldNameToIdMapMock.mockResolvedValue(
       new Map<string, string>([
         ["observability_tool", "account.field_observability"],
-        ["Stage", "account.field_stage"],
         ["Number of SREs", "account.field_sre_count"],
         ["Notes", "account.field_notes"],
+      ])
+    );
+    fetchApolloAccountStageNameToIdMapMock.mockResolvedValue(
+      new Map<string, string>([
+        ["ChasingPOC", "stage_chasing_poc"],
+        ["NotActionableNow", "stage_not_actionable"],
       ])
     );
     apolloPostMock.mockResolvedValue({ accounts: [{ id: "acc_1" }] });
   });
 
-  it("builds account_attributes with mapped typed_custom_fields", async () => {
+  it("builds account_attributes with system stage + mapped typed_custom_fields", async () => {
     await syncApolloAccountsFromOutputRows([makeRow()]);
 
     expect(apolloPostMock).toHaveBeenCalledTimes(1);
@@ -50,9 +59,9 @@ describe("syncApolloAccountsFromOutputRows", () => {
         account_attributes: [
           {
             id: "acc_1",
+            account_stage_id: "stage_chasing_poc",
             typed_custom_fields: {
               "account.field_observability": "Datadog",
-              "account.field_stage": "ChasingPOC",
               "account.field_sre_count": "4",
               "account.field_notes": "ready",
             },
@@ -73,8 +82,9 @@ describe("syncApolloAccountsFromOutputRows", () => {
   });
 
   it("logs colored errors for unmapped headers and skips those values", async () => {
-    fetchApolloAccountCustomFieldNameToIdMapMock.mockResolvedValueOnce(
-      new Map<string, string>([["Stage", "account.field_stage"]])
+    fetchApolloAccountCustomFieldNameToIdMapMock.mockResolvedValueOnce(new Map<string, string>());
+    fetchApolloAccountStageNameToIdMapMock.mockResolvedValueOnce(
+      new Map<string, string>([["ChasingPOC", "stage_chasing_poc"]])
     );
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -82,8 +92,9 @@ describe("syncApolloAccountsFromOutputRows", () => {
 
     expect(consoleErrorSpy).toHaveBeenCalled();
     expect(String(consoleErrorSpy.mock.calls[0]?.[0] ?? "")).toContain("\x1b[31m");
-    const typedCustomFields = apolloPostMock.mock.calls[0]?.[1]?.account_attributes?.[0]?.typed_custom_fields;
-    expect(typedCustomFields).toEqual({ "account.field_stage": "ChasingPOC" });
+    const attributes = apolloPostMock.mock.calls[0]?.[1]?.account_attributes?.[0];
+    expect(attributes.account_stage_id).toBe("stage_chasing_poc");
+    expect(attributes.typed_custom_fields).toBeUndefined();
 
     consoleErrorSpy.mockRestore();
   });
@@ -92,9 +103,13 @@ describe("syncApolloAccountsFromOutputRows", () => {
     fetchApolloAccountCustomFieldNameToIdMapMock.mockResolvedValueOnce(
       new Map<string, string>([
         ["OBSERVABILITY TOOL", "account.field_observability"],
-        ["stage", "account.field_stage"],
         ["Number_of_SREs", "account.field_sre_count"],
         ["  notes  ", "account.field_notes"],
+      ])
+    );
+    fetchApolloAccountStageNameToIdMapMock.mockResolvedValueOnce(
+      new Map<string, string>([
+        ["chasing poc", "stage_chasing_poc"],
       ])
     );
 
@@ -107,9 +122,9 @@ describe("syncApolloAccountsFromOutputRows", () => {
         account_attributes: [
           {
             id: "acc_1",
+            account_stage_id: "stage_chasing_poc",
             typed_custom_fields: {
               "account.field_observability": "Datadog",
-              "account.field_stage": "ChasingPOC",
               "account.field_sre_count": "4",
               "account.field_notes": "ready",
             },
@@ -133,6 +148,7 @@ describe("syncApolloAccountsFromOutputRows", () => {
 
   it("skips rows with no mappable fields", async () => {
     fetchApolloAccountCustomFieldNameToIdMapMock.mockResolvedValueOnce(new Map<string, string>());
+    fetchApolloAccountStageNameToIdMapMock.mockResolvedValueOnce(new Map<string, string>());
     const result = await syncApolloAccountsFromOutputRows([makeRow()]);
 
     expect(apolloPostMock).not.toHaveBeenCalled();
@@ -150,8 +166,8 @@ describe("syncApolloAccountsFromOutputRows", () => {
     expect(payload.account_attributes).toHaveLength(1);
     expect(payload.account_attributes[0]).toMatchObject({
       id: "acc_dup",
+      account_stage_id: "stage_chasing_poc",
       typed_custom_fields: {
-        "account.field_stage": "ChasingPOC",
         "account.field_notes": "new",
       },
     });

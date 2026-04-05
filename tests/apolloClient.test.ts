@@ -4,6 +4,7 @@ import {
   apolloPost,
   apolloPostWithQuery,
   fetchApolloAccountCustomFieldNameToIdMap,
+  fetchApolloAccountStageNameToIdMap,
 } from "../src/services/apolloClient";
 
 const { postMock, getMock, createMock, isAxiosErrorMock } = vi.hoisted(() => ({
@@ -113,5 +114,26 @@ describe("apolloClient retries", () => {
     expect(map.get("Signal Score")).toBe("account.custom_1");
     expect(map.get("Company Tier")).toBe("account.custom_2");
     expect(map.has("Bad Field")).toBe(false);
+  });
+
+  it("maps account stage names and display names to ids", async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        account_stages: [
+          { id: "stage_1", name: "ChasingPOC", display_name: "Chasing POC" },
+          { id: "stage_2", name: "NotActionableNow", display_name: "Not Actionable Now" },
+          { id: "", name: "Bad Stage", display_name: "Bad Stage" },
+        ],
+      },
+    });
+
+    const map = await fetchApolloAccountStageNameToIdMap();
+
+    expect(getMock).toHaveBeenCalledWith("/account_stages");
+    expect(map.get("ChasingPOC")).toBe("stage_1");
+    expect(map.get("Chasing POC")).toBe("stage_1");
+    expect(map.get("NotActionableNow")).toBe("stage_2");
+    expect(map.get("Not Actionable Now")).toBe("stage_2");
+    expect(map.has("Bad Stage")).toBe(false);
   });
 });

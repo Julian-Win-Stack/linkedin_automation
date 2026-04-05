@@ -17,6 +17,16 @@ interface ApolloFieldsResponse {
   fields?: ApolloField[];
 }
 
+interface ApolloAccountStage {
+  id?: string;
+  name?: string;
+  display_name?: string;
+}
+
+interface ApolloAccountStagesResponse {
+  account_stages?: ApolloAccountStage[];
+}
+
 function getApiKey(): string {
   return getRequiredEnv("APOLLO_API_KEY");
 }
@@ -190,6 +200,34 @@ export async function fetchApolloAccountCustomFieldNameToIdMap(): Promise<Map<st
     }
 
     nameToId.set(label, id);
+  }
+
+  return nameToId;
+}
+
+export async function fetchApolloAccountStageNameToIdMap(): Promise<Map<string, string>> {
+  const response = await apolloGetWithQuery<ApolloAccountStagesResponse>("/account_stages", {});
+  const stages = Array.isArray(response.account_stages) ? response.account_stages : [];
+  const nameToId = new Map<string, string>();
+
+  for (const stage of stages) {
+    if (!stage || typeof stage !== "object") {
+      continue;
+    }
+
+    const id = typeof stage.id === "string" ? stage.id.trim() : "";
+    const name = typeof stage.name === "string" ? stage.name.trim() : "";
+    const displayName = typeof stage.display_name === "string" ? stage.display_name.trim() : "";
+
+    if (!id) {
+      continue;
+    }
+    if (name) {
+      nameToId.set(name, id);
+    }
+    if (displayName) {
+      nameToId.set(displayName, id);
+    }
   }
 
   return nameToId;

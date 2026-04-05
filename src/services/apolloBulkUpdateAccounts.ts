@@ -1,4 +1,8 @@
-import { apolloPost, fetchApolloAccountCustomFieldNameToIdMap } from "./apolloClient";
+import {
+  apolloPost,
+  fetchApolloAccountCustomFieldNameToIdMap,
+  fetchApolloAccountStageNameToIdMap,
+} from "./apolloClient";
 import { OutputRow } from "./observability/csvWriter";
 
 const APOLLO_BULK_UPDATE_BATCH_SIZE = 500;
@@ -27,6 +31,7 @@ const EXCLUDED_HEADERS = new Set<string>([
 
 interface ApolloBulkUpdateAccountAttribute {
   id: string;
+  account_stage_id?: string;
   typed_custom_fields?: Record<string, string>;
 }
 
@@ -78,12 +83,21 @@ function buildNormalizedFieldNameToId(fieldNameToId: Map<string, string>): Map<s
   return normalizedToFieldId;
 }
 
-function buildAccountAttributesPayload(rows: OutputRow[], fieldNameToId: Map<string, string>): BuildPayloadResult {
+function looksLikeApolloId(value: string): boolean {
+  return /^[a-f0-9]{24}$/i.test(value);
+}
+
+function buildAccountAttributesPayload(
+  rows: OutputRow[],
+  fieldNameToId: Map<string, string>,
+  stageNameToId: Map<string, string>
+): BuildPayloadResult {
   const unmappedHeadersSet = new Set<string>();
   const accountIdToAttributes = new Map<string, ApolloBulkUpdateAccountAttribute>();
   const dedupedAccountIdsInOrder: string[] = [];
   const duplicateAccountIds = new Set<string>();
   const normalizedFieldNameToId = buildNormalizedFieldNameToId(fieldNameToId);
+  const normalizedStageNameToId = buildNormalizedFieldNameToId(stageNameToId);
   let skippedMissingAccountIdCount = 0;
   let skippedNoMappableFieldsCount = 0;
 
@@ -95,6 +109,7 @@ function buildAccountAttributesPayload(rows: OutputRow[], fieldNameToId: Map<str
     }
 
     const typedCustomFields: Record<string, string> = {};
+    let accountStageId: string | undefined;
 
     for (const [columnKey, rawValue] of Object.entries(row) as Array<[keyof OutputRow, unknown]>) {
       const header = COLUMN_KEY_TO_HEADER[columnKey];
@@ -107,6 +122,18 @@ function buildAccountAttributesPayload(rows: OutputRow[], fieldNameToId: Map<str
         continue;
       }
 
+      if (columnKey === "stage") {
+        const mappedStageId = normalizedStageNameToId.get(normalizeMappingToken(displayValue));
+        if (mappedStageId) {
+          accountStageId = mappedStageId;
+        } else if (looksLikeApolloId(displayValue)) {
+          accountStageId = displayValue;
+        } else {
+          unmappedHeadersSet.add(header);
+        }
+        continue;
+      }
+
       const fieldId = normalizedFieldNameToId.get(normalizeMappingToken(header));
       if (!fieldId) {
         unmappedHeadersSet.add(header);
@@ -116,7 +143,7 @@ function buildAccountAttributesPayload(rows: OutputRow[], fieldNameToId: Map<str
       typedCustomFields[fieldId] = displayValue;
     }
 
-    if (Object.keys(typedCustomFields).length === 0) {
+    if (Object.keys(typedCustomFields).length === 0 && !accountStageId) {
       skippedNoMappableFieldsCount += 1;
       continue;
     }
@@ -127,10 +154,16 @@ function buildAccountAttributesPayload(rows: OutputRow[], fieldNameToId: Map<str
       duplicateAccountIds.add(accountId);
     }
 
-    accountIdToAttributes.set(accountId, {
+    const attributes: ApolloBulkUpdateAccountAttribute = {
       id: accountId,
-      typed_custom_fields: typedCustomFields,
-    });
+    };
+    if (accountStageId) {
+      attributes.account_stage_id = accountStageId;
+    }
+    if (Object.keys(typedCustomFields).length > 0) {
+      attributes.typed_custom_fields = typedCustomFields;
+    }
+    accountIdToAttributes.set(accountId, attributes);
   }
 
   const accountAttributes = dedupedAccountIdsInOrder
@@ -181,8 +214,11 @@ async function sendBatchWithSingleRetry(
 
 export async function syncApolloAccountsFromOutputRows(rows: OutputRow[]): Promise<ApolloBulkUpdateSyncResult> {
   const warnings: string[] = [];
-  const fieldNameToId = await fetchApolloAccountCustomFieldNameToIdMap();
-  const payloadResult = buildAccountAttributesPayload(rows, fieldNameToId);
+  const [fieldNameToId, stageNameToId] = await Promise.all([
+    fetchApolloAccountCustomFieldNameToIdMap(),
+    fetchApolloAccountStageNameToIdMap(),
+  ]);
+  const payloadResult = buildAccountAttributesPayload(rows, fieldNameToId, stageNameToId);
 
   for (const header of payloadResult.unmappedHeaders) {
     console.error(

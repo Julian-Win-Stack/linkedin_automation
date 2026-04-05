@@ -11,6 +11,7 @@ const OVERALL_TIMEOUT_MS = 180_000;
 
 const LINE_WIDTH = 78;
 const HEAVY_LINE = "═".repeat(LINE_WIDTH);
+const ANSI_ERROR_RED = "\x1b[31m";
 const ANSI_WARNING_YELLOW = "\x1b[33m";
 const ANSI_PURPLE = "\x1b[35m";
 const ANSI_RESET = "\x1b[0m";
@@ -19,7 +20,7 @@ const FRONTEND_REGEX = /\b(front[\s-]?end|android|ios|ai|ml|machine[\s-]?learnin
 const FRONTEND_OVERRIDE_REGEX = /\b(back[\s-]?end|full[\s-]?stack|end[\s-]?to[\s-]?end)\b/i;
 
 function print(line: string): void {
-  process.stdout.write(line + "\n");
+  void line;
 }
 
 function printWarning(line: string): void {
@@ -393,6 +394,9 @@ export async function scrapeAndFilterOpenToWork(
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : "Unknown error";
+        console.error(
+          `${ANSI_ERROR_RED}[Apify][OpenToWork][ERROR] company=${context.companyName} domain=${context.companyDomain} batch_size=${batch.length} message=${errorMsg}${ANSI_RESET}`
+        );
         for (const { employee } of batch) {
           kept.push(employee);
           counts.errors += 1;
@@ -408,6 +412,12 @@ export async function scrapeAndFilterOpenToWork(
   }
 
   clearTimeout(overallTimeout);
+
+  if (controller.signal.aborted) {
+    console.error(
+      `${ANSI_ERROR_RED}[Apify][OpenToWork][ERROR] company=${context.companyName} domain=${context.companyDomain} message=Overall timeout reached${ANSI_RESET}`
+    );
+  }
 
   printApifyTable(
     context.companyName,
