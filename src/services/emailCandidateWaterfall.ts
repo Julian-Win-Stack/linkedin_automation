@@ -678,10 +678,7 @@ export async function runEmailCandidateWaterfall(
     let candidatesForRanking = apifyFiltered;
 
     if (isNormalEngineerStage) {
-      const frontendResult = filterFrontendEngineers(apifyFiltered, apifyCache, {
-        companyName: company.companyName,
-        companyDomain: company.domain,
-      });
+      const frontendResult = filterFrontendEngineers(apifyFiltered, apifyCache);
       candidatesForRanking = frontendResult.kept;
       filteredOutCandidates.push(
         ...frontendResult.rejectedFrontend.map((employee) => ({

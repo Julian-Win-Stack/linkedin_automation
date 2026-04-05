@@ -453,10 +453,7 @@ export async function runResearchPipeline(
 
             if (apifyFiltered.length === 0) continue;
 
-            const { matched } = filterByKeywordsInApifyData(apifyFiltered, apifyCache, {
-              companyName: row.companyName,
-              companyDomain: row.companyDomain,
-            }, SRE_WORK_KEYWORDS);
+            const { matched } = filterByKeywordsInApifyData(apifyFiltered, apifyCache, SRE_WORK_KEYWORDS);
             process.stdout.write(`  ▸ ${label}: ${matched.length} matched SRE keywords\n`);
             allKeywordMatched.push(...matched);
           }

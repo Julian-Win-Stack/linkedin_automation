@@ -18,8 +18,6 @@ const ANSI_RESET = "\x1b[0m";
 const FRONTEND_REGEX = /\b(front[\s-]?end|android|ios|ai|ml|machine[\s-]?learning)\b/i;
 const FRONTEND_OVERRIDE_REGEX = /\b(back[\s-]?end|full[\s-]?stack|end[\s-]?to[\s-]?end)\b/i;
 
-const COMPANY_SUFFIXES_REGEX = /\b(inc|llc|ltd|corp|corporation|co|company|plc|ag|gmbh|sa|srl|pvt|pte|pty|nv|bv|se|oy|ab|as)\b\.?/gi;
-
 function print(line: string): void {
   process.stdout.write(line + "\n");
 }
@@ -300,7 +298,7 @@ export async function scrapeAndFilterOpenToWork(
           openToWork: "true",
           status: "REMOVED (cached)",
         });
-      } else if (shouldRejectForContractEmployment(cached.experience, context.companyDomain, context.companyName)) {
+      } else if (shouldRejectForContractEmployment(cached.experience)) {
         filteredOut.push({ employee, reason: "contract_employment" });
         counts.removed += 1;
         counts.cached += 1;
@@ -363,7 +361,7 @@ export async function scrapeAndFilterOpenToWork(
                 openToWork: "true",
                 status: "REMOVED",
               });
-            } else if (shouldRejectForContractEmployment(result.experience, context.companyDomain, context.companyName)) {
+            } else if (shouldRejectForContractEmployment(result.experience)) {
               filteredOut.push({ employee, reason: "contract_employment" });
               counts.removed += 1;
               tableRows.push({
@@ -432,64 +430,18 @@ export async function scrapeAndFilterOpenToWork(
   return { kept, warnings, filteredOut };
 }
 
-function extractDomainBase(domain: string): string {
-  if (!domain) return "";
-  return domain.split(".")[0].toLowerCase().replace(/[-_]/g, "");
-}
-
-function normalizeCompanyName(name: string): string {
-  if (!name) return "";
-  return name
-    .replace(COMPANY_SUFFIXES_REGEX, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function matchesCompany(
-  entry: ApifyExperienceEntry,
-  companyDomain: string,
-  companyName: string
-): boolean {
-  const domainBase = extractDomainBase(companyDomain);
-  if (domainBase && entry.companyUniversalName) {
-    const slug = entry.companyUniversalName.toLowerCase().replace(/[-_]/g, "");
-    if (slug === domainBase) {
-      return true;
-    }
-  }
-
-  const normalizedTarget = normalizeCompanyName(companyName);
-  const normalizedEntry = normalizeCompanyName(entry.companyName ?? "");
-  if (!normalizedTarget || !normalizedEntry) return false;
-  if (normalizedTarget === normalizedEntry) return true;
-
-  const shorter = normalizedTarget.length <= normalizedEntry.length ? normalizedTarget : normalizedEntry;
-  const longer = normalizedTarget.length <= normalizedEntry.length ? normalizedEntry : normalizedTarget;
-  return shorter.length >= 3 && longer.includes(shorter);
-}
-
 function isCurrentRole(entry: ApifyExperienceEntry): boolean {
   if (!entry.endDate) return true;
   const text = entry.endDate.text?.toLowerCase().trim() ?? "";
   return text === "present" || text === "";
 }
 
-function findCompanyExperienceMatch(
-  experience: ApifyExperienceEntry[],
-  companyDomain: string,
-  companyName: string
-): { currentMatchedEntry: ApifyExperienceEntry | null; fallbackMatchedEntry: ApifyExperienceEntry | null } {
-  for (const entry of experience) {
-    if (isCurrentRole(entry) && matchesCompany(entry, companyDomain, companyName)) {
-      return { currentMatchedEntry: entry, fallbackMatchedEntry: entry };
-    }
+function getMostRecentExperienceEntry(experience: ApifyExperienceEntry[]): ApifyExperienceEntry | null {
+  if (experience.length === 0) {
+    return null;
   }
-  for (const entry of experience) {
-    if (matchesCompany(entry, companyDomain, companyName)) {
-      return { currentMatchedEntry: null, fallbackMatchedEntry: entry };
-    }
-  }
-  return { currentMatchedEntry: null, fallbackMatchedEntry: null };
+  const currentEntry = experience.find((entry) => isCurrentRole(entry));
+  return currentEntry ?? experience[0] ?? null;
 }
 
 /** Normalizes Apify employmentType for exact-set matching (hyphens vs spaces, casing). */
@@ -506,6 +458,7 @@ const REJECTED_EMPLOYMENT_TYPES = new Set<string>([
   "contractor",
   "freelance",
   "freelancer",
+  "trainee",
   "intern",
   "internship",
   "apprenticeship",
@@ -529,20 +482,13 @@ function isContractEmploymentType(employmentType: string | undefined): boolean {
 }
 
 function shouldRejectForContractEmployment(
-  experience: ApifyExperienceEntry[],
-  companyDomain: string,
-  companyName: string
+  experience: ApifyExperienceEntry[]
 ): boolean {
-  const { currentMatchedEntry, fallbackMatchedEntry } = findCompanyExperienceMatch(
-    experience,
-    companyDomain,
-    companyName
-  );
-  const matchedEntry = currentMatchedEntry ?? fallbackMatchedEntry;
-  if (!matchedEntry) {
+  const mostRecentEntry = getMostRecentExperienceEntry(experience);
+  if (!mostRecentEntry) {
     return false;
   }
-  return isContractEmploymentType(matchedEntry.employmentType);
+  return isContractEmploymentType(mostRecentEntry.employmentType);
 }
 
 export interface FrontendFilterResult {
@@ -562,7 +508,7 @@ export interface FrontendWarningCandidate {
 export function filterFrontendEngineers(
   employees: EnrichedEmployee[],
   cache: ApifyOpenToWorkCache,
-  company: { companyName: string; companyDomain: string }
+  _company?: { companyName: string; companyDomain: string }
 ): FrontendFilterResult {
   const kept: EnrichedEmployee[] = [];
   const rejectedFrontend: EnrichedEmployee[] = [];
@@ -579,47 +525,11 @@ export function filterFrontendEngineers(
       continue;
     }
 
-    const { currentMatchedEntry, fallbackMatchedEntry } = findCompanyExperienceMatch(
-      cached.experience,
-      company.companyDomain,
-      company.companyName
-    );
-    const matchedEntry = currentMatchedEntry ?? fallbackMatchedEntry ?? null;
+    const matchedEntry = getMostRecentExperienceEntry(cached.experience);
 
     if (!matchedEntry) {
       kept.push(emp);
-      warningCandidates.push({
-        employee: emp,
-        reason: "company_not_matched",
-        problem: `Could not match this profile to ${company.companyName} in Apify experience data.`,
-      });
-      rows.push({ name: emp.name, companyMatch: "no match", result: "KEPT (no company match)" });
-      continue;
-    }
-
-    if (!currentMatchedEntry) {
-      const desc = matchedEntry.description ?? "";
-      if (FRONTEND_REGEX.test(desc) && !FRONTEND_OVERRIDE_REGEX.test(desc)) {
-        rejectedFrontend.push(emp);
-        rows.push({
-          name: emp.name,
-          companyMatch: matchedEntry.companyName ?? "—",
-          result: "REJECTED (frontend, past role)",
-        });
-        continue;
-      }
-
-      kept.push(emp);
-      warningCandidates.push({
-        employee: emp,
-        reason: "company_not_current_role",
-        problem: `Found ${company.companyName} in history, but not as current/present role in Apify data.`,
-      });
-      rows.push({
-        name: emp.name,
-        companyMatch: matchedEntry.companyName ?? "—",
-        result: "KEPT (not current role)",
-      });
+      rows.push({ name: emp.name, companyMatch: "—", result: "KEPT (no data)" });
       continue;
     }
 
@@ -660,9 +570,12 @@ export interface SreKeywordFilterResult {
 export function filterByKeywordsInApifyData(
   employees: EnrichedEmployee[],
   cache: ApifyOpenToWorkCache,
-  company: { companyName: string; companyDomain: string },
-  keywords: string[]
+  companyOrKeywords: { companyName: string; companyDomain: string } | string[],
+  maybeKeywords?: string[]
 ): SreKeywordFilterResult {
+  const keywords = Array.isArray(companyOrKeywords)
+    ? companyOrKeywords
+    : (maybeKeywords ?? []);
   const matched: EnrichedEmployee[] = [];
   const unmatched: EnrichedEmployee[] = [];
   const rows: { name: string; companyMatch: string; result: string }[] = [];
@@ -694,12 +607,7 @@ export function filterByKeywordsInApifyData(
       continue;
     }
 
-    const { currentMatchedEntry, fallbackMatchedEntry } = findCompanyExperienceMatch(
-      cached.experience,
-      company.companyDomain,
-      company.companyName
-    );
-    const matchedEntry = currentMatchedEntry ?? fallbackMatchedEntry ?? null;
+    const matchedEntry = getMostRecentExperienceEntry(cached.experience);
 
     const textsToSearch: string[] = [];
 

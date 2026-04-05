@@ -273,7 +273,7 @@ describe("filterFrontendEngineers", () => {
     expect(result.rejectedFrontend).toHaveLength(0);
   });
 
-  it("keeps employee and adds warning when company cannot be matched", () => {
+  it("uses most recent role only and rejects frontend descriptions", () => {
     const cache: ApifyOpenToWorkCache = new Map();
     cache.set("linkedin.com/in/charlie", {
       openToWork: false,
@@ -296,12 +296,9 @@ describe("filterFrontendEngineers", () => {
       companyDomain: "acme.com",
     });
 
-    expect(result.kept).toHaveLength(1);
-    expect(result.warningCandidates).toHaveLength(1);
-    expect(result.warningCandidates[0]).toMatchObject({
-      reason: "company_not_matched",
-      employee: expect.objectContaining({ name: "Charlie" }),
-    });
+    expect(result.kept).toHaveLength(0);
+    expect(result.rejectedFrontend).toHaveLength(1);
+    expect(result.warningCandidates).toHaveLength(0);
   });
 
   it("keeps employee when description has no frontend keywords", () => {
@@ -403,7 +400,7 @@ describe("filterFrontendEngineers", () => {
     expect(result.kept).toHaveLength(1);
   });
 
-  it("rejects employee when only historical company match is frontend-only", () => {
+  it("uses most recent role and ignores older frontend roles", () => {
     const cache: ApifyOpenToWorkCache = new Map();
     const pastRole: ApifyExperienceEntry = {
       companyName: "Acme",
@@ -432,12 +429,12 @@ describe("filterFrontendEngineers", () => {
       companyDomain: "acme.com",
     });
 
-    expect(result.kept).toHaveLength(0);
-    expect(result.rejectedFrontend).toHaveLength(1);
+    expect(result.kept).toHaveLength(1);
+    expect(result.rejectedFrontend).toHaveLength(0);
     expect(result.warningCandidates).toHaveLength(0);
   });
 
-  it("keeps employee and warns when historical company match is not frontend-only", () => {
+  it("uses most recent role and does not add company-match warnings", () => {
     const cache: ApifyOpenToWorkCache = new Map();
     const pastRole: ApifyExperienceEntry = {
       companyName: "Acme",
@@ -468,11 +465,7 @@ describe("filterFrontendEngineers", () => {
 
     expect(result.kept).toHaveLength(1);
     expect(result.rejectedFrontend).toHaveLength(0);
-    expect(result.warningCandidates).toHaveLength(1);
-    expect(result.warningCandidates[0]).toMatchObject({
-      reason: "company_not_current_role",
-      employee: expect.objectContaining({ name: "Harry" }),
-    });
+    expect(result.warningCandidates).toHaveLength(0);
   });
 });
 
@@ -794,7 +787,7 @@ describe("scrapeAndFilterOpenToWork", () => {
     expect(result.filteredOut[1].reason).toBe("contract_employment");
   });
 
-  it("filters additional employment types (apprenticeship, self-employed, part-time, etc.)", async () => {
+  it("filters additional employment types (apprenticeship, self-employed, part-time, trainee, etc.)", async () => {
     const mockFetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => [
@@ -846,6 +839,18 @@ describe("scrapeAndFilterOpenToWork", () => {
             },
           ],
         },
+        {
+          linkedinUrl: "https://linkedin.com/in/trainee",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              companyUniversalName: "acme",
+              employmentType: "Trainee",
+              endDate: { text: "Present" },
+            },
+          ],
+        },
       ],
     });
     vi.stubGlobal("fetch", mockFetch);
@@ -855,6 +860,7 @@ describe("scrapeAndFilterOpenToWork", () => {
       makeEmployee({ name: "B", linkedinUrl: "https://linkedin.com/in/self-employed" }),
       makeEmployee({ name: "C", linkedinUrl: "https://linkedin.com/in/part-time" }),
       makeEmployee({ name: "D", linkedinUrl: "https://linkedin.com/in/fractional" }),
+      makeEmployee({ name: "E", linkedinUrl: "https://linkedin.com/in/trainee" }),
     ];
 
     const result = await scrapeAndFilterOpenToWork(employees, new Map(), {
@@ -863,13 +869,13 @@ describe("scrapeAndFilterOpenToWork", () => {
     });
 
     expect(result.kept).toHaveLength(0);
-    expect(result.filteredOut).toHaveLength(4);
+    expect(result.filteredOut).toHaveLength(5);
     for (const entry of result.filteredOut) {
       expect(entry.reason).toBe("contract_employment");
     }
   });
 
-  it("filters contract when company match is only historical role", async () => {
+  it("uses most recent role for employment type filtering", async () => {
     const mockFetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => [
@@ -904,9 +910,8 @@ describe("scrapeAndFilterOpenToWork", () => {
       companyDomain: "acme.com",
     });
 
-    expect(result.kept).toHaveLength(0);
-    expect(result.filteredOut).toHaveLength(1);
-    expect(result.filteredOut[0].reason).toBe("contract_employment");
+    expect(result.kept).toHaveLength(1);
+    expect(result.filteredOut).toHaveLength(0);
   });
 
   it("keeps employees when Apify returns no matching profile (fail-open)", async () => {
