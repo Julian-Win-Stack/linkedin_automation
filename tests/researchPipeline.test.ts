@@ -203,6 +203,7 @@ describe("runResearchPipeline orchestration", () => {
     splitByTenureMock.mockImplementation((employees: EnrichedEmployee[]) => ({ eligible: employees }));
     searchEmailCandidatePeopleCachedMock.mockResolvedValue([]);
     selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [], forEmailRecycling: [] });
+    fillToMinimumWithBackfillMock.mockImplementation((selected: EnrichedEmployee[]) => selected);
     filterByKeywordsInApifyDataMock.mockReturnValue({ matched: [], unmatched: [] });
     syncApolloAccountsFromOutputRowsMock.mockResolvedValue({
       attemptedRows: 0,
@@ -267,7 +268,7 @@ describe("runResearchPipeline orchestration", () => {
       expect.any(Array),
       expect.any(Array),
       [],
-      { minimum: 5, max: 7 }
+      { minimum: 7, max: 7 }
     );
     expect(fillToMinimumWithBackfillMock).toHaveBeenNthCalledWith(
       2,
@@ -280,7 +281,7 @@ describe("runResearchPipeline orchestration", () => {
       { companyName: "Acme", domain: "acme.com" },
       30,
       ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
-      { apolloOrganizationId: "org_1", notTitles: ["contract"] }
+      { apolloOrganizationId: "org_1", notTitles: ["contract", "junior", "jr"] }
     );
   });
 
@@ -304,8 +305,13 @@ describe("runResearchPipeline orchestration", () => {
       apolloAccountIdColumn: "Apollo Account Id",
     }, "julian", Date.now());
 
-    expect(searchPastSrePeopleMock).not.toHaveBeenCalled();
-    expect(fillToMinimumWithBackfillMock).not.toHaveBeenCalled();
+    expect(searchPastSrePeopleMock).toHaveBeenCalledTimes(1);
+    expect(fillToMinimumWithBackfillMock).toHaveBeenCalledWith(
+      [],
+      [],
+      [],
+      { minimum: 7, max: 7 }
+    );
   });
 
   it("calls email waterfall and pushes candidates to email campaign", async () => {

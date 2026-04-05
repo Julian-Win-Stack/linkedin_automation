@@ -103,6 +103,10 @@ describe("runEmailCandidateWaterfall", () => {
       currentTitles: ["Infrastructure"],
       pastTitles: undefined,
     });
+    expect(firstCallSearchParams.notTitles).toContain("automation");
+    expect(firstCallSearchParams.notTitles).toContain("business");
+    expect(firstCallSearchParams.notTitles).toContain("sales");
+    expect(firstCallSearchParams.notTitles).toContain("trainee");
   });
 
   it("selects SRE candidates from stage 1 with sre bucket", async () => {
@@ -429,6 +433,8 @@ describe("runEmailCandidateWaterfall", () => {
         "contractor",
         "freelance",
         "freelancer",
+        "junior",
+        "jr",
         "AI",
         "artificial intelligence",
         "machine learning",
@@ -478,19 +484,24 @@ describe("runEmailCandidateWaterfall", () => {
 
     const stage1Call = searchEmailCandidatePeopleMock.mock.calls[0];
     const stage2Call = searchEmailCandidatePeopleMock.mock.calls[1];
+    const devopsCall = searchEmailCandidatePeopleMock.mock.calls[4];
 
     expect(stage1Call[2]).toEqual({
       currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
       pastTitles: undefined,
-      notTitles: ["contract", "contractor", "freelance", "freelancer"],
+      notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
       notPastTitles: undefined,
     });
     expect(stage2Call[2]).toEqual({
       currentTitles: undefined,
       pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
-      notTitles: ["contract", "contractor", "freelance", "freelancer"],
+      notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
       notPastTitles: undefined,
     });
+    expect(devopsCall[2].currentTitles).toEqual(["DevOps", "Dev Ops"]);
+    expect(devopsCall[2].notTitles).toContain("business");
+    expect(devopsCall[2].notTitles).toContain("sales");
+    expect(devopsCall[2].notTitles).toContain("trainee");
   });
 
   it("enforces 11-month tenure minimum for infrastructure stage", async () => {

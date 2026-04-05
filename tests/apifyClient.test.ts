@@ -156,6 +156,96 @@ describe("filterFrontendEngineers", () => {
     expect(result.kept).toHaveLength(0);
   });
 
+  it("rejects employees with Android or iOS keywords case-insensitively", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/mobile-android", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "Senior Android engineer for core app platform",
+        },
+      ],
+    });
+    cache.set("linkedin.com/in/mobile-ios", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "Built IOS architecture and release process",
+        },
+      ],
+    });
+
+    const employees = [
+      makeEmployee({ name: "Android Dev", linkedinUrl: "https://linkedin.com/in/mobile-android" }),
+      makeEmployee({ name: "iOS Dev", linkedinUrl: "https://linkedin.com/in/mobile-ios" }),
+    ];
+
+    const result = filterFrontendEngineers(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.rejectedFrontend).toHaveLength(2);
+    expect(result.kept).toHaveLength(0);
+  });
+
+  it("rejects employees with AI, ML, and machine learning keywords case-insensitively", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/ai-keyword", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "Built AI assistants for internal workflows",
+        },
+      ],
+    });
+    cache.set("linkedin.com/in/ml-keyword", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "Led ML model deployment and monitoring",
+        },
+      ],
+    });
+    cache.set("linkedin.com/in/machine-learning-keyword", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [
+        {
+          companyName: "Acme",
+          companyUniversalName: "acme",
+          description: "Worked on Machine Learning pipelines and feature stores",
+        },
+      ],
+    });
+
+    const employees = [
+      makeEmployee({ name: "AI Dev", linkedinUrl: "https://linkedin.com/in/ai-keyword" }),
+      makeEmployee({ name: "ML Dev", linkedinUrl: "https://linkedin.com/in/ml-keyword" }),
+      makeEmployee({ name: "Machine Learning Dev", linkedinUrl: "https://linkedin.com/in/machine-learning-keyword" }),
+    ];
+
+    const result = filterFrontendEngineers(employees, cache, {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.rejectedFrontend).toHaveLength(3);
+    expect(result.kept).toHaveLength(0);
+  });
+
   it("keeps employees with frontend keyword but also backend override", () => {
     const cache: ApifyOpenToWorkCache = new Map();
     cache.set("linkedin.com/in/bob", {
@@ -654,6 +744,129 @@ describe("scrapeAndFilterOpenToWork", () => {
     expect(result.kept).toHaveLength(0);
     expect(result.filteredOut).toHaveLength(1);
     expect(result.filteredOut[0].reason).toBe("contract_employment");
+  });
+
+  it("filters intern and internship employment type variants", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          linkedinUrl: "https://linkedin.com/in/intern-variant",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              companyUniversalName: "acme",
+              employmentType: "Intern",
+              endDate: { text: "Present" },
+            },
+          ],
+        },
+        {
+          linkedinUrl: "https://linkedin.com/in/internship-variant",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              companyUniversalName: "acme",
+              employmentType: "Internship",
+              endDate: { text: "Present" },
+            },
+          ],
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const employees = [
+      makeEmployee({ name: "Intern Variant", linkedinUrl: "https://linkedin.com/in/intern-variant" }),
+      makeEmployee({ name: "Internship Variant", linkedinUrl: "https://linkedin.com/in/internship-variant" }),
+    ];
+
+    const result = await scrapeAndFilterOpenToWork(employees, new Map(), {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.kept).toHaveLength(0);
+    expect(result.filteredOut).toHaveLength(2);
+    expect(result.filteredOut[0].reason).toBe("contract_employment");
+    expect(result.filteredOut[1].reason).toBe("contract_employment");
+  });
+
+  it("filters additional employment types (apprenticeship, self-employed, part-time, etc.)", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          linkedinUrl: "https://linkedin.com/in/apprentice",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              companyUniversalName: "acme",
+              employmentType: "Apprenticeship",
+              endDate: { text: "Present" },
+            },
+          ],
+        },
+        {
+          linkedinUrl: "https://linkedin.com/in/self-employed",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              companyUniversalName: "acme",
+              employmentType: "Self-employed",
+              endDate: { text: "Present" },
+            },
+          ],
+        },
+        {
+          linkedinUrl: "https://linkedin.com/in/part-time",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              companyUniversalName: "acme",
+              employmentType: "Part-time",
+              endDate: { text: "Present" },
+            },
+          ],
+        },
+        {
+          linkedinUrl: "https://linkedin.com/in/fractional",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              companyUniversalName: "acme",
+              employmentType: "Fractional",
+              endDate: { text: "Present" },
+            },
+          ],
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const employees = [
+      makeEmployee({ name: "A", linkedinUrl: "https://linkedin.com/in/apprentice" }),
+      makeEmployee({ name: "B", linkedinUrl: "https://linkedin.com/in/self-employed" }),
+      makeEmployee({ name: "C", linkedinUrl: "https://linkedin.com/in/part-time" }),
+      makeEmployee({ name: "D", linkedinUrl: "https://linkedin.com/in/fractional" }),
+    ];
+
+    const result = await scrapeAndFilterOpenToWork(employees, new Map(), {
+      companyName: "Acme",
+      companyDomain: "acme.com",
+    });
+
+    expect(result.kept).toHaveLength(0);
+    expect(result.filteredOut).toHaveLength(4);
+    for (const entry of result.filteredOut) {
+      expect(entry.reason).toBe("contract_employment");
+    }
   });
 
   it("filters contract when company match is only historical role", async () => {

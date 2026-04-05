@@ -54,7 +54,7 @@ const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"];
 const MAX_RESULTS = 30;
 /** Current-title exclusions for LinkedIn Apollo searches (SRE, past SRE, platform backfill). */
-const LINKEDIN_APOLLO_NOT_TITLES = ["contract"];
+const LINKEDIN_APOLLO_NOT_TITLES = ["contract", "junior", "jr"];
 
 function linkedinApolloPeopleFilters(filters: PeopleSearchFilters): PeopleSearchFilters {
   return { ...filters, notTitles: LINKEDIN_APOLLO_NOT_TITLES };
@@ -479,7 +479,7 @@ export async function runResearchPipeline(
           );
         }
 
-        if (selectedForLemlist.length > 0 && selectedForLemlist.length < 5) {
+        if (selectedForLemlist.length < 7) {
           process.stdout.write(`  ▸ Backfill Phase 1 — Searching past SRE candidates...\n`);
           logPipelineStage("BACKFILL_PHASE_1_START", "Backfill phase 1 (past SRE) started.", companyContext);
           const pastSreProspects = dedupeProspectsById(
@@ -513,7 +513,7 @@ export async function runResearchPipeline(
             }))
           );
           selectedForLemlist = fillToMinimumWithBackfill(selectedCurrentSre, apifyFilteredPastSre, [], {
-            minimum: 5,
+            minimum: 7,
             max: 7,
           });
           process.stdout.write(`  ▸ Backfill Phase 1 done — ${selectedForLemlist.length} selected so far\n`);
