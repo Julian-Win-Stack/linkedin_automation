@@ -4,10 +4,10 @@ export type OutputRow = {
   company_name: string;
   company_domain: string;
   company_linkedin_url: string;
+  apollo_account_id?: string;
   observability_tool_research: string;
-  stage: "ChasingPOC" | "NotActionableNow";
+  stage: "ChasingPOC" | "NotActionableNow" | "";
   sre_count: "" | number;
-  engineer_count: "" | number | "> 1000";
   notes: string;
 };
 
@@ -15,9 +15,9 @@ export type RejectedOutputRow = {
   company_name: string;
   company_domain: string;
   company_linkedin_url: string;
+  apollo_account_id?: string;
   observability_tool_research: string;
   sre_count: "" | number;
-  engineer_count: "" | number | "> 1000";
   status: "NotActionableNow";
   notes: string;
 };
@@ -32,10 +32,10 @@ export function rowsToCsvString(rows: OutputRow[]): Promise<string> {
           { key: "company_name", header: "Company Name" },
           { key: "company_domain", header: "Website" },
           { key: "company_linkedin_url", header: "Company Linkedin Url" },
+          { key: "apollo_account_id", header: "Apollo Account Id" },
           { key: "observability_tool_research", header: "observability_tool" },
           { key: "stage", header: "Stage" },
           { key: "sre_count", header: "Number of SREs" },
-          { key: "engineer_count", header: "Number of Engineers" },
           { key: "notes", header: "Notes" },
         ],
       },
@@ -60,9 +60,9 @@ export function rejectedRowsToCsvString(rows: RejectedOutputRow[]): Promise<stri
           { key: "company_name", header: "Company Name" },
           { key: "company_domain", header: "Website" },
           { key: "company_linkedin_url", header: "Company Linkedin Url" },
+          { key: "apollo_account_id", header: "Apollo Account Id" },
           { key: "observability_tool_research", header: "observability_tool" },
           { key: "sre_count", header: "Number of SREs" },
-          { key: "engineer_count", header: "Number of Engineers" },
           { key: "status", header: "Stage" },
           { key: "notes", header: "Notes" },
         ],

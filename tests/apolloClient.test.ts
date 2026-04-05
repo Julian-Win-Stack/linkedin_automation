@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { apolloPost, apolloPostWithQuery } from "../src/services/apolloClient";
+import {
+  apolloGetWithQuery,
+  apolloPost,
+  apolloPostWithQuery,
+  fetchApolloAccountCustomFieldNameToIdMap,
+} from "../src/services/apolloClient";
 
-const { postMock, createMock, isAxiosErrorMock } = vi.hoisted(() => ({
+const { postMock, getMock, createMock, isAxiosErrorMock } = vi.hoisted(() => ({
   postMock: vi.fn(),
+  getMock: vi.fn(),
   createMock: vi.fn(),
   isAxiosErrorMock: vi.fn(),
 }));
@@ -38,9 +44,10 @@ describe("apolloClient retries", () => {
   beforeEach(() => {
     process.env.APOLLO_API_KEY = "apollo-test-key";
     postMock.mockReset();
+    getMock.mockReset();
     createMock.mockReset();
     isAxiosErrorMock.mockReset();
-    createMock.mockReturnValue({ post: postMock });
+    createMock.mockReturnValue({ post: postMock, get: getMock });
     isAxiosErrorMock.mockImplementation(
       (error: unknown) => Boolean((error as { isAxiosError?: boolean })?.isAxiosError)
     );
@@ -74,5 +81,37 @@ describe("apolloClient retries", () => {
 
     expect(result.people).toEqual([]);
     expect(postMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries on network error for GET query-based calls", async () => {
+    getMock.mockRejectedValueOnce(axiosError()).mockResolvedValueOnce({ data: { fields: [] } });
+
+    const result = await apolloGetWithQuery<{ fields: unknown[] }>(
+      "/fields",
+      { source: "custom" }
+    );
+
+    expect(result.fields).toEqual([]);
+    expect(getMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("maps only account custom fields by exact label", async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        fields: [
+          { id: "account.custom_1", label: "Signal Score", modality: "account" },
+          { id: "contact.custom_1", label: "Signal Score", modality: "contact" },
+          { id: "account.custom_2", label: "Company Tier", modality: "account" },
+          { id: "", label: "Bad Field", modality: "account" },
+        ],
+      },
+    });
+
+    const map = await fetchApolloAccountCustomFieldNameToIdMap();
+
+    expect(getMock).toHaveBeenCalledWith("/fields?source=custom");
+    expect(map.get("Signal Score")).toBe("account.custom_1");
+    expect(map.get("Company Tier")).toBe("account.custom_2");
+    expect(map.has("Bad Field")).toBe(false);
   });
 });

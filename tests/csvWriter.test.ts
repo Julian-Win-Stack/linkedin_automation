@@ -9,10 +9,10 @@ describe("rowsToCsvString", () => {
     expect(csv).toContain("Company Name");
     expect(csv).toContain("Website");
     expect(csv).toContain("Company Linkedin Url");
+    expect(csv).toContain("Apollo Account Id");
     expect(csv).toContain("observability_tool");
     expect(csv).toContain("Stage");
     expect(csv).toContain("Number of SREs");
-    expect(csv).toContain("Number of Engineers");
     expect(csv).toContain("Notes");
   });
 
@@ -22,10 +22,10 @@ describe("rowsToCsvString", () => {
         company_name: "Acme Corp",
         company_domain: "acme.com",
         company_linkedin_url: "https://linkedin.com/company/acme",
+        apollo_account_id: "acc_123",
         observability_tool_research: "Datadog",
         stage: "ChasingPOC",
         sre_count: 5,
-        engineer_count: 100,
         notes: "Good prospect",
       },
     ];
@@ -36,10 +36,11 @@ describe("rowsToCsvString", () => {
     expect(lines).toHaveLength(2);
     expect(lines[1]).toContain("Acme Corp");
     expect(lines[1]).toContain("acme.com");
+    expect(lines[1]).toContain("acc_123");
     expect(lines[1]).toContain("ChasingPOC");
   });
 
-  it("handles empty sre_count and engineer_count", async () => {
+  it("handles empty sre_count", async () => {
     const rows: OutputRow[] = [
       {
         company_name: "Test",
@@ -48,7 +49,6 @@ describe("rowsToCsvString", () => {
         observability_tool_research: "",
         stage: "NotActionableNow",
         sre_count: "",
-        engineer_count: "",
         notes: "",
       },
     ];
@@ -58,7 +58,7 @@ describe("rowsToCsvString", () => {
     expect(csv.trim().split("\n")).toHaveLength(2);
   });
 
-  it("handles > 1000 engineer count display value", async () => {
+  it("omits engineer count column from output csv", async () => {
     const rows: OutputRow[] = [
       {
         company_name: "Big Corp",
@@ -67,13 +67,13 @@ describe("rowsToCsvString", () => {
         observability_tool_research: "",
         stage: "NotActionableNow",
         sre_count: 0,
-        engineer_count: "> 1000",
         notes: "Too many engineers",
       },
     ];
 
     const csv = await rowsToCsvString(rows);
-    expect(csv).toContain("> 1000");
+    expect(csv).not.toContain("Number of Engineers");
+    expect(csv).not.toContain("> 1000");
   });
 
   it("serializes multiple rows", async () => {
@@ -85,7 +85,6 @@ describe("rowsToCsvString", () => {
         observability_tool_research: "Grafana",
         stage: "ChasingPOC",
         sre_count: 3,
-        engineer_count: 50,
         notes: "",
       },
       {
@@ -95,7 +94,6 @@ describe("rowsToCsvString", () => {
         observability_tool_research: "Prometheus",
         stage: "ChasingPOC",
         sre_count: 7,
-        engineer_count: 200,
         notes: "",
       },
     ];
@@ -114,6 +112,7 @@ describe("rejectedRowsToCsvString", () => {
 
     expect(csv).toContain("Company Name");
     expect(csv).toContain("Website");
+    expect(csv).toContain("Apollo Account Id");
     expect(csv).toContain("Stage");
     expect(csv).toContain("Notes");
   });
@@ -126,9 +125,8 @@ describe("rejectedRowsToCsvString", () => {
         company_linkedin_url: "",
         observability_tool_research: "New Relic",
         sre_count: 2,
-        engineer_count: 10,
         status: "NotActionableNow",
-        notes: "Engineer count too low",
+        notes: "Not actionable",
       },
     ];
 

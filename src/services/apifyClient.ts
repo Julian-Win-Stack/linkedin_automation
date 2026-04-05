@@ -1,5 +1,5 @@
 import { getRequiredEnv } from "../config/env";
-import { EnrichedEmployee, ApifyOpenToWorkCache, ApifyExperienceEntry } from "../types/prospect";
+import { EnrichedEmployee, ApifyOpenToWorkCache, ApifyExperienceEntry, ApifyProfileSkill } from "../types/prospect";
 
 const APIFY_ACTOR_ID = "harvestapi~linkedin-profile-scraper";
 const APIFY_BASE_URL = "https://api.apify.com/v2";
@@ -11,14 +11,23 @@ const OVERALL_TIMEOUT_MS = 180_000;
 
 const LINE_WIDTH = 78;
 const HEAVY_LINE = "═".repeat(LINE_WIDTH);
+const ANSI_WARNING_YELLOW = "\x1b[33m";
+const ANSI_PURPLE = "\x1b[35m";
+const ANSI_RESET = "\x1b[0m";
 
-const FRONTEND_REGEX = /\bfront[\s-]?end\b/i;
+const FRONTEND_REGEX = /\b(front[\s-]?end|android|ios|ai|ml|machine[\s-]?learning)\b/i;
 const FRONTEND_OVERRIDE_REGEX = /\b(back[\s-]?end|full[\s-]?stack|end[\s-]?to[\s-]?end)\b/i;
-
-const COMPANY_SUFFIXES_REGEX = /\b(inc|llc|ltd|corp|corporation|co|company|plc|ag|gmbh|sa|srl|pvt|pte|pty|nv|bv|se|oy|ab|as)\b\.?/gi;
 
 function print(line: string): void {
   process.stdout.write(line + "\n");
+}
+
+function printWarning(line: string): void {
+  print(`${ANSI_WARNING_YELLOW}${line}${ANSI_RESET}`);
+}
+
+function printPurple(line: string): void {
+  print(`${ANSI_PURPLE}${line}${ANSI_RESET}`);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -57,15 +66,31 @@ interface ApifyDatasetItem {
   linkedinUrl?: string;
   openToWork?: boolean;
   experience?: ApifyExperienceEntry[];
+  skills?: { name: string }[];
   originalQuery?: { query?: string } | string;
   [key: string]: unknown;
+}
+
+interface ScrapedProfile {
+  openToWork: boolean;
+  experience: ApifyExperienceEntry[];
+  profileSkills: ApifyProfileSkill[];
+  canonicalLinkedinUrl: string;
+}
+
+function toCanonicalLinkedinUrl(url: string): string {
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.replace(/^http:\/\//i, "https://");
+  }
+  return `https://${trimmed}`;
 }
 
 async function scrapeBatch(
   urls: string[],
   apiKey: string,
   signal: AbortSignal
-): Promise<Map<string, { openToWork: boolean; experience: ApifyExperienceEntry[] }>> {
+): Promise<Map<string, ScrapedProfile>> {
   const endpoint =
     `${APIFY_BASE_URL}/acts/${APIFY_ACTOR_ID}/run-sync-get-dataset-items` +
     `?token=${apiKey}&timeout=${PER_RUN_TIMEOUT_SECONDS}`;
@@ -93,15 +118,32 @@ async function scrapeBatch(
         throw new Error("Invalid response from Apify");
       }
 
-      const resultMap = new Map<string, { openToWork: boolean; experience: ApifyExperienceEntry[] }>();
+      const resultMap = new Map<string, ScrapedProfile>();
       for (const item of data) {
         if (!item.linkedinUrl) continue;
         const key = normalizeLinkedinUrl(item.linkedinUrl);
         const openToWork = item.openToWork === true;
-        const experience = Array.isArray(item.experience)
-          ? item.experience
+        const experience: ApifyExperienceEntry[] = Array.isArray(item.experience)
+          ? item.experience.map((exp) => ({
+              companyName: exp.companyName,
+              companyUniversalName: exp.companyUniversalName,
+              companyLinkedinUrl: exp.companyLinkedinUrl,
+              description: exp.description,
+              employmentType: exp.employmentType,
+              position: exp.position,
+              endDate: exp.endDate,
+              skills: Array.isArray(exp.skills) ? exp.skills : [],
+            }))
           : [];
-        const entry = { openToWork, experience };
+        const profileSkills: ApifyProfileSkill[] = Array.isArray(item.skills)
+          ? item.skills.filter((s): s is { name: string } => typeof s?.name === "string")
+          : [];
+        const entry: ScrapedProfile = {
+          openToWork,
+          experience,
+          profileSkills,
+          canonicalLinkedinUrl: toCanonicalLinkedinUrl(item.linkedinUrl),
+        };
         resultMap.set(key, entry);
 
         const oq = item.originalQuery;
@@ -194,6 +236,14 @@ export function splitByTenure(
 export interface ApifyFilterResult {
   kept: EnrichedEmployee[];
   warnings: string[];
+  filteredOut: ApifyFilteredCandidate[];
+}
+
+export type ApifyFilteredReason = "open_to_work" | "contract_employment";
+
+export interface ApifyFilteredCandidate {
+  employee: EnrichedEmployee;
+  reason: ApifyFilteredReason;
 }
 
 export async function scrapeAndFilterOpenToWork(
@@ -202,7 +252,7 @@ export async function scrapeAndFilterOpenToWork(
   context: { companyName: string; companyDomain: string }
 ): Promise<ApifyFilterResult> {
   if (employees.length === 0) {
-    return { kept: [], warnings: [] };
+    return { kept: [], warnings: [], filteredOut: [] };
   }
 
   const apiKey = getRequiredEnv("APIFY_API_KEY");
@@ -211,6 +261,7 @@ export async function scrapeAndFilterOpenToWork(
 
   const tableRows: TableRow[] = [];
   const kept: EnrichedEmployee[] = [];
+  const filteredOut: ApifyFilteredCandidate[] = [];
   const counts = { kept: 0, removed: 0, cached: 0, skipped: 0, errors: 0 };
 
   const withUrl: { employee: EnrichedEmployee; normalizedUrl: string }[] = [];
@@ -235,13 +286,27 @@ export async function scrapeAndFilterOpenToWork(
   for (const { employee, normalizedUrl } of withUrl) {
     if (cache.has(normalizedUrl)) {
       const cached = cache.get(normalizedUrl)!;
+      if (cached.canonicalLinkedinUrl) {
+        employee.linkedinUrl = cached.canonicalLinkedinUrl;
+      }
       if (cached.openToWork) {
+        filteredOut.push({ employee, reason: "open_to_work" });
         counts.removed += 1;
         tableRows.push({
           name: employee.name,
           linkedinUrl: employee.linkedinUrl,
           openToWork: "true",
           status: "REMOVED (cached)",
+        });
+      } else if (shouldRejectForContractEmployment(cached.experience)) {
+        filteredOut.push({ employee, reason: "contract_employment" });
+        counts.removed += 1;
+        counts.cached += 1;
+        tableRows.push({
+          name: employee.name,
+          linkedinUrl: employee.linkedinUrl,
+          openToWork: "false",
+          status: "REMOVED (employment type, cached)",
         });
       } else {
         kept.push(employee);
@@ -279,15 +344,31 @@ export async function scrapeAndFilterOpenToWork(
           const result = batchResults.get(normalizedUrl);
 
           if (result) {
-            cache.set(normalizedUrl, { openToWork: result.openToWork, experience: result.experience });
+            cache.set(normalizedUrl, {
+              openToWork: result.openToWork,
+              experience: result.experience,
+              profileSkills: result.profileSkills,
+              canonicalLinkedinUrl: result.canonicalLinkedinUrl,
+            });
+            employee.linkedinUrl = result.canonicalLinkedinUrl;
 
             if (result.openToWork) {
+              filteredOut.push({ employee, reason: "open_to_work" });
               counts.removed += 1;
               tableRows.push({
                 name: employee.name,
                 linkedinUrl: employee.linkedinUrl,
                 openToWork: "true",
                 status: "REMOVED",
+              });
+            } else if (shouldRejectForContractEmployment(result.experience)) {
+              filteredOut.push({ employee, reason: "contract_employment" });
+              counts.removed += 1;
+              tableRows.push({
+                name: employee.name,
+                linkedinUrl: employee.linkedinUrl,
+                openToWork: "false",
+                status: "REMOVED (employment type)",
               });
             } else {
               kept.push(employee);
@@ -346,43 +427,7 @@ export async function scrapeAndFilterOpenToWork(
     );
   }
 
-  return { kept, warnings };
-}
-
-function extractDomainBase(domain: string): string {
-  if (!domain) return "";
-  return domain.split(".")[0].toLowerCase().replace(/[-_]/g, "");
-}
-
-function normalizeCompanyName(name: string): string {
-  if (!name) return "";
-  return name
-    .replace(COMPANY_SUFFIXES_REGEX, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
-
-function matchesCompany(
-  entry: ApifyExperienceEntry,
-  companyDomain: string,
-  companyName: string
-): boolean {
-  const domainBase = extractDomainBase(companyDomain);
-  if (domainBase && entry.companyUniversalName) {
-    const slug = entry.companyUniversalName.toLowerCase().replace(/[-_]/g, "");
-    if (slug === domainBase) {
-      return true;
-    }
-  }
-
-  const normalizedTarget = normalizeCompanyName(companyName);
-  const normalizedEntry = normalizeCompanyName(entry.companyName ?? "");
-  if (!normalizedTarget || !normalizedEntry) return false;
-  if (normalizedTarget === normalizedEntry) return true;
-
-  const shorter = normalizedTarget.length <= normalizedEntry.length ? normalizedTarget : normalizedEntry;
-  const longer = normalizedTarget.length <= normalizedEntry.length ? normalizedEntry : normalizedTarget;
-  return shorter.length >= 3 && longer.includes(shorter);
+  return { kept, warnings, filteredOut };
 }
 
 function isCurrentRole(entry: ApifyExperienceEntry): boolean {
@@ -391,38 +436,83 @@ function isCurrentRole(entry: ApifyExperienceEntry): boolean {
   return text === "present" || text === "";
 }
 
-function findCurrentCompanyExperience(
-  experience: ApifyExperienceEntry[],
-  companyDomain: string,
-  companyName: string
-): ApifyExperienceEntry | null {
-  for (const entry of experience) {
-    if (isCurrentRole(entry) && matchesCompany(entry, companyDomain, companyName)) {
-      return entry;
-    }
+function getMostRecentExperienceEntry(experience: ApifyExperienceEntry[]): ApifyExperienceEntry | null {
+  if (experience.length === 0) {
+    return null;
   }
-  for (const entry of experience) {
-    if (matchesCompany(entry, companyDomain, companyName)) {
-      return entry;
-    }
+  const currentEntry = experience.find((entry) => isCurrentRole(entry));
+  return currentEntry ?? experience[0] ?? null;
+}
+
+/** Normalizes Apify employmentType for exact-set matching (hyphens vs spaces, casing). */
+function normalizeEmploymentTypeForMatch(employmentType: string | undefined): string {
+  return (employmentType ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+const REJECTED_EMPLOYMENT_TYPES = new Set<string>([
+  "contract",
+  "contractor",
+  "freelance",
+  "freelancer",
+  "trainee",
+  "intern",
+  "internship",
+  "apprenticeship",
+  "self employed",
+  "consultant",
+  "consulting",
+  "agency",
+  "part time",
+  "temporary",
+  "temp",
+  "advisor",
+  "fractional",
+]);
+
+function isContractEmploymentType(employmentType: string | undefined): boolean {
+  const normalized = normalizeEmploymentTypeForMatch(employmentType);
+  if (!normalized) {
+    return false;
   }
-  return null;
+  return REJECTED_EMPLOYMENT_TYPES.has(normalized);
+}
+
+function shouldRejectForContractEmployment(
+  experience: ApifyExperienceEntry[]
+): boolean {
+  const mostRecentEntry = getMostRecentExperienceEntry(experience);
+  if (!mostRecentEntry) {
+    return false;
+  }
+  return isContractEmploymentType(mostRecentEntry.employmentType);
 }
 
 export interface FrontendFilterResult {
   kept: EnrichedEmployee[];
   rejectedFrontend: EnrichedEmployee[];
-  warnings: string[];
+  warningCandidates: FrontendWarningCandidate[];
+}
+
+export type FrontendWarningReason = "company_not_matched" | "company_not_current_role";
+
+export interface FrontendWarningCandidate {
+  employee: EnrichedEmployee;
+  reason: FrontendWarningReason;
+  problem: string;
 }
 
 export function filterFrontendEngineers(
   employees: EnrichedEmployee[],
   cache: ApifyOpenToWorkCache,
-  company: { companyName: string; companyDomain: string }
+  _company?: { companyName: string; companyDomain: string }
 ): FrontendFilterResult {
   const kept: EnrichedEmployee[] = [];
   const rejectedFrontend: EnrichedEmployee[] = [];
-  const warnings: string[] = [];
+  const warningCandidates: FrontendWarningCandidate[] = [];
   const rows: { name: string; companyMatch: string; result: string }[] = [];
 
   for (const emp of employees) {
@@ -435,16 +525,11 @@ export function filterFrontendEngineers(
       continue;
     }
 
-    const matchedEntry = findCurrentCompanyExperience(
-      cached.experience,
-      company.companyDomain,
-      company.companyName
-    );
+    const matchedEntry = getMostRecentExperienceEntry(cached.experience);
 
     if (!matchedEntry) {
       kept.push(emp);
-      warnings.push(`Could not match company for ${emp.name} at ${company.companyName}`);
-      rows.push({ name: emp.name, companyMatch: "no match", result: "KEPT (no company match)" });
+      rows.push({ name: emp.name, companyMatch: "—", result: "KEPT (no data)" });
       continue;
     }
 
@@ -468,9 +553,131 @@ export function filterFrontendEngineers(
       const match = row.companyMatch.length > 22 ? row.companyMatch.slice(0, 21) + "…" : row.companyMatch;
       print(`    ${name.padEnd(22)}${match.padEnd(24)}${row.result}`);
     }
-    print(`    Result: ${kept.length} kept · ${rejectedFrontend.length} rejected · ${warnings.length} no match`);
+    print(
+      `    Result: ${kept.length} kept · ${rejectedFrontend.length} rejected · ${warningCandidates.length} warning`
+    );
     print("");
   }
 
-  return { kept, rejectedFrontend, warnings };
+  return { kept, rejectedFrontend, warningCandidates };
+}
+
+export interface SreKeywordFilterResult {
+  matched: EnrichedEmployee[];
+  unmatched: EnrichedEmployee[];
+}
+
+export function filterByKeywordsInApifyData(
+  employees: EnrichedEmployee[],
+  cache: ApifyOpenToWorkCache,
+  companyOrKeywords: { companyName: string; companyDomain: string } | string[],
+  maybeKeywords?: string[]
+): SreKeywordFilterResult {
+  const keywords = Array.isArray(companyOrKeywords)
+    ? companyOrKeywords
+    : (maybeKeywords ?? []);
+  const matched: EnrichedEmployee[] = [];
+  const unmatched: EnrichedEmployee[] = [];
+  const rows: { name: string; companyMatch: string; result: string }[] = [];
+  const checkedInputs: {
+    name: string;
+    linkedinUrl: string;
+    employmentType: string;
+    description: string;
+    experienceSkills: string;
+    profileSkills: string;
+  }[] = [];
+  const lowerKeywords = keywords.map((k) => k.toLowerCase());
+
+  for (const emp of employees) {
+    const normalizedUrl = emp.linkedinUrl ? normalizeLinkedinUrl(emp.linkedinUrl) : null;
+    const cached = normalizedUrl ? cache.get(normalizedUrl) : null;
+
+    if (!cached) {
+      unmatched.push(emp);
+      rows.push({ name: emp.name, companyMatch: "—", result: "UNMATCHED (no Apify data)" });
+      checkedInputs.push({
+        name: emp.name,
+        linkedinUrl: emp.linkedinUrl ?? "—",
+        employmentType: "—",
+        description: "—",
+        experienceSkills: "—",
+        profileSkills: "—",
+      });
+      continue;
+    }
+
+    const matchedEntry = getMostRecentExperienceEntry(cached.experience);
+
+    const textsToSearch: string[] = [];
+
+    if (matchedEntry) {
+      if (matchedEntry.description) {
+        textsToSearch.push(matchedEntry.description);
+      }
+      if (matchedEntry.skills) {
+        textsToSearch.push(...matchedEntry.skills);
+      }
+    }
+
+    for (const skill of cached.profileSkills) {
+      textsToSearch.push(skill.name);
+    }
+
+    const description = matchedEntry?.description?.trim() || "—";
+    const employmentType = matchedEntry?.employmentType?.trim() || "—";
+    const experienceSkills = matchedEntry?.skills?.length ? matchedEntry.skills.join(", ") : "—";
+    const profileSkills = cached.profileSkills.length
+      ? cached.profileSkills.map((skill) => skill.name).join(", ")
+      : "—";
+    checkedInputs.push({
+      name: emp.name,
+      linkedinUrl: emp.linkedinUrl ?? "—",
+      employmentType,
+      description,
+      experienceSkills,
+      profileSkills,
+    });
+
+    const combined = textsToSearch.join(" ").toLowerCase();
+    const hasKeyword = lowerKeywords.some((keyword) => combined.includes(keyword));
+
+    if (hasKeyword) {
+      matched.push(emp);
+      rows.push({ name: emp.name, companyMatch: matchedEntry?.companyName ?? "—", result: "MATCHED" });
+    } else {
+      unmatched.push(emp);
+      rows.push({ name: emp.name, companyMatch: matchedEntry?.companyName ?? "—", result: "UNMATCHED" });
+    }
+  }
+
+  if (rows.length > 0) {
+    print("");
+    printWarning(`    APIFY INPUTS USED FOR SRE KEYWORD CHECK`);
+    printWarning(`    ${"Name".padEnd(22)}${"LinkedIn URL".padEnd(36)}Description / Skills`);
+    printWarning(`    ${"─".repeat(22)}${"─".repeat(36)}${"─".repeat(24)}`);
+    for (const input of checkedInputs) {
+      const name = input.name.length > 20 ? input.name.slice(0, 19) + "…" : input.name;
+      const url = input.linkedinUrl.length > 34 ? input.linkedinUrl.slice(0, 33) + "…" : input.linkedinUrl;
+      printWarning(`    ${name.padEnd(22)}${url.padEnd(36)}desc: ${input.description}`);
+      printPurple(`    ${" ".repeat(58)}employment type: ${input.employmentType}`);
+      printWarning(`    ${" ".repeat(58)}exp skills: ${input.experienceSkills}`);
+      printWarning(`    ${" ".repeat(58)}profile skills: ${input.profileSkills}`);
+      printWarning(`    ${" ".repeat(58)}${"─".repeat(20)}`);
+    }
+
+    print("");
+    print(`    SRE KEYWORD CHECK (LinkedIn Keyword Expansion)`);
+    print(`    ${"Name".padEnd(22)}${"Company Match".padEnd(24)}Result`);
+    print(`    ${"─".repeat(22)}${"─".repeat(24)}${"─".repeat(24)}`);
+    for (const row of rows) {
+      const name = row.name.length > 20 ? row.name.slice(0, 19) + "…" : row.name;
+      const match = row.companyMatch.length > 22 ? row.companyMatch.slice(0, 21) + "…" : row.companyMatch;
+      print(`    ${name.padEnd(22)}${match.padEnd(24)}${row.result}`);
+    }
+    print(`    Result: ${matched.length} matched · ${unmatched.length} unmatched`);
+    print("");
+  }
+
+  return { matched, unmatched };
 }

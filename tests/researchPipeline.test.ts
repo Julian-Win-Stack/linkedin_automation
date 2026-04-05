@@ -5,26 +5,34 @@ import { EnrichedEmployee, Prospect } from "../src/types/prospect";
 import { TaggedEmailCandidate, EmailWaterfallResult } from "../src/services/emailCandidateWaterfall";
 
 const readCompaniesMock = vi.fn();
+const countProcessableCompaniesMock = vi.fn();
 const researchCompanyMock = vi.fn();
 const getCompanyMock = vi.fn();
-const countEngineerPeopleMock = vi.fn();
 const searchPeopleMock = vi.fn();
 const searchPastSrePeopleMock = vi.fn();
 const searchCurrentPlatformEngineerPeopleMock = vi.fn();
+const searchEmailCandidatePeopleCachedMock = vi.fn();
 const bulkEnrichPeopleMock = vi.fn();
 const runWaterfallEmailForPersonIdsMock = vi.fn();
 const enrichMissingEmailsWithLemlistMock = vi.fn();
 const selectTopSreForLemlistMock = vi.fn();
 const fillToMinimumWithBackfillMock = vi.fn();
+const selectKeywordMatchedByTenureMock = vi.fn();
 const pushPeopleToLemlistCampaignMock = vi.fn();
 const pushPeopleToLemlistEmailCampaignMock = vi.fn();
 const runEmailCandidateWaterfallMock = vi.fn();
 const rowsToCsvStringMock = vi.fn();
 const scrapeAndFilterOpenToWorkMock = vi.fn();
 const splitByTenureMock = vi.fn();
+const filterByKeywordsInApifyDataMock = vi.fn();
+const syncApolloAccountsFromOutputRowsMock = vi.fn();
+const syncAttioCompaniesFromOutputRowsMock = vi.fn();
+const saveWeeklySuccessForJobMock = vi.fn();
+const getWeeklySuccessCountsMock = vi.fn();
 
 vi.mock("../src/services/observability/csvReader", () => ({
   readCompanies: (...args: unknown[]) => readCompaniesMock(...args),
+  countProcessableCompanies: (...args: unknown[]) => countProcessableCompaniesMock(...args),
 }));
 
 vi.mock("../src/services/observability/openaiClient", () => ({
@@ -36,10 +44,10 @@ vi.mock("../src/services/getCompany", () => ({
 }));
 
 vi.mock("../src/services/searchPeople", () => ({
-  countEngineerPeople: (...args: unknown[]) => countEngineerPeopleMock(...args),
   searchPeople: (...args: unknown[]) => searchPeopleMock(...args),
   searchPastSrePeople: (...args: unknown[]) => searchPastSrePeopleMock(...args),
   searchCurrentPlatformEngineerPeople: (...args: unknown[]) => searchCurrentPlatformEngineerPeopleMock(...args),
+  searchEmailCandidatePeopleCached: (...args: unknown[]) => searchEmailCandidatePeopleCachedMock(...args),
 }));
 
 vi.mock("../src/services/bulkEnrichPeople", () => ({
@@ -54,6 +62,7 @@ vi.mock("../src/services/lemlistBulkEmailEnrichment", () => ({
 vi.mock("../src/services/sreSelection", () => ({
   selectTopSreForLemlist: (...args: unknown[]) => selectTopSreForLemlistMock(...args),
   fillToMinimumWithBackfill: (...args: unknown[]) => fillToMinimumWithBackfillMock(...args),
+  selectKeywordMatchedByTenure: (...args: unknown[]) => selectKeywordMatchedByTenureMock(...args),
 }));
 
 vi.mock("../src/services/lemlistPushQueue", () => ({
@@ -66,6 +75,9 @@ vi.mock("../src/services/lemlistEmailPushQueue", () => ({
 
 vi.mock("../src/services/emailCandidateWaterfall", () => ({
   runEmailCandidateWaterfall: (...args: unknown[]) => runEmailCandidateWaterfallMock(...args),
+  LINKEDIN_KEYWORD_STAGE_INFRA: { currentTitles: ["Infrastructure"], minTenureMonths: 11, campaignBucket: "eng" },
+  LINKEDIN_KEYWORD_STAGE_DEVOPS: { currentTitles: ["DevOps"], minTenureMonths: 11, campaignBucket: "eng" },
+  LINKEDIN_KEYWORD_STAGE_NORMAL_ENG: { currentTitles: ["Engineer"], minTenureMonths: 11, campaignBucket: "eng" },
 }));
 
 vi.mock("../src/services/observability/csvWriter", () => ({
@@ -75,6 +87,20 @@ vi.mock("../src/services/observability/csvWriter", () => ({
 vi.mock("../src/services/apifyClient", () => ({
   scrapeAndFilterOpenToWork: (...args: unknown[]) => scrapeAndFilterOpenToWorkMock(...args),
   splitByTenure: (...args: unknown[]) => splitByTenureMock(...args),
+  filterByKeywordsInApifyData: (...args: unknown[]) => filterByKeywordsInApifyDataMock(...args),
+}));
+
+vi.mock("../src/services/apolloBulkUpdateAccounts", () => ({
+  syncApolloAccountsFromOutputRows: (...args: unknown[]) => syncApolloAccountsFromOutputRowsMock(...args),
+}));
+
+vi.mock("../src/services/attioAssertCompanyRecords", () => ({
+  syncAttioCompaniesFromOutputRows: (...args: unknown[]) => syncAttioCompaniesFromOutputRowsMock(...args),
+}));
+
+vi.mock("../src/services/weeklySuccessStore", () => ({
+  saveWeeklySuccessForJob: (...args: unknown[]) => saveWeeklySuccessForJobMock(...args),
+  getWeeklySuccessCounts: (...args: unknown[]) => getWeeklySuccessCountsMock(...args),
 }));
 
 function asyncCompanyRows(
@@ -108,29 +134,36 @@ function makeEmployees(count: number, prefix: string): EnrichedEmployee[] {
 }
 
 function emptyWaterfallResult(): EmailWaterfallResult {
-  return { candidates: [], filteredOutNormalEngineers: [], warnings: [] };
+  return { candidates: [], filteredOutCandidates: [], warnings: [], normalEngineerApifyWarnings: [] };
 }
 
 describe("runResearchPipeline orchestration", () => {
   beforeEach(() => {
     readCompaniesMock.mockReset();
+    countProcessableCompaniesMock.mockReset();
     researchCompanyMock.mockReset();
     getCompanyMock.mockReset();
-    countEngineerPeopleMock.mockReset();
     searchPeopleMock.mockReset();
     searchPastSrePeopleMock.mockReset();
     searchCurrentPlatformEngineerPeopleMock.mockReset();
+    searchEmailCandidatePeopleCachedMock.mockReset();
     bulkEnrichPeopleMock.mockReset();
     runWaterfallEmailForPersonIdsMock.mockReset();
     enrichMissingEmailsWithLemlistMock.mockReset();
     selectTopSreForLemlistMock.mockReset();
     fillToMinimumWithBackfillMock.mockReset();
+    selectKeywordMatchedByTenureMock.mockReset();
     pushPeopleToLemlistCampaignMock.mockReset();
     pushPeopleToLemlistEmailCampaignMock.mockReset();
     runEmailCandidateWaterfallMock.mockReset();
     rowsToCsvStringMock.mockReset();
     scrapeAndFilterOpenToWorkMock.mockReset();
     splitByTenureMock.mockReset();
+    filterByKeywordsInApifyDataMock.mockReset();
+    syncApolloAccountsFromOutputRowsMock.mockReset();
+    syncAttioCompaniesFromOutputRowsMock.mockReset();
+    saveWeeklySuccessForJobMock.mockReset();
+    getWeeklySuccessCountsMock.mockReset();
 
     rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
     pushPeopleToLemlistCampaignMock.mockResolvedValue({
@@ -162,12 +195,40 @@ describe("runResearchPipeline orchestration", () => {
     runEmailCandidateWaterfallMock.mockResolvedValue(emptyWaterfallResult());
     researchCompanyMock.mockResolvedValue("Not found");
     getCompanyMock.mockResolvedValue({ companyName: "Acme", domain: "acme.com" });
-    countEngineerPeopleMock.mockResolvedValue(120);
     scrapeAndFilterOpenToWorkMock.mockImplementation(async (employees: EnrichedEmployee[]) => ({
       kept: employees,
       warnings: [],
+      filteredOut: [],
     }));
     splitByTenureMock.mockImplementation((employees: EnrichedEmployee[]) => ({ eligible: employees }));
+    searchEmailCandidatePeopleCachedMock.mockResolvedValue([]);
+    selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [], forEmailRecycling: [] });
+    fillToMinimumWithBackfillMock.mockImplementation((selected: EnrichedEmployee[]) => selected);
+    filterByKeywordsInApifyDataMock.mockReturnValue({ matched: [], unmatched: [] });
+    syncApolloAccountsFromOutputRowsMock.mockResolvedValue({
+      attemptedRows: 0,
+      dedupedAccounts: 0,
+      updatedAccounts: 0,
+      skippedMissingAccountIdCount: 0,
+      skippedNoMappableFieldsCount: 0,
+      duplicateAccountIdCount: 0,
+      warnings: [],
+    });
+    syncAttioCompaniesFromOutputRowsMock.mockResolvedValue({
+      attemptedRows: 0,
+      dedupedDomains: 0,
+      assertedCount: 0,
+      failedCount: 0,
+      skippedMissingDomainCount: 0,
+      skippedNoMappableFieldsCount: 0,
+      duplicateDomainCount: 0,
+      warnings: [],
+    });
+    getWeeklySuccessCountsMock.mockReturnValue({
+      linkedinCount: 0,
+      emailCount: 0,
+    });
+    countProcessableCompaniesMock.mockResolvedValue(500);
     process.env.LEMLIST_PUSH_ENABLED = "true";
     process.env.LEMLIST_BULK_FIND_EMAIL_ENABLED = "true";
     delete process.env.APOLLO_WATERFALL_ENABLED;
@@ -199,7 +260,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     expect(fillToMinimumWithBackfillMock).toHaveBeenCalledTimes(2);
     expect(fillToMinimumWithBackfillMock).toHaveBeenNthCalledWith(
@@ -207,7 +268,7 @@ describe("runResearchPipeline orchestration", () => {
       expect.any(Array),
       expect.any(Array),
       [],
-      { minimum: 5, max: 7 }
+      { minimum: 7, max: 7 }
     );
     expect(fillToMinimumWithBackfillMock).toHaveBeenNthCalledWith(
       2,
@@ -220,7 +281,7 @@ describe("runResearchPipeline orchestration", () => {
       { companyName: "Acme", domain: "acme.com" },
       30,
       ["SRE", "Site Reliability", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
-      { apolloOrganizationId: "org_1", notTitles: ["contract"] }
+      { apolloOrganizationId: "org_1", notTitles: ["contract", "junior", "jr"] }
     );
   });
 
@@ -242,10 +303,176 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
-    expect(searchPastSrePeopleMock).not.toHaveBeenCalled();
-    expect(fillToMinimumWithBackfillMock).not.toHaveBeenCalled();
+    expect(searchPastSrePeopleMock).toHaveBeenCalledTimes(1);
+    expect(fillToMinimumWithBackfillMock).toHaveBeenCalledWith(
+      [],
+      [],
+      [],
+      { minimum: 7, max: 7 }
+    );
+  });
+
+  it("routes leadership titles from pre-platform LinkedIn selection to engLead bucket", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce(makeProspects(1, "current"));
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      {
+        id: "leader-1",
+        startDate: "2022-01-01",
+        endDate: null,
+        name: "Leader One",
+        linkedinUrl: "https://linkedin.com/in/leader-one",
+        currentTitle: "VP of Engineering",
+        tenure: 24,
+      },
+    ]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([
+      {
+        id: "leader-1",
+        startDate: "2022-01-01",
+        endDate: null,
+        name: "Leader One",
+        linkedinUrl: "https://linkedin.com/in/leader-one",
+        currentTitle: "VP of Engineering",
+        tenure: 24,
+      },
+    ]);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    expect(pushPeopleToLemlistCampaignMock).toHaveBeenCalledTimes(1);
+    const tagged = pushPeopleToLemlistCampaignMock.mock.calls[0][0] as Array<{ linkedinBucket: string }>;
+    expect(tagged).toHaveLength(1);
+    expect(tagged[0].linkedinBucket).toBe("engLead");
+  });
+
+  it("routes platform leadership titles to engLead and non-leaders to eng", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce(makeProspects(1, "current"));
+    searchPastSrePeopleMock.mockResolvedValueOnce([]);
+    searchCurrentPlatformEngineerPeopleMock.mockResolvedValueOnce(makeProspects(2, "platform"));
+    bulkEnrichPeopleMock
+      .mockResolvedValueOnce([
+        {
+          id: "current-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Current SRE",
+          linkedinUrl: "https://linkedin.com/in/current-sre",
+          currentTitle: "Site Reliability Engineer",
+          tenure: 24,
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "platform-lead-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Platform Leader",
+          linkedinUrl: "https://linkedin.com/in/platform-leader",
+          currentTitle: "Director of Platform Engineering",
+          tenure: 24,
+        },
+        {
+          id: "platform-eng-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Platform Engineer",
+          linkedinUrl: "https://linkedin.com/in/platform-engineer",
+          currentTitle: "Platform Engineer",
+          tenure: 24,
+        },
+      ]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([
+      {
+        id: "current-1",
+        startDate: "2022-01-01",
+        endDate: null,
+        name: "Current SRE",
+        linkedinUrl: "https://linkedin.com/in/current-sre",
+        currentTitle: "Site Reliability Engineer",
+        tenure: 24,
+      },
+    ]);
+    fillToMinimumWithBackfillMock
+      .mockReturnValueOnce([
+        {
+          id: "current-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Current SRE",
+          linkedinUrl: "https://linkedin.com/in/current-sre",
+          currentTitle: "Site Reliability Engineer",
+          tenure: 24,
+        },
+      ])
+      .mockReturnValueOnce([
+        {
+          id: "current-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Current SRE",
+          linkedinUrl: "https://linkedin.com/in/current-sre",
+          currentTitle: "Site Reliability Engineer",
+          tenure: 24,
+        },
+        {
+          id: "platform-lead-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Platform Leader",
+          linkedinUrl: "https://linkedin.com/in/platform-leader",
+          currentTitle: "Director of Platform Engineering",
+          tenure: 24,
+        },
+        {
+          id: "platform-eng-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Platform Engineer",
+          linkedinUrl: "https://linkedin.com/in/platform-engineer",
+          currentTitle: "Platform Engineer",
+          tenure: 24,
+        },
+      ]);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    const tagged = pushPeopleToLemlistCampaignMock.mock.calls[0][0] as Array<{ employee: { name: string }; linkedinBucket: string }>;
+    expect(tagged).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ employee: expect.objectContaining({ name: "Current SRE" }), linkedinBucket: "sre" }),
+        expect.objectContaining({ employee: expect.objectContaining({ name: "Platform Leader" }), linkedinBucket: "engLead" }),
+        expect.objectContaining({ employee: expect.objectContaining({ name: "Platform Engineer" }), linkedinBucket: "eng" }),
+      ])
+    );
   });
 
   it("calls email waterfall and pushes candidates to email campaign", async () => {
@@ -286,8 +513,9 @@ describe("runResearchPipeline orchestration", () => {
     ];
     runEmailCandidateWaterfallMock.mockResolvedValueOnce({
       candidates: waterfallCandidates,
-      filteredOutNormalEngineers: [],
+      filteredOutCandidates: [],
       warnings: [],
+      normalEngineerApifyWarnings: [],
     });
     pushPeopleToLemlistEmailCampaignMock.mockResolvedValueOnce({
       attempted: 2,
@@ -308,7 +536,7 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     expect(runEmailCandidateWaterfallMock).toHaveBeenCalledTimes(1);
     expect(runEmailCandidateWaterfallMock).toHaveBeenCalledWith(
@@ -316,7 +544,8 @@ describe("runResearchPipeline orchestration", () => {
       expect.any(Set),
       expect.any(Map),
       { apolloOrganizationId: "org_1" },
-      expect.any(Map)
+      expect.any(Map),
+      { rawSreCount: 0, apolloSearchCache: expect.any(Map), recycledKeywordMatched: [] }
     );
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledWith(
@@ -354,8 +583,9 @@ describe("runResearchPipeline orchestration", () => {
     ];
     runEmailCandidateWaterfallMock.mockResolvedValueOnce({
       candidates: waterfallCandidates,
-      filteredOutNormalEngineers: [],
+      filteredOutCandidates: [],
       warnings: [],
+      normalEngineerApifyWarnings: [],
     });
     enrichMissingEmailsWithLemlistMock.mockImplementationOnce(
       async (candidates: Array<{ employee: EnrichedEmployee }>) => {
@@ -377,36 +607,10 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     expect(enrichMissingEmailsWithLemlistMock).toHaveBeenCalledTimes(1);
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("masks engineer count above 1000 in rejected outputs", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "BigCo", companyDomain: "big.co", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    countEngineerPeopleMock.mockResolvedValueOnce(1501);
-
-    const jobId = createJob();
-    await runResearchPipeline(jobId, "csv", {
-      azureOpenAiApiKey: "k",
-      azureOpenAiBaseUrl: "u",
-      searchApiKey: "s",
-      model: "m",
-      maxCompletionTokens: 1000,
-      nameColumn: "Company Name",
-      domainColumn: "Website",
-      apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
-
-    const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
-    const rejectedRow = combinedRowsArg.find((row) => row.company_name === "BigCo");
-    expect(rejectedRow?.engineer_count).toBe("> 1000");
-
-    const job = getJob(jobId);
-    expect(job?.rejectedCompanies[0]).toContain("> 1000");
   });
 
   it("builds combined import csv with passed rows first and rejected rows last", async () => {
@@ -434,7 +638,8 @@ describe("runResearchPipeline orchestration", () => {
         domainColumn: "Website",
         apolloAccountIdColumn: "Apollo Account Id",
       },
-      "julian"
+      "julian",
+      Date.now()
     );
 
     const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
@@ -471,10 +676,351 @@ describe("runResearchPipeline orchestration", () => {
       nameColumn: "Company Name",
       domainColumn: "Website",
       apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian");
+    }, "julian", Date.now());
 
     const job = getJob(jobId);
     expect(job?.skippedCompanies).toEqual(["Skipped Co"]);
     expect(job?.summary?.skippedMissingWebsiteAndApolloAccountIdCount).toBe(1);
+  });
+
+  it("fully skips all companies when weekly LinkedIn limit is already reached", async () => {
+    getWeeklySuccessCountsMock.mockReturnValueOnce({
+      linkedinCount: 100,
+      emailCount: 0,
+    });
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([
+        { companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 },
+        { companyName: "Beta", companyDomain: "beta.com", apolloAccountId: "org_2", rowNumber: 3 },
+      ])
+    );
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    expect(searchPeopleMock).not.toHaveBeenCalled();
+    expect(researchCompanyMock).not.toHaveBeenCalled();
+    expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledWith([]);
+    expect(syncAttioCompaniesFromOutputRowsMock).toHaveBeenCalledWith([]);
+
+    const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(combinedRowsArg).toHaveLength(2);
+    expect(combinedRowsArg[0]).toMatchObject({
+      company_name: "Acme",
+      stage: "",
+      sre_count: "",
+      notes: "",
+    });
+    expect(combinedRowsArg[1]).toMatchObject({
+      company_name: "Beta",
+      stage: "",
+      sre_count: "",
+      notes: "",
+    });
+
+    const job = getJob(jobId);
+    expect(job?.summary?.weeklyLimitSkippedCompanyCount).toBe(2);
+  });
+
+  it("stops processing later companies after weekly limit is reached mid-job", async () => {
+    getWeeklySuccessCountsMock.mockReturnValueOnce({
+      linkedinCount: 95,
+      emailCount: 0,
+    });
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([
+        { companyName: "FirstCo", companyDomain: "first.co", apolloAccountId: "org_1", rowNumber: 2 },
+        { companyName: "SecondCo", companyDomain: "second.co", apolloAccountId: "org_2", rowNumber: 3 },
+      ])
+    );
+    searchPeopleMock.mockResolvedValueOnce(makeProspects(5, "current"));
+    bulkEnrichPeopleMock.mockResolvedValueOnce(makeEmployees(5, "current"));
+    selectTopSreForLemlistMock.mockReturnValueOnce(makeEmployees(5, "selected-current"));
+    pushPeopleToLemlistCampaignMock.mockResolvedValueOnce({
+      attempted: 1,
+      successful: 7,
+      failed: 0,
+      successItems: ["A", "B", "C", "D", "E", "F", "G"],
+      failedItems: [],
+      outcomes: [],
+    });
+    researchCompanyMock
+      .mockResolvedValueOnce("Datadog")
+      .mockResolvedValueOnce("Datadog");
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    expect(researchCompanyMock).toHaveBeenCalledTimes(1);
+    expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledTimes(1);
+    const syncRows = syncApolloAccountsFromOutputRowsMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(syncRows).toHaveLength(1);
+    expect(syncRows[0].company_name).toBe("FirstCo");
+
+    const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(combinedRowsArg).toHaveLength(2);
+    expect(combinedRowsArg[0]).toMatchObject({ company_name: "FirstCo", stage: "ChasingPOC" });
+    expect(combinedRowsArg[1]).toMatchObject({
+      company_name: "SecondCo",
+      stage: "",
+      sre_count: "",
+      notes: "",
+    });
+
+    const job = getJob(jobId);
+    expect(job?.summary?.weeklyLimitSkippedCompanyCount).toBe(1);
+  });
+
+  it("stores normal engineer Apify warning entries in campaign push data and not UI warnings", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
+      candidates: [],
+      filteredOutCandidates: [],
+      warnings: [],
+      normalEngineerApifyWarnings: [
+        {
+          employee: {
+            id: "warn-1",
+            startDate: "2022-01-01",
+            endDate: null,
+            name: "Warn Person",
+            email: null,
+            linkedinUrl: "https://linkedin.com/in/warn-person",
+            currentTitle: "Staff Engineer",
+            tenure: 12,
+          },
+          problem: "Could not match this profile to Acme in Apify experience data.",
+        },
+      ],
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    const job = getJob(jobId);
+    expect(job?.warnings).toEqual([]);
+    expect(job?.campaignPushData?.normalEngineerApifyWarnings).toEqual([
+      {
+        companyName: "Acme",
+        name: "Warn Person",
+        title: "Staff Engineer",
+        linkedinUrl: "https://linkedin.com/in/warn-person",
+        problem: "Could not match this profile to Acme in Apify experience data.",
+      },
+    ]);
+  });
+
+  it("stores per-job weekly success counts for selected user", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+    pushPeopleToLemlistCampaignMock.mockResolvedValueOnce({
+      attempted: 1,
+      successful: 2,
+      failed: 1,
+      successItems: ["A", "B"],
+      failedItems: [{ name: "C", error: "x" }],
+      outcomes: [],
+    });
+    pushPeopleToLemlistEmailCampaignMock.mockResolvedValueOnce({
+      attempted: 1,
+      successful: 3,
+      failed: 0,
+      successItems: ["E1", "E2", "E3"],
+      failedItems: [],
+      outcomes: [],
+    });
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
+      candidates: [
+        {
+          employee: {
+            id: "email-1",
+            startDate: "2022-01-01",
+            endDate: null,
+            name: "Email Person",
+            email: "email@example.com",
+            linkedinUrl: "https://linkedin.com/in/email-person",
+            currentTitle: "Engineer",
+            tenure: 12,
+          },
+          campaignBucket: "eng",
+        },
+      ],
+      filteredOutCandidates: [],
+      warnings: [],
+      normalEngineerApifyWarnings: [],
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    expect(saveWeeklySuccessForJobMock).toHaveBeenCalledTimes(1);
+    expect(saveWeeklySuccessForJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId,
+        selectedUser: "julian",
+        linkedinSuccessCount: 0,
+        emailSuccessCount: 3,
+      })
+    );
+  });
+
+  it("triggers Apollo and Attio sync with combined output rows", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledTimes(1);
+    const syncRows = syncApolloAccountsFromOutputRowsMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(syncRows[0]).toMatchObject({
+      company_name: "Acme",
+      apollo_account_id: "org_1",
+    });
+    expect(syncAttioCompaniesFromOutputRowsMock).toHaveBeenCalledTimes(1);
+    const attioRows = syncAttioCompaniesFromOutputRowsMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
+    expect(attioRows[0]).toMatchObject({
+      company_name: "Acme",
+      company_domain: "acme.com",
+    });
+  });
+
+  it("adds warning when Apollo account bulk sync fails and still completes job", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+    syncApolloAccountsFromOutputRowsMock.mockRejectedValueOnce(new Error("bulk sync fail"));
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    const job = getJob(jobId);
+    expect(job?.status).toBe("done");
+    expect(job?.warnings).toContain("Apollo bulk account sync failed: bulk sync fail");
+  });
+
+  it("adds warning when Attio company sync fails and still completes job", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+    syncAttioCompaniesFromOutputRowsMock.mockRejectedValueOnce(new Error("attio sync fail"));
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    const job = getJob(jobId);
+    expect(job?.status).toBe("done");
+    expect(job?.warnings).toContain("Attio company sync failed: attio sync fail");
+  });
+
+  it("stores per-company Attio upload warnings in UI warnings section", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([]);
+    syncAttioCompaniesFromOutputRowsMock.mockResolvedValueOnce({
+      attemptedRows: 1,
+      dedupedDomains: 1,
+      assertedCount: 0,
+      failedCount: 1,
+      skippedMissingDomainCount: 0,
+      skippedNoMappableFieldsCount: 0,
+      duplicateDomainCount: 0,
+      warnings: ["Uploading Acme to Attio failed. Please contact Julian"],
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    const job = getJob(jobId);
+    expect(job?.warnings).toContain("Uploading Acme to Attio failed. Please contact Julian");
   });
 });

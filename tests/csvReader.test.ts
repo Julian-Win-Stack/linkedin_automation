@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readCompanies } from "../src/services/observability/csvReader";
+import { countProcessableCompanies, readCompanies } from "../src/services/observability/csvReader";
 
 describe("readCompanies", () => {
   it("keeps rows that have apollo account id even when website is blank", async () => {
@@ -68,5 +68,24 @@ describe("readCompanies", () => {
       apolloAccountId: "apollo-123",
     });
     expect(skippedReasons).toEqual(["missing_website_and_apollo_account_id"]);
+  });
+});
+
+describe("countProcessableCompanies", () => {
+  it("counts only rows that have website or apollo account id", async () => {
+    const csv = [
+      "Company Name,Website,Apollo Account Id",
+      "Acme,acme.com,",
+      "Bravo,,apollo-123",
+      "Charlie,,",
+    ].join("\n");
+
+    const count = await countProcessableCompanies({
+      csvBuffer: csv,
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    });
+
+    expect(count).toBe(2);
   });
 });

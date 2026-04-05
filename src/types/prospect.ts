@@ -20,7 +20,7 @@ export interface LemlistFailedLead {
   error: string;
 }
 
-export type LemlistPushStatus = "succeed" | "failed";
+export type LemlistPushStatus = "succeed" | "failed" | "skipped";
 
 export interface LemlistPushOutcome {
   key: string;
@@ -69,13 +69,21 @@ export interface ApifyExperienceEntry {
   companyUniversalName?: string;
   companyLinkedinUrl?: string;
   description?: string;
+  employmentType?: string;
   position?: string;
   endDate?: { text?: string } | null;
+  skills?: string[];
+}
+
+export interface ApifyProfileSkill {
+  name: string;
 }
 
 export interface ApifyCacheEntry {
   openToWork: boolean;
   experience: ApifyExperienceEntry[];
+  profileSkills: ApifyProfileSkill[];
+  canonicalLinkedinUrl?: string;
 }
 
 export type ApifyOpenToWorkCache = Map<string, ApifyCacheEntry>;

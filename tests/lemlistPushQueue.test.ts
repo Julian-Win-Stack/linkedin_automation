@@ -16,6 +16,7 @@ describe("pushPeopleToLemlistCampaign", () => {
     getLemlistLinkedinCampaignIdsForUserMock.mockReset();
     getLemlistLinkedinCampaignIdsForUserMock.mockReturnValue({
       sreCampaignId: "cam_sre",
+      engLeadCampaignId: "cam_eng_lead",
       engCampaignId: "cam_eng",
     });
   });
@@ -101,6 +102,39 @@ describe("pushPeopleToLemlistCampaign", () => {
         companyName: "Acme",
         jobTitle: "Platform Engineer",
         linkedinUrl: "https://linkedin.com/in/platform",
+        companyDomain: "acme.com",
+      },
+      expect.any(Object)
+    );
+  });
+
+  it("routes engLead-bucketed candidates to engineering leader campaign", async () => {
+    createLeadInCampaignMock.mockResolvedValue(undefined);
+
+    const candidates: TaggedLinkedinCandidate[] = [
+      {
+        employee: {
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "Leader Person",
+          linkedinUrl: "https://linkedin.com/in/leader",
+          currentTitle: "VP of Engineering",
+          tenure: 12,
+        },
+        linkedinBucket: "engLead",
+      },
+    ];
+
+    await pushPeopleToLemlistCampaign(candidates, "Acme", "acme.com", "julian");
+
+    expect(createLeadInCampaignMock).toHaveBeenCalledWith(
+      "cam_eng_lead",
+      {
+        firstName: "Leader",
+        lastName: "Person",
+        companyName: "Acme",
+        jobTitle: "VP of Engineering",
+        linkedinUrl: "https://linkedin.com/in/leader",
         companyDomain: "acme.com",
       },
       expect.any(Object)
@@ -245,7 +279,7 @@ describe("pushPeopleToLemlistCampaign", () => {
     expect(result.successItems).toEqual(["Short Stay", "Eligible Person"]);
   });
 
-  it('treats "Lead already in the campaign" as successful push', async () => {
+  it('does not count "Lead already in the campaign" as success or failure', async () => {
     createLeadInCampaignMock.mockRejectedValueOnce(
       new Error("Lemlist API error (400): Lead already in the campaign")
     );
@@ -267,14 +301,14 @@ describe("pushPeopleToLemlistCampaign", () => {
     const result = await pushPeopleToLemlistCampaign(candidates, "Acme", "acme.com", "julian");
 
     expect(result.attempted).toBe(1);
-    expect(result.successful).toBe(1);
+    expect(result.successful).toBe(0);
     expect(result.failed).toBe(0);
-    expect(result.successItems).toEqual(["Already Added"]);
+    expect(result.successItems).toEqual([]);
     expect(result.failedItems).toEqual([]);
     expect(result.outcomes).toEqual([
       expect.objectContaining({
         name: "Already Added",
-        status: "succeed",
+        status: "skipped",
       }),
     ]);
   });

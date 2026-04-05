@@ -6,6 +6,17 @@ const DEFAULT_TIMEOUT_MS = 12_000;
 const DEFAULT_RETRIES = 2;
 type QueryValue = string | number | boolean;
 
+export interface ApolloField {
+  id: string;
+  label: string;
+  modality: string;
+  source?: string;
+}
+
+interface ApolloFieldsResponse {
+  fields?: ApolloField[];
+}
+
 function getApiKey(): string {
   return getRequiredEnv("APOLLO_API_KEY");
 }
@@ -133,4 +144,53 @@ export async function apolloPostWithQuery<TResponse>(
       await sleep(300 * attempt);
     }
   }
+}
+
+export async function apolloGetWithQuery<TResponse>(
+  path: string,
+  queryParams: Record<string, QueryValue | QueryValue[]>,
+  retries = DEFAULT_RETRIES
+): Promise<TResponse> {
+  const client = createApolloClient();
+  const queryString = toQueryString(queryParams);
+  const requestPath = queryString.length > 0 ? `${path}?${queryString}` : path;
+  let attempt = 0;
+
+  while (true) {
+    try {
+      const response = await client.get<TResponse>(requestPath);
+      return response.data;
+    } catch (error) {
+      attempt += 1;
+      if (attempt > retries || !isRetryableApolloError(error)) {
+        throw new Error(toApolloErrorMessage(error));
+      }
+
+      await sleep(300 * attempt);
+    }
+  }
+}
+
+export async function fetchApolloAccountCustomFieldNameToIdMap(): Promise<Map<string, string>> {
+  const response = await apolloGetWithQuery<ApolloFieldsResponse>("/fields", { source: "custom" });
+  const fields = Array.isArray(response.fields) ? response.fields : [];
+  const nameToId = new Map<string, string>();
+
+  for (const field of fields) {
+    if (!field || typeof field !== "object") {
+      continue;
+    }
+
+    const id = typeof field.id === "string" ? field.id.trim() : "";
+    const label = typeof field.label === "string" ? field.label.trim() : "";
+    const modality = typeof field.modality === "string" ? field.modality.trim().toLowerCase() : "";
+
+    if (!id || !label || modality !== "account") {
+      continue;
+    }
+
+    nameToId.set(label, id);
+  }
+
+  return nameToId;
 }

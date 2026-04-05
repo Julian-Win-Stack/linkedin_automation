@@ -25,6 +25,12 @@ interface ReadCompaniesOptions {
   onSkipRow?: (skipInfo: CompanyRowSkipInfo) => void;
 }
 
+interface CountProcessableCompaniesOptions {
+  csvBuffer: string;
+  domainColumn: string;
+  apolloAccountIdColumn?: string;
+}
+
 function cleanCell(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -73,4 +79,23 @@ export async function* readCompanies(options: ReadCompaniesOptions): AsyncGenera
       rowNumber,
     };
   }
+}
+
+export async function countProcessableCompanies(options: CountProcessableCompaniesOptions): Promise<number> {
+  const inputStream = Readable.from([options.csvBuffer]);
+  const parser = inputStream.pipe(parse(parseOptions));
+  let count = 0;
+
+  for await (const record of parser as AsyncIterable<Record<string, unknown>>) {
+    const companyDomain = cleanCell(record[options.domainColumn]);
+    const apolloAccountId = options.apolloAccountIdColumn
+      ? cleanCell(record[options.apolloAccountIdColumn]) || undefined
+      : undefined;
+    if (!companyDomain && !apolloAccountId) {
+      continue;
+    }
+    count += 1;
+  }
+
+  return count;
 }

@@ -59,7 +59,7 @@ describe("runEmailCandidateWaterfall", () => {
     searchEmailCandidatePeopleMock.mockResolvedValue([]);
     bulkEnrichPeopleMock.mockResolvedValue([]);
     scrapeAndFilterOpenToWorkMock.mockImplementation(
-      async (employees: EnrichedEmployee[]) => ({ kept: employees, warnings: [] })
+      async (employees: EnrichedEmployee[]) => ({ kept: employees, warnings: [], filteredOut: [] })
     );
     splitByTenureMock.mockImplementation((employees: EnrichedEmployee[], minTenureMonths: number) => ({
       eligible: employees.filter((employee) => employee.tenure === null || employee.tenure >= minTenureMonths),
@@ -70,7 +70,7 @@ describe("runEmailCandidateWaterfall", () => {
     filterFrontendEngineersMock.mockImplementation((employees: EnrichedEmployee[]) => ({
       kept: employees,
       rejectedFrontend: [],
-      warnings: [],
+      warningCandidates: [],
     }));
   });
 
@@ -85,6 +85,28 @@ describe("runEmailCandidateWaterfall", () => {
 
     expect(result.candidates).toEqual([]);
     expect(searchEmailCandidatePeopleMock).toHaveBeenCalledTimes(7);
+  });
+
+  it("skips first two SRE stages when pre-filter SRE count is below 8", async () => {
+    await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS,
+      APIFY_CACHE,
+      { rawSreCount: 7 }
+    );
+
+    expect(searchEmailCandidatePeopleMock).toHaveBeenCalledTimes(5);
+    const firstCallSearchParams = searchEmailCandidatePeopleMock.mock.calls[0][2];
+    expect(firstCallSearchParams).toMatchObject({
+      currentTitles: ["Infrastructure"],
+      pastTitles: undefined,
+    });
+    expect(firstCallSearchParams.notTitles).toContain("automation");
+    expect(firstCallSearchParams.notTitles).toContain("business");
+    expect(firstCallSearchParams.notTitles).toContain("sales");
+    expect(firstCallSearchParams.notTitles).toContain("trainee");
   });
 
   it("selects SRE candidates from stage 1 with sre bucket", async () => {
@@ -110,6 +132,33 @@ describe("runEmailCandidateWaterfall", () => {
     expect(result.candidates[1].campaignBucket).toBe("sre");
     expect(result.candidates[0].employee.id).toBe("sre-1");
     expect(result.candidates[1].employee.id).toBe("sre-2");
+  });
+
+  it("splits SRE stage into sre and engLead buckets by leadership titles", async () => {
+    searchEmailCandidatePeopleMock.mockResolvedValueOnce([
+      makeProspect("sre-ic", "Site Reliability Engineer"),
+      makeProspect("sre-lead", "Director of Site Reliability"),
+      makeProspect("sre-chief", "Chief Reliability Officer"),
+    ]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("sre-ic", "Site Reliability Engineer", 6),
+      makeEmployee("sre-lead", "Director of Site Reliability", 8),
+      makeEmployee("sre-chief", "Chief Reliability Officer", 10),
+    ]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS,
+      APIFY_CACHE
+    );
+
+    expect(result.candidates).toHaveLength(3);
+    const byId = new Map(result.candidates.map((candidate) => [candidate.employee.id, candidate.campaignBucket]));
+    expect(byId.get("sre-ic")).toBe("sre");
+    expect(byId.get("sre-lead")).toBe("engLead");
+    expect(byId.get("sre-chief")).toBe("engLead");
   });
 
   it("stops after reaching 7 candidates", async () => {
@@ -401,11 +450,18 @@ describe("runEmailCandidateWaterfall", () => {
         "Head of Engineering Productivity / Platform",
         "Chief Platform Officer",
         "backend platform",
+        "cloud platform",
+        "platform cloud",
       ],
       pastTitles: undefined,
       notTitles: [
         "data",
         "contract",
+        "contractor",
+        "freelance",
+        "freelancer",
+        "junior",
+        "jr",
         "AI",
         "artificial intelligence",
         "machine learning",
@@ -455,19 +511,24 @@ describe("runEmailCandidateWaterfall", () => {
 
     const stage1Call = searchEmailCandidatePeopleMock.mock.calls[0];
     const stage2Call = searchEmailCandidatePeopleMock.mock.calls[1];
+    const devopsCall = searchEmailCandidatePeopleMock.mock.calls[4];
 
     expect(stage1Call[2]).toEqual({
-      currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
+      currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
       pastTitles: undefined,
-      notTitles: ["contract"],
+      notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
       notPastTitles: undefined,
     });
     expect(stage2Call[2]).toEqual({
       currentTitles: undefined,
-      pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
-      notTitles: ["contract"],
+      pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
+      notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
       notPastTitles: undefined,
     });
+    expect(devopsCall[2].currentTitles).toEqual(["DevOps", "Dev Ops"]);
+    expect(devopsCall[2].notTitles).toContain("business");
+    expect(devopsCall[2].notTitles).toContain("sales");
+    expect(devopsCall[2].notTitles).toContain("trainee");
   });
 
   it("enforces 11-month tenure minimum for infrastructure stage", async () => {
@@ -525,5 +586,45 @@ describe("runEmailCandidateWaterfall", () => {
     expect(result.candidates.find((candidate) => candidate.employee.id === "final-leader")?.campaignBucket).toBe(
       "engLead"
     );
+  });
+
+  it("collects normal engineer Apify warning candidates without filtering them out", async () => {
+    searchEmailCandidatePeopleMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([makeProspect("normal-1", "Staff engineer")]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("normal-1", "Staff engineer", 18),
+    ]);
+    filterFrontendEngineersMock.mockImplementationOnce((employees: EnrichedEmployee[]) => ({
+      kept: employees,
+      rejectedFrontend: [],
+      warningCandidates: [
+        {
+          employee: employees[0],
+          reason: "company_not_matched",
+          problem: "Could not match this profile to Acme in Apify experience data.",
+        },
+      ],
+    }));
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS,
+      APIFY_CACHE
+    );
+
+    expect(result.candidates.some((candidate) => candidate.employee.id === "normal-1")).toBe(true);
+    expect(result.normalEngineerApifyWarnings).toHaveLength(1);
+    expect(result.normalEngineerApifyWarnings[0]).toMatchObject({
+      employee: expect.objectContaining({ id: "normal-1" }),
+      problem: expect.stringContaining("Could not match"),
+    });
+    expect(result.warnings).toEqual([]);
   });
 });

@@ -1,12 +1,12 @@
 import { ResolvedCompany } from "./getCompany";
 import { bulkEnrichPeople, EnrichmentCache } from "./bulkEnrichPeople";
-import { searchEmailCandidatePeople, PeopleSearchFilters } from "./searchPeople";
+import { searchEmailCandidatePeople, searchEmailCandidatePeopleCached, ApolloSearchCache, PeopleSearchFilters } from "./searchPeople";
 import { EnrichedEmployee, Prospect, ApifyOpenToWorkCache } from "../types/prospect";
 import { scrapeAndFilterOpenToWork, splitByTenure, filterFrontendEngineers } from "./apifyClient";
 
 export type EmailCampaignBucket = "sre" | "eng" | "engLead";
 
-interface EmailSearchStageConfig {
+export interface EmailSearchStageConfig {
   currentTitles?: string[];
   pastTitles?: string[];
   notTitles?: string[];
@@ -15,6 +15,7 @@ interface EmailSearchStageConfig {
   campaignBucket: EmailCampaignBucket;
   splitLeadership?: boolean;
   leadershipBucket?: EmailCampaignBucket;
+  leadershipTitleKeywords?: string[];
 }
 
 export interface TaggedEmailCandidate {
@@ -22,17 +23,29 @@ export interface TaggedEmailCandidate {
   campaignBucket: EmailCampaignBucket;
 }
 
-export type NormalEngineerFilteredReason = "open_to_work" | "frontend_role";
+export type EmailWaterfallFilteredReason = "open_to_work" | "frontend_role" | "contract_employment";
 
-export interface FilteredNormalEngineerCandidate {
+export interface FilteredEmailCandidate {
   employee: EnrichedEmployee;
-  reason: NormalEngineerFilteredReason;
+  reason: EmailWaterfallFilteredReason;
 }
 
 export interface EmailWaterfallResult {
   candidates: TaggedEmailCandidate[];
-  filteredOutNormalEngineers: FilteredNormalEngineerCandidate[];
+  filteredOutCandidates: FilteredEmailCandidate[];
   warnings: string[];
+  normalEngineerApifyWarnings: NormalEngineerApifyWarningCandidate[];
+}
+
+export interface EmailWaterfallOptions {
+  rawSreCount?: number;
+  apolloSearchCache?: ApolloSearchCache;
+  recycledKeywordMatched?: EnrichedEmployee[];
+}
+
+export interface NormalEngineerApifyWarningCandidate {
+  employee: EnrichedEmployee;
+  problem: string;
 }
 
 const MAX_PER_COMPANY = 7;
@@ -41,21 +54,29 @@ const LINE_WIDTH = 62;
 const HEAVY_LINE = "═".repeat(LINE_WIDTH);
 const LIGHT_LINE = "─".repeat(LINE_WIDTH);
 const LEADERSHIP_TITLE_KEYWORDS = ["vp", "manager", "director", "head", "chief", "principal"];
+const LINKEDIN_LEADERSHIP_TITLE_KEYWORDS = ["director", "vp", "svp", "head", "chief"];
 const NORMAL_ENGINEER_STAGE_LABEL = "Normal Engineer Search";
 const SPLIT_LEADERSHIP_BUCKET: EmailCampaignBucket = "engLead";
+const MIN_SRE_COUNT_FOR_EMAIL_SRE_STAGES = 8;
 
 const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
   {
-    currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
-    notTitles: ["contract"],
+    currentTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
+    notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
     minTenureMonths: 2,
     campaignBucket: "sre",
+    splitLeadership: true,
+    leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
+    leadershipTitleKeywords: LINKEDIN_LEADERSHIP_TITLE_KEYWORDS,
   },
   {
-    pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering"],
-    notTitles: ["contract"],
+    pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
+    notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
     minTenureMonths: 2,
     campaignBucket: "sre",
+    splitLeadership: true,
+    leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
+    leadershipTitleKeywords: LINKEDIN_LEADERSHIP_TITLE_KEYWORDS,
   },
   {
     currentTitles: ["Infrastructure"],
@@ -63,6 +84,11 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "data",
       "corporate",
       "contract",
+      "contractor",
+      "freelance",
+      "freelancer",
+      "junior",
+      "jr",
       "IT",
       "helpdesk",
       "desktop",
@@ -88,6 +114,9 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "customer support",
       "technical support",
       "customer success",
+      "business",
+      "sales",
+      "trainee",
       "solutions engineer",
       "TAM",
       "operations",
@@ -98,6 +127,7 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "AI",
       "machine learning",
       "ml",
+      "automation",
       "operation",
       "development",
       "construction",
@@ -143,6 +173,11 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
     notTitles: [
       "data",
       "contract",
+      "contractor",
+      "freelance",
+      "freelancer",
+      "junior",
+      "jr",
       "AI",
       "artificial intelligence",
       "machine learning",
@@ -181,6 +216,11 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "IT",
       "corporate",
       "contract",
+      "contractor",
+      "freelance",
+      "freelancer",
+      "junior",
+      "jr",
       "enterprise", 
       "internal systems",
       "workplace",
@@ -200,6 +240,9 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "IAM",
       "support",
       "customer",
+      "business",
+      "sales",
+      "trainee",
       "solutions",
       "consultant",
       "professional services",
@@ -236,6 +279,11 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "machine learning",
       "data",
       "contract",
+      "contractor",
+      "freelance",
+      "freelancer",
+      "junior",
+      "jr",
       "frontend",
       "front-end",
       "front end",
@@ -323,6 +371,8 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "IOS",
       "AI",
       "artificial intelligence",
+      "junior",
+      "jr",
       "solution",
     ],
     minTenureMonths: 11,
@@ -339,6 +389,10 @@ const STAGE_LABELS = [
   "Normal Engineer Search",
   "Eng Leader Search",
 ];
+
+export const LINKEDIN_KEYWORD_STAGE_INFRA = EMAIL_CANDIDATE_STAGES[2];
+export const LINKEDIN_KEYWORD_STAGE_DEVOPS = EMAIL_CANDIDATE_STAGES[4];
+export const LINKEDIN_KEYWORD_STAGE_NORMAL_ENG = EMAIL_CANDIDATE_STAGES[5];
 
 function print(line: string): void {
   process.stdout.write(line + "\n");
@@ -457,19 +511,22 @@ function printPeopleTable(selected: EnrichedEmployee[], bucket: EmailCampaignBuc
   }
 }
 
-function isLeadershipRoleTitle(title: string): boolean {
+function isLeadershipRoleTitle(title: string, leadershipTitleKeywords: string[] = LEADERSHIP_TITLE_KEYWORDS): boolean {
   const normalized = title.toLowerCase();
-  return LEADERSHIP_TITLE_KEYWORDS.some((keyword) => normalized.includes(keyword));
+  return leadershipTitleKeywords.some((keyword) => normalized.includes(keyword));
 }
 
-function partitionLeadershipCandidates(candidates: EnrichedEmployee[]): {
+function partitionLeadershipCandidates(
+  candidates: EnrichedEmployee[],
+  leadershipTitleKeywords: string[] = LEADERSHIP_TITLE_KEYWORDS
+): {
   icCandidates: EnrichedEmployee[];
   leadershipCandidates: EnrichedEmployee[];
 } {
   const icCandidates: EnrichedEmployee[] = [];
   const leadershipCandidates: EnrichedEmployee[] = [];
   for (const employee of candidates) {
-    if (isLeadershipRoleTitle(employee.currentTitle)) {
+    if (isLeadershipRoleTitle(employee.currentTitle, leadershipTitleKeywords)) {
       leadershipCandidates.push(employee);
     } else {
       icCandidates.push(employee);
@@ -483,21 +540,57 @@ export async function runEmailCandidateWaterfall(
   linkedinAttemptedKeys: Set<string>,
   enrichmentCache: EnrichmentCache,
   filters: PeopleSearchFilters,
-  apifyCache: ApifyOpenToWorkCache
+  apifyCache: ApifyOpenToWorkCache,
+  options: EmailWaterfallOptions = {}
 ): Promise<EmailWaterfallResult> {
   const listA: TaggedEmailCandidate[] = [];
   const listAKeys = new Set<string>();
-  const filteredOutNormalEngineers: FilteredNormalEngineerCandidate[] = [];
+  const filteredOutCandidates: FilteredEmailCandidate[] = [];
   const warnings: string[] = [];
+  const normalEngineerApifyWarnings: NormalEngineerApifyWarningCandidate[] = [];
+  const rawSreCount = options.rawSreCount ?? Number.POSITIVE_INFINITY;
+  const apolloSearchCache = options.apolloSearchCache;
+  const recycledKeywordMatched = options.recycledKeywordMatched ?? [];
 
   print("");
   print(HEAVY_LINE);
   print(`  EMAIL WATERFALL — ${company.companyName} (${company.domain})`);
   print(`  LinkedIn exclusion keys: ${linkedinAttemptedKeys.size}`);
+  if (recycledKeywordMatched.length > 0) {
+    print(`  Recycled keyword-matched candidates: ${recycledKeywordMatched.length}`);
+  }
   print(HEAVY_LINE);
 
   for (let stageIndex = 0; stageIndex < EMAIL_CANDIDATE_STAGES.length; stageIndex += 1) {
     const stage = EMAIL_CANDIDATE_STAGES[stageIndex];
+    const stageLabel = STAGE_LABELS[stageIndex] ?? `Stage ${stageIndex + 1}`;
+    const isSreSearchStage = stageLabel === "SRE Search" || stageLabel === "Past SRE Search";
+
+    if (stageIndex === 1 && recycledKeywordMatched.length > 0 && listA.length < MAX_PER_COMPANY) {
+      print("");
+      print(`─── Recycled Keyword-Matched (from LinkedIn overflow) ${"─".repeat(8)}`);
+      const slotsForRecycled = MAX_PER_COMPANY - listA.length;
+      let recycledAdded = 0;
+      for (const emp of recycledKeywordMatched) {
+        if (recycledAdded >= slotsForRecycled) break;
+        if (hasEmployeeIdentifier(linkedinAttemptedKeys, emp)) continue;
+        if (hasEmployeeIdentifier(listAKeys, emp)) continue;
+        listA.push({ employee: emp, campaignBucket: "sre" });
+        addEmployeeIdentifiers(listAKeys, emp);
+        recycledAdded += 1;
+      }
+      print(`    Inserted ${recycledAdded} recycled keyword-matched candidates (SRE bucket)`);
+      print(`    ▸ List A: ${listA.length} / ${MAX_PER_COMPANY}`);
+      print(LIGHT_LINE);
+    }
+
+    if (isSreSearchStage && rawSreCount < MIN_SRE_COUNT_FOR_EMAIL_SRE_STAGES) {
+      printStageHeader(stageIndex);
+      printStageSkip(
+        `skipped because pre-filter SRE count is ${rawSreCount} (< ${MIN_SRE_COUNT_FOR_EMAIL_SRE_STAGES})`
+      );
+      continue;
+    }
 
     if (listA.length >= MAX_PER_COMPANY) {
       printStageHeader(stageIndex);
@@ -517,12 +610,10 @@ export async function runEmailCandidateWaterfall(
     print(`    Campaign bucket  : ${stage.campaignBucket}`);
     print("");
 
-    const rawProspects = await searchEmailCandidatePeople(
-      company,
-      MAX_SEARCH_RESULTS,
-      { currentTitles: stage.currentTitles, pastTitles: stage.pastTitles, notTitles: stage.notTitles, notPastTitles: stage.notPastTitles },
-      filters
-    );
+    const searchParams = { currentTitles: stage.currentTitles, pastTitles: stage.pastTitles, notTitles: stage.notTitles, notPastTitles: stage.notPastTitles };
+    const rawProspects = apolloSearchCache
+      ? await searchEmailCandidatePeopleCached(company, MAX_SEARCH_RESULTS, searchParams, filters, apolloSearchCache)
+      : await searchEmailCandidatePeople(company, MAX_SEARCH_RESULTS, searchParams, filters);
 
     const prospects = dedupeProspectsById(rawProspects);
 
@@ -579,20 +670,16 @@ export async function runEmailCandidateWaterfall(
     }
 
     const isNormalEngineerStage = STAGE_LABELS[stageIndex] === NORMAL_ENGINEER_STAGE_LABEL;
-    const { kept: apifyFiltered, warnings: apifyWarnings } = await scrapeAndFilterOpenToWork(tenureEligible, apifyCache, { companyName: company.companyName, companyDomain: company.domain });
+    const {
+      kept: apifyFiltered,
+      warnings: apifyWarnings,
+      filteredOut: apifyFilteredOut,
+    } = await scrapeAndFilterOpenToWork(tenureEligible, apifyCache, {
+      companyName: company.companyName,
+      companyDomain: company.domain,
+    });
     warnings.push(...apifyWarnings);
-
-    if (isNormalEngineerStage) {
-      const apifyKeptKeys = new Set<string>();
-      for (const employee of apifyFiltered) {
-        addEmployeeIdentifiers(apifyKeptKeys, employee);
-      }
-      for (const employee of tenureEligible) {
-        if (!hasEmployeeIdentifier(apifyKeptKeys, employee)) {
-          filteredOutNormalEngineers.push({ employee, reason: "open_to_work" });
-        }
-      }
-    }
+    filteredOutCandidates.push(...apifyFilteredOut);
 
     if (apifyFiltered.length === 0) {
       printStageSkip("all candidates removed by openToWork filter");
@@ -602,26 +689,23 @@ export async function runEmailCandidateWaterfall(
     let candidatesForRanking = apifyFiltered;
 
     if (isNormalEngineerStage) {
-      const frontendResult = filterFrontendEngineers(apifyFiltered, apifyCache, {
-        companyName: company.companyName,
-        companyDomain: company.domain,
-      });
+      const frontendResult = filterFrontendEngineers(apifyFiltered, apifyCache);
       candidatesForRanking = frontendResult.kept;
-      filteredOutNormalEngineers.push(
+      filteredOutCandidates.push(
         ...frontendResult.rejectedFrontend.map((employee) => ({
           employee,
           reason: "frontend_role" as const,
         }))
       );
+      normalEngineerApifyWarnings.push(
+        ...frontendResult.warningCandidates.map((warningCandidate) => ({
+          employee: warningCandidate.employee,
+          problem: warningCandidate.problem,
+        }))
+      );
 
       if (frontendResult.rejectedFrontend.length > 0) {
         print(`    Frontend     ${apifyFiltered.length} → ${frontendResult.kept.length}  (rejected ${frontendResult.rejectedFrontend.length} frontend)`);
-      }
-
-      if (frontendResult.warnings.length > 0) {
-        warnings.push(
-          `Normal Engineer Search at ${company.companyName}: could not match company for ${frontendResult.warnings.length} candidate(s) — candidates kept`
-        );
       }
 
       if (candidatesForRanking.length === 0) {
@@ -631,7 +715,10 @@ export async function runEmailCandidateWaterfall(
     }
 
     if (stage.splitLeadership) {
-      const { icCandidates, leadershipCandidates } = partitionLeadershipCandidates(candidatesForRanking);
+      const { icCandidates, leadershipCandidates } = partitionLeadershipCandidates(
+        candidatesForRanking,
+        stage.leadershipTitleKeywords
+      );
       const icSlots = MAX_PER_COMPANY - listA.length;
       const icResult = rankAndSelectCandidates(icCandidates, stage.minTenureMonths, icSlots);
       print(
@@ -697,5 +784,5 @@ export async function runEmailCandidateWaterfall(
   print(HEAVY_LINE);
   print("");
 
-  return { candidates: listA, filteredOutNormalEngineers, warnings };
+  return { candidates: listA, filteredOutCandidates, warnings, normalEngineerApifyWarnings };
 }

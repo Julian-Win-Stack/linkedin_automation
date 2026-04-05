@@ -146,6 +146,7 @@ describe("lemlistClient", () => {
     expect(getCampaignIdsForUser("julian")).toEqual({
       linkedin: {
         sreCampaignId: "cam_sre",
+        engLeadCampaignId: "cam_eng_lead_email",
         engCampaignId: "cam_eng",
       },
       email: {
@@ -159,6 +160,7 @@ describe("lemlistClient", () => {
   it("returns LinkedIn campaign ids from resolver wrappers", () => {
     expect(getLemlistLinkedinCampaignIdsForUser("julian")).toEqual({
       sreCampaignId: "cam_sre",
+      engLeadCampaignId: "cam_eng_lead_email",
       engCampaignId: "cam_eng",
     });
   });
