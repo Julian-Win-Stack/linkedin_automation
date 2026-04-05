@@ -53,7 +53,6 @@ const COLUMN_TO_ATTIO_SLUG_CANDIDATES: Record<keyof OutputRow, string[]> = {
   observability_tool_research: ["observability_tool_research", "observability_tool"],
   stage: ["stage"],
   sre_count: ["sre_count"],
-  engineer_count: ["engineer_count"],
   notes: ["notes"],
 };
 
@@ -149,7 +148,7 @@ function buildAssertTasks(rows: OutputRow[], availableSlugs: Set<string>): Build
 
       if (matchedSlug === "domains") {
         values[matchedSlug] = [normalizedDomain];
-      } else if (columnKey === "sre_count" || columnKey === "engineer_count") {
+      } else if (columnKey === "sre_count") {
         const numericValue = Number(displayValue);
         values[matchedSlug] = Number.isFinite(numericValue) ? numericValue : displayValue;
       } else {

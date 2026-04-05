@@ -20,7 +20,6 @@ function makeRow(overrides: Partial<OutputRow> = {}): OutputRow {
     observability_tool_research: "Datadog",
     stage: "ChasingPOC",
     sre_count: 4,
-    engineer_count: 50,
     notes: "ready",
     ...overrides,
   };
@@ -35,7 +34,6 @@ describe("syncApolloAccountsFromOutputRows", () => {
         ["observability_tool", "account.field_observability"],
         ["Stage", "account.field_stage"],
         ["Number of SREs", "account.field_sre_count"],
-        ["Number of Engineers", "account.field_engineer_count"],
         ["Notes", "account.field_notes"],
       ])
     );
@@ -56,7 +54,6 @@ describe("syncApolloAccountsFromOutputRows", () => {
               "account.field_observability": "Datadog",
               "account.field_stage": "ChasingPOC",
               "account.field_sre_count": "4",
-              "account.field_engineer_count": "50",
               "account.field_notes": "ready",
             },
           },

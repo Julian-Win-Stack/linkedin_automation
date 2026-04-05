@@ -308,6 +308,38 @@ router.post("/queue/:queueItemId/cancel", (req, res) => {
   return res.status(200).json({ status: "cancelled" });
 });
 
+router.post("/queue/cancel-all", (req, res) => {
+  const selectedUserRaw = typeof req.body?.selectedUser === "string" ? req.body.selectedUser : "";
+  const normalizedSelectedUser = selectedUserRaw.trim().toLowerCase();
+  if (!isSelectedUser(normalizedSelectedUser)) {
+    return res.status(400).json({
+      error: "selectedUser is required and must be one of: raihan, cherry, julian.",
+    });
+  }
+  const selectedUser: SelectedUser = normalizedSelectedUser;
+
+  const activeItems = listQueueItemsForUser(selectedUser).filter(
+    (item) => item.status === "queued" || item.status === "running"
+  );
+
+  for (const item of activeItems) {
+    if (item.status === "running" && item.jobId) {
+      markJobCancelled(item.jobId, "Queue cancelled by user.");
+    }
+    completeQueueItem(item.queueItemId, {
+      status: "cancelled",
+      warnings: item.warnings,
+      skippedCompanies: item.skippedCompanies,
+      rejectedCompanies: item.rejectedCompanies,
+      rejectedReason: item.rejectedReason,
+      campaignPushData: item.campaignPushData,
+      errorMessage: "Queue cancelled by user.",
+    });
+  }
+
+  return res.status(200).json({ status: "cancelled", cancelledCount: activeItems.length });
+});
+
 router.get("/pdf/:jobId", (req, res) => {
   const job = getJob(req.params.jobId);
   if (!job) {

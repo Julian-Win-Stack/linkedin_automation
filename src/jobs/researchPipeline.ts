@@ -10,7 +10,6 @@ import { enrichMissingEmailsWithLemlist } from "../services/lemlistBulkEmailEnri
 import { pushPeopleToLemlistEmailCampaign } from "../services/lemlistEmailPushQueue";
 import { pushPeopleToLemlistCampaign, TaggedLinkedinCandidate } from "../services/lemlistPushQueue";
 import {
-  countEngineerPeople,
   searchCurrentPlatformEngineerPeople,
   searchPastSrePeople,
   PeopleSearchFilters,
@@ -61,11 +60,7 @@ function linkedinApolloPeopleFilters(filters: PeopleSearchFilters): PeopleSearch
   return { ...filters, notTitles: LINKEDIN_APOLLO_NOT_TITLES };
 }
 const REJECTED_REASON = "rejected because they were using other observability tools";
-const MIN_ENGINEER_COUNT = 18;
-const MAX_ENGINEER_COUNT = 700;
 const MAX_SRE_COUNT = 15;
-const ENGINEER_RANGE_REJECTION_NOTE = "Engineer count not in BACCA's optimal range";
-const LARGE_ENGINEER_COUNT_MASK = "> 1000";
 const EMAIL_WATERFALL_WAIT_MS = 20 * 60 * 1000;
 const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
 const WEEKLY_LINKEDIN_PUSH_LIMIT = 100;
@@ -135,16 +130,6 @@ function dedupeProspectsById<T extends { id: string }>(items: T[]): T[] {
   }
 
   return deduped;
-}
-
-function getEngineerCountDisplayValue(engineerCount: number): number | "> 1000" {
-  if (engineerCount > 1000) {
-    return LARGE_ENGINEER_COUNT_MASK;
-  }
-  if (engineerCount === 18 || engineerCount === 19) {
-    return 20;
-  }
-  return engineerCount;
 }
 
 function toEmployeeKey(employee: EnrichedEmployee): string {
@@ -296,7 +281,6 @@ export async function runResearchPipeline(
           observability_tool_research: "",
           stage: "",
           sre_count: "",
-          engineer_count: "",
           notes: "",
         });
         if (!weeklyLimitWarningAdded) {
@@ -313,33 +297,6 @@ export async function runResearchPipeline(
       const peopleSearchFilters: PeopleSearchFilters = {
         apolloOrganizationId: row.apolloAccountId,
       };
-
-      logPipelineStage("COUNT_ENGINEERS", "Counting engineers.", companyContext);
-      const engineerCount = await countEngineerPeople(company, peopleSearchFilters);
-      const engineerCountDisplayValue = getEngineerCountDisplayValue(engineerCount);
-      logPipelineStage("COUNT_ENGINEERS_DONE", `Engineer count computed. count=${engineerCountDisplayValue}`, companyContext);
-      if (engineerCount < MIN_ENGINEER_COUNT || engineerCount > MAX_ENGINEER_COUNT) {
-        logPipelineStage(
-          "REJECT_ENGINEER_RANGE",
-          `Company rejected by engineer range. count=${engineerCountDisplayValue}`,
-          companyContext
-        );
-        rejectedCompanies.push(
-          `${row.companyName} was rejected because engineer count (${engineerCountDisplayValue}) is not in BACCA's optimal range`
-        );
-        rejectedOutputRows.push({
-          company_name: row.companyName,
-          company_domain: row.companyDomain,
-          company_linkedin_url: row.companyLinkedinUrl,
-          apollo_account_id: row.apolloAccountId ?? "",
-          observability_tool_research: "",
-          sre_count: "",
-          engineer_count: engineerCountDisplayValue,
-          status: "NotActionableNow",
-          notes: ENGINEER_RANGE_REJECTION_NOTE,
-        });
-        continue;
-      }
 
       logPipelineStage("SEARCH_CURRENT_SRE", "Searching current SRE candidates for pre-filter.", companyContext);
       const currentSreProspects = dedupeProspectsById(
@@ -358,7 +315,6 @@ export async function runResearchPipeline(
           apollo_account_id: row.apolloAccountId ?? "",
           observability_tool_research: "",
           sre_count: rawSreCount,
-          engineer_count: engineerCountDisplayValue,
           status: "NotActionableNow",
           notes: rejectionNote,
         });
@@ -384,7 +340,6 @@ export async function runResearchPipeline(
           apollo_account_id: row.apolloAccountId ?? "",
           observability_tool_research: observability,
           sre_count: rawSreCount,
-          engineer_count: engineerCountDisplayValue,
           status: "NotActionableNow",
           notes: observability.trim() || REJECTED_REASON,
         });
@@ -729,7 +684,6 @@ export async function runResearchPipeline(
           observability_tool_research: observability,
           stage: "ChasingPOC",
           sre_count: rawSreCount,
-          engineer_count: engineerCountDisplayValue,
           notes: "",
         });
         syncableOutputRows.push({
@@ -740,7 +694,6 @@ export async function runResearchPipeline(
           observability_tool_research: observability,
           stage: "ChasingPOC",
           sre_count: rawSreCount,
-          engineer_count: engineerCountDisplayValue,
           notes: "",
         });
         logPipelineStage("COMPANY_DONE", "Company processing complete.", companyContext);
@@ -756,7 +709,6 @@ export async function runResearchPipeline(
           observability_tool_research: observability,
           stage: "ChasingPOC",
           sre_count: 0,
-          engineer_count: 0,
           notes: "",
         });
         syncableOutputRows.push({
@@ -767,7 +719,6 @@ export async function runResearchPipeline(
           observability_tool_research: observability,
           stage: "ChasingPOC",
           sre_count: 0,
-          engineer_count: 0,
           notes: "",
         });
       }
@@ -931,7 +882,6 @@ export async function runResearchPipeline(
         observability_tool_research: row.observability_tool_research,
         stage: row.status,
         sre_count: row.sre_count,
-        engineer_count: row.engineer_count,
         notes: row.notes,
       }));
     const combinedOutputRows: OutputRow[] = [

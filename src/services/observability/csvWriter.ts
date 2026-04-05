@@ -8,7 +8,6 @@ export type OutputRow = {
   observability_tool_research: string;
   stage: "ChasingPOC" | "NotActionableNow" | "";
   sre_count: "" | number;
-  engineer_count: "" | number | "> 1000";
   notes: string;
 };
 
@@ -19,7 +18,6 @@ export type RejectedOutputRow = {
   apollo_account_id?: string;
   observability_tool_research: string;
   sre_count: "" | number;
-  engineer_count: "" | number | "> 1000";
   status: "NotActionableNow";
   notes: string;
 };
@@ -38,7 +36,6 @@ export function rowsToCsvString(rows: OutputRow[]): Promise<string> {
           { key: "observability_tool_research", header: "observability_tool" },
           { key: "stage", header: "Stage" },
           { key: "sre_count", header: "Number of SREs" },
-          { key: "engineer_count", header: "Number of Engineers" },
           { key: "notes", header: "Notes" },
         ],
       },
@@ -66,7 +63,6 @@ export function rejectedRowsToCsvString(rows: RejectedOutputRow[]): Promise<stri
           { key: "apollo_account_id", header: "Apollo Account Id" },
           { key: "observability_tool_research", header: "observability_tool" },
           { key: "sre_count", header: "Number of SREs" },
-          { key: "engineer_count", header: "Number of Engineers" },
           { key: "status", header: "Stage" },
           { key: "notes", header: "Notes" },
         ],

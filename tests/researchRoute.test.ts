@@ -51,6 +51,7 @@ vi.mock("../src/services/queueStore", () => ({
 
 function createTestApp() {
   const app = express();
+  app.use(express.json());
   app.use(researchRouter);
   return app;
 }
@@ -357,5 +358,95 @@ describe("research job routes", () => {
     markJobDone(jobId, Buffer.from("a,b\n1,2\n", "utf8").toString("base64"));
     const response = await request(app).post(`/cancel/${jobId}`);
     expect(response.status).toBe(409);
+  });
+
+  it("cancels all active queue items for selected user", async () => {
+    const app = createTestApp();
+    const runningJobId = createJob();
+    listQueueItemsForUserMock.mockReturnValueOnce([
+      {
+        queueItemId: "queue-running",
+        selectedUser: "julian",
+        queueOrder: 1,
+        status: "running",
+        weekStartMs: 0,
+        csvInput: "x",
+        jobId: runningJobId,
+        csvOutputBase64: null,
+        summary: null,
+        warnings: ["w1"],
+        skippedCompanies: [],
+        rejectedCompanies: [],
+        rejectedReason: null,
+        errorMessage: null,
+        campaignPushData: null,
+        createdAtMs: 1,
+        updatedAtMs: 2,
+        startedAtMs: 3,
+        completedAtMs: null,
+      },
+      {
+        queueItemId: "queue-queued",
+        selectedUser: "julian",
+        queueOrder: 2,
+        status: "queued",
+        weekStartMs: 0,
+        csvInput: "y",
+        jobId: null,
+        csvOutputBase64: null,
+        summary: null,
+        warnings: [],
+        skippedCompanies: [],
+        rejectedCompanies: [],
+        rejectedReason: null,
+        errorMessage: null,
+        campaignPushData: null,
+        createdAtMs: 1,
+        updatedAtMs: 2,
+        startedAtMs: null,
+        completedAtMs: null,
+      },
+      {
+        queueItemId: "queue-done",
+        selectedUser: "julian",
+        queueOrder: 3,
+        status: "done",
+        weekStartMs: 0,
+        csvInput: "z",
+        jobId: null,
+        csvOutputBase64: null,
+        summary: null,
+        warnings: [],
+        skippedCompanies: [],
+        rejectedCompanies: [],
+        rejectedReason: null,
+        errorMessage: null,
+        campaignPushData: null,
+        createdAtMs: 1,
+        updatedAtMs: 2,
+        startedAtMs: null,
+        completedAtMs: 4,
+      },
+    ]);
+
+    const response = await request(app)
+      .post("/queue/cancel-all")
+      .send({ selectedUser: "julian" });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      status: "cancelled",
+      cancelledCount: 2,
+    });
+    expect(completeQueueItemMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns 400 when cancel-all selectedUser is invalid", async () => {
+    const app = createTestApp();
+    const response = await request(app)
+      .post("/queue/cancel-all")
+      .send({ selectedUser: "someoneelse" });
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("selectedUser is required");
   });
 });

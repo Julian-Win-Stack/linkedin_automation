@@ -7,7 +7,7 @@ const APOLLO_ERROR_COLOR = "\x1b[31m";
 const APOLLO_WARNING_COLOR = "\x1b[33m";
 const ANSI_RESET = "\x1b[0m";
 
-const COLUMN_KEY_TO_HEADER: Record<keyof OutputRow, string> = {
+const COLUMN_KEY_TO_HEADER: Partial<Record<keyof OutputRow, string>> = {
   company_name: "Company Name",
   company_domain: "Website",
   company_linkedin_url: "Company Linkedin Url",
@@ -15,7 +15,6 @@ const COLUMN_KEY_TO_HEADER: Record<keyof OutputRow, string> = {
   observability_tool_research: "observability_tool",
   stage: "Stage",
   sre_count: "Number of SREs",
-  engineer_count: "Number of Engineers",
   notes: "Notes",
 };
 

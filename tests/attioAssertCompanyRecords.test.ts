@@ -19,7 +19,6 @@ function makeRow(overrides: Partial<OutputRow> = {}): OutputRow {
     observability_tool_research: "Datadog",
     stage: "ChasingPOC",
     sre_count: 3,
-    engineer_count: 50,
     notes: "important",
     ...overrides,
   };
@@ -36,7 +35,6 @@ describe("syncAttioCompaniesFromOutputRows", () => {
         { api_slug: "observability_tool_research" },
         { api_slug: "stage" },
         { api_slug: "sre_count" },
-        { api_slug: "engineer_count" },
         { api_slug: "notes" },
         { api_slug: "company_linkedin_url" },
       ],
@@ -60,7 +58,6 @@ describe("syncAttioCompaniesFromOutputRows", () => {
       observability_tool_research: "Datadog",
       stage: "ChasingPOC",
       sre_count: 3,
-      engineer_count: 50,
       notes: "important",
     });
     expect(body.data.values.apollo_account_id).toBeUndefined();

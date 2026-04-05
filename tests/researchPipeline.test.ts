@@ -7,7 +7,6 @@ import { TaggedEmailCandidate, EmailWaterfallResult } from "../src/services/emai
 const readCompaniesMock = vi.fn();
 const researchCompanyMock = vi.fn();
 const getCompanyMock = vi.fn();
-const countEngineerPeopleMock = vi.fn();
 const searchPeopleMock = vi.fn();
 const searchPastSrePeopleMock = vi.fn();
 const searchCurrentPlatformEngineerPeopleMock = vi.fn();
@@ -43,7 +42,6 @@ vi.mock("../src/services/getCompany", () => ({
 }));
 
 vi.mock("../src/services/searchPeople", () => ({
-  countEngineerPeople: (...args: unknown[]) => countEngineerPeopleMock(...args),
   searchPeople: (...args: unknown[]) => searchPeopleMock(...args),
   searchPastSrePeople: (...args: unknown[]) => searchPastSrePeopleMock(...args),
   searchCurrentPlatformEngineerPeople: (...args: unknown[]) => searchCurrentPlatformEngineerPeopleMock(...args),
@@ -142,7 +140,6 @@ describe("runResearchPipeline orchestration", () => {
     readCompaniesMock.mockReset();
     researchCompanyMock.mockReset();
     getCompanyMock.mockReset();
-    countEngineerPeopleMock.mockReset();
     searchPeopleMock.mockReset();
     searchPastSrePeopleMock.mockReset();
     searchCurrentPlatformEngineerPeopleMock.mockReset();
@@ -195,7 +192,6 @@ describe("runResearchPipeline orchestration", () => {
     runEmailCandidateWaterfallMock.mockResolvedValue(emptyWaterfallResult());
     researchCompanyMock.mockResolvedValue("Not found");
     getCompanyMock.mockResolvedValue({ companyName: "Acme", domain: "acme.com" });
-    countEngineerPeopleMock.mockResolvedValue(120);
     scrapeAndFilterOpenToWorkMock.mockImplementation(async (employees: EnrichedEmployee[]) => ({
       kept: employees,
       warnings: [],
@@ -446,57 +442,6 @@ describe("runResearchPipeline orchestration", () => {
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
   });
 
-  it("masks engineer count above 1000 in rejected outputs", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "BigCo", companyDomain: "big.co", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    countEngineerPeopleMock.mockResolvedValueOnce(1501);
-
-    const jobId = createJob();
-    await runResearchPipeline(jobId, "csv", {
-      azureOpenAiApiKey: "k",
-      azureOpenAiBaseUrl: "u",
-      searchApiKey: "s",
-      model: "m",
-      maxCompletionTokens: 1000,
-      nameColumn: "Company Name",
-      domainColumn: "Website",
-      apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian", Date.now());
-
-    const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
-    const rejectedRow = combinedRowsArg.find((row) => row.company_name === "BigCo");
-    expect(rejectedRow?.engineer_count).toBe("> 1000");
-
-    const job = getJob(jobId);
-    expect(job?.rejectedCompanies[0]).toContain("> 1000");
-  });
-
-  it("rounds engineer count 18 or 19 to 20 in output csv rows", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "CountCo", companyDomain: "count.co", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    countEngineerPeopleMock.mockResolvedValueOnce(19);
-    searchPeopleMock.mockResolvedValueOnce([]);
-    selectTopSreForLemlistMock.mockReturnValueOnce([]);
-
-    const jobId = createJob();
-    await runResearchPipeline(jobId, "csv", {
-      azureOpenAiApiKey: "k",
-      azureOpenAiBaseUrl: "u",
-      searchApiKey: "s",
-      model: "m",
-      maxCompletionTokens: 1000,
-      nameColumn: "Company Name",
-      domainColumn: "Website",
-      apolloAccountIdColumn: "Apollo Account Id",
-    }, "julian", Date.now());
-
-    const combinedRowsArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
-    const passRow = combinedRowsArg.find((row) => row.company_name === "CountCo");
-    expect(passRow?.engineer_count).toBe(20);
-  });
-
   it("builds combined import csv with passed rows first and rejected rows last", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([
@@ -591,7 +536,6 @@ describe("runResearchPipeline orchestration", () => {
       apolloAccountIdColumn: "Apollo Account Id",
     }, "julian", Date.now());
 
-    expect(countEngineerPeopleMock).not.toHaveBeenCalled();
     expect(searchPeopleMock).not.toHaveBeenCalled();
     expect(researchCompanyMock).not.toHaveBeenCalled();
     expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledWith([]);
@@ -603,14 +547,12 @@ describe("runResearchPipeline orchestration", () => {
       company_name: "Acme",
       stage: "",
       sre_count: "",
-      engineer_count: "",
       notes: "",
     });
     expect(combinedRowsArg[1]).toMatchObject({
       company_name: "Beta",
       stage: "",
       sre_count: "",
-      engineer_count: "",
       notes: "",
     });
 
@@ -640,9 +582,6 @@ describe("runResearchPipeline orchestration", () => {
       failedItems: [],
       outcomes: [],
     });
-    countEngineerPeopleMock
-      .mockResolvedValueOnce(120)
-      .mockResolvedValueOnce(120);
     researchCompanyMock
       .mockResolvedValueOnce("Datadog")
       .mockResolvedValueOnce("Datadog");
@@ -659,7 +598,6 @@ describe("runResearchPipeline orchestration", () => {
       apolloAccountIdColumn: "Apollo Account Id",
     }, "julian", Date.now());
 
-    expect(countEngineerPeopleMock).toHaveBeenCalledTimes(1);
     expect(researchCompanyMock).toHaveBeenCalledTimes(1);
     expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledTimes(1);
     const syncRows = syncApolloAccountsFromOutputRowsMock.mock.calls[0]?.[0] as Array<Record<string, unknown>>;
@@ -673,7 +611,6 @@ describe("runResearchPipeline orchestration", () => {
       company_name: "SecondCo",
       stage: "",
       sre_count: "",
-      engineer_count: "",
       notes: "",
     });
 

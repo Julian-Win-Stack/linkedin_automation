@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  countEngineerPeople,
   searchEmailCandidatePeople,
   searchEmailCandidatePeopleCached,
   ApolloSearchCache,
@@ -121,82 +120,6 @@ describe("searchPeople", () => {
     });
   });
 
-  it("returns current-title total_entries when current count is at least 18", async () => {
-    apolloPostWithQueryMock
-      .mockResolvedValueOnce({
-        total_entries: 26,
-        people: [{ id: "current-1", name: "Current 1", title: "Engineer" }],
-        pagination: { page: 1, total_pages: 1 },
-      });
-
-    const count = await countEngineerPeople(company);
-    expect(count).toBe(26);
-    expect(apolloPostWithQueryMock).toHaveBeenCalledTimes(1);
-
-    const [firstEndpoint, firstQuery] = apolloPostWithQueryMock.mock.calls[0] as [
-      string,
-      Record<string, unknown>
-    ];
-
-    expect(firstEndpoint).toBe("/mixed_people/api_search");
-    expect(firstQuery.page).toBe(1);
-    expect(firstQuery.per_page).toBe(100);
-    expect(firstQuery["q_organization_domains_list[]"]).toEqual(["acme.com"]);
-    expect(firstQuery["person_titles[]"]).toBeTruthy();
-  });
-
-  it("falls back to past-title total_entries when current is below 18", async () => {
-    apolloPostWithQueryMock
-      .mockResolvedValueOnce({
-        total_entries: 12,
-        people: [{ id: "current-1", name: "Current One", title: "Engineer" }],
-        pagination: { page: 1, total_pages: 1 },
-      })
-      .mockResolvedValueOnce({
-        total_entries: 22,
-        people: [{ id: "past-1", name: "Past One", title: "Engineer" }],
-        pagination: { page: 1, total_pages: 1 },
-      });
-
-    const count = await countEngineerPeople(company);
-    expect(count).toBe(22);
-    expect(apolloPostWithQueryMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("returns past-title count when both current and past are below threshold", async () => {
-    apolloPostWithQueryMock
-      .mockResolvedValueOnce({
-        total_entries: 17,
-        people: [{ id: "current-1", name: "Current One", title: "Engineer" }],
-        pagination: { page: 1, total_pages: 1 },
-      })
-      .mockResolvedValueOnce({
-        total_entries: 10,
-        people: [{ id: "past-1", name: "Past One", title: "Engineer" }],
-        pagination: { page: 1, total_pages: 1 },
-      });
-
-    const count = await countEngineerPeople(company);
-    expect(count).toBe(10);
-    expect(apolloPostWithQueryMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("uses current-page people length when total_entries is missing", async () => {
-    apolloPostWithQueryMock
-      .mockResolvedValueOnce({
-        people: Array.from({ length: 18 }, (_, index) => ({
-          id: `current-${index}`,
-          name: `Current ${index}`,
-          title: "Engineer",
-        })),
-        pagination: { page: 1, total_pages: 1 },
-      });
-
-    const count = await countEngineerPeople(company);
-    expect(count).toBe(18);
-    expect(apolloPostWithQueryMock).toHaveBeenCalledTimes(1);
-  });
-
   it("does not include domain filter when company domain is empty", async () => {
     apolloPostWithQueryMock.mockResolvedValueOnce({
       people: [{ id: "person-1", name: "No Domain", title: "SRE" }],
@@ -207,59 +130,6 @@ describe("searchPeople", () => {
     const requestQuery = apolloPostWithQueryMock.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(requestQuery["q_organization_domains_list[]"]).toBeUndefined();
     expect(requestQuery["q_organization_ids[]"]).toEqual(["org_123"]);
-  });
-
-  it("passes q_organization_ids[] for engineer counting when provided", async () => {
-    apolloPostWithQueryMock.mockResolvedValueOnce({
-      total_entries: 18,
-      people: [{ id: "current-1", name: "Current One", title: "Engineer" }],
-      pagination: { page: 1, total_pages: 1 },
-    });
-
-    await countEngineerPeople(company, { apolloOrganizationId: "org_abc" });
-
-    expect(apolloPostWithQueryMock).toHaveBeenNthCalledWith(1, "/mixed_people/api_search", {
-      page: 1,
-      per_page: 100,
-      include_similar_titles: true,
-      "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_abc"],
-      "person_titles[]": expect.any(Array),
-    });
-    expect(apolloPostWithQueryMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("queries past titles when current title count is below 18 and includes org id", async () => {
-    apolloPostWithQueryMock
-      .mockResolvedValueOnce({
-        total_entries: 12,
-        people: [{ id: "current-1", name: "Current One", title: "Engineer" }],
-        pagination: { page: 1, total_pages: 1 },
-      })
-      .mockResolvedValueOnce({
-        total_entries: 17,
-        people: [{ id: "past-1", name: "Past One", title: "Engineer" }],
-        pagination: { page: 1, total_pages: 1 },
-      });
-
-    await countEngineerPeople(company, { apolloOrganizationId: "org_abc" });
-
-    expect(apolloPostWithQueryMock).toHaveBeenNthCalledWith(1, "/mixed_people/api_search", {
-      page: 1,
-      per_page: 100,
-      include_similar_titles: true,
-      "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_abc"],
-      "person_titles[]": expect.any(Array),
-    });
-    expect(apolloPostWithQueryMock).toHaveBeenNthCalledWith(2, "/mixed_people/api_search", {
-      page: 1,
-      per_page: 100,
-      include_similar_titles: true,
-      "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_abc"],
-      "person_past_titles[]": expect.any(Array),
-    });
   });
 
   it("queries targeted past SRE helper with person_past_titles[]", async () => {

@@ -261,6 +261,27 @@ async function cancelQueueItem(queueItemId: string): Promise<void> {
     error.value = cancelError instanceof Error ? cancelError.message : String(cancelError);
   }
 }
+
+async function cancelAllQueueItems(): Promise<void> {
+  if (!selectedUser.value || isSubmitting.value) {
+    return;
+  }
+  try {
+    const response = await fetch(`${API_URL}/queue/cancel-all`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selectedUser: selectedUser.value }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(payload.error ?? "Failed to cancel queue.");
+    }
+    await refreshQueueItems();
+    await refreshWeeklySuccessTotals();
+  } catch (cancelError) {
+    error.value = cancelError instanceof Error ? cancelError.message : String(cancelError);
+  }
+}
 </script>
 
 <template>
@@ -269,7 +290,9 @@ async function cancelQueueItem(queueItemId: string): Promise<void> {
       <div class="rounded-full border border-indigo-400/40 bg-[#121a2c]/90 px-3 py-1.5 text-xs font-semibold tracking-wide text-indigo-200 shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
         User: {{ selectedUserLabel }}
       </div>
-      <div class="w-full rounded-xl border border-indigo-400/25 bg-[#10192b]/90 px-3 py-2 text-[11px] text-indigo-100 shadow-[0_8px_20px_rgba(0,0,0,0.28)]">
+      <div
+        class="w-full rounded-xl border border-indigo-400/25 bg-[#10192b]/90 px-3 py-2 text-center text-[11px] text-indigo-100 shadow-[0_8px_20px_rgba(0,0,0,0.28)]"
+      >
         <p class="font-medium">LinkedIn count: {{ weeklySuccessTotals.linkedin }}</p>
         <p class="mt-1 font-medium">Email count: {{ weeklySuccessTotals.email }}</p>
       </div>
@@ -283,14 +306,12 @@ async function cancelQueueItem(queueItemId: string): Promise<void> {
 
     <div class="mx-auto flex min-h-screen w-full max-w-5xl items-start py-12">
       <div class="w-full space-y-4">
-        <h1 class="text-2xl font-semibold tracking-tight text-zinc-100">Outbound Queue</h1>
+        <h1 class="text-2xl font-semibold tracking-tight text-zinc-100">Start Outbound</h1>
 
         <div
           class="rounded-xl border border-[#1d2537] bg-[#0d1320]/90 p-4 shadow-[0_18px_50px_rgba(0,0,0,0.45)] space-y-3"
           :class="!selectedUser ? 'pointer-events-none opacity-40 select-none blur-[1px]' : ''"
         >
-          <p class="text-[11px] font-medium tracking-wide text-zinc-500">Queue limit: 10 active files per user</p>
-
           <div
             class="rounded-lg border border-dashed bg-[#0a1220]/50 p-3 transition"
             :class="
@@ -329,13 +350,22 @@ async function cancelQueueItem(queueItemId: string): Promise<void> {
 
           <div class="flex items-center justify-between gap-3">
             <p class="text-xs text-zinc-400">Active queue items: {{ activeQueueCount }}/10</p>
-            <button
-              class="rounded-md bg-indigo-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40"
-              :disabled="!canAddToQueue"
-              @click="addToQueue"
-            >
-              {{ isSubmitting ? "Adding..." : "Add to Queue" }}
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                class="rounded-md border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:border-rose-300/50 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                :disabled="isSubmitting || activeQueueCount === 0"
+                @click="cancelAllQueueItems"
+              >
+                Cancel
+              </button>
+              <button
+                class="rounded-md bg-indigo-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40"
+                :disabled="!canAddToQueue"
+                @click="addToQueue"
+              >
+                {{ isSubmitting ? "Adding..." : "Add to Queue" }}
+              </button>
+            </div>
           </div>
           <p v-if="error" class="text-sm text-red-400">{{ error }}</p>
         </div>
@@ -343,12 +373,6 @@ async function cancelQueueItem(queueItemId: string): Promise<void> {
         <div class="rounded-xl border border-[#1d2537] bg-[#0d1320]/90 p-4 shadow-[0_18px_50px_rgba(0,0,0,0.45)]">
           <div class="mb-3 flex items-center justify-between">
             <h2 class="text-sm font-semibold tracking-tight text-zinc-100">Queue Timeline</h2>
-            <button
-              class="rounded-md border border-zinc-700 bg-zinc-900/60 px-3 py-1.5 text-xs font-semibold text-zinc-300 transition hover:bg-zinc-800/70"
-              @click="refreshQueueItems"
-            >
-              Refresh
-            </button>
           </div>
 
           <div v-if="queueItems.length === 0" class="rounded-lg border border-zinc-800 bg-[#0a1220]/40 p-4 text-sm text-zinc-400">
