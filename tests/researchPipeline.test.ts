@@ -13,7 +13,6 @@ const searchPastSrePeopleMock = vi.fn();
 const searchCurrentPlatformEngineerPeopleMock = vi.fn();
 const searchEmailCandidatePeopleCachedMock = vi.fn();
 const bulkEnrichPeopleMock = vi.fn();
-const runWaterfallEmailForPersonIdsMock = vi.fn();
 const enrichMissingEmailsWithLemlistMock = vi.fn();
 const selectTopSreForLemlistMock = vi.fn();
 const fillToMinimumWithBackfillMock = vi.fn();
@@ -52,7 +51,6 @@ vi.mock("../src/services/searchPeople", () => ({
 
 vi.mock("../src/services/bulkEnrichPeople", () => ({
   bulkEnrichPeople: (...args: unknown[]) => bulkEnrichPeopleMock(...args),
-  runWaterfallEmailForPersonIds: (...args: unknown[]) => runWaterfallEmailForPersonIdsMock(...args),
 }));
 
 vi.mock("../src/services/lemlistBulkEmailEnrichment", () => ({
@@ -148,7 +146,6 @@ describe("runResearchPipeline orchestration", () => {
     searchCurrentPlatformEngineerPeopleMock.mockReset();
     searchEmailCandidatePeopleCachedMock.mockReset();
     bulkEnrichPeopleMock.mockReset();
-    runWaterfallEmailForPersonIdsMock.mockReset();
     enrichMissingEmailsWithLemlistMock.mockReset();
     selectTopSreForLemlistMock.mockReset();
     fillToMinimumWithBackfillMock.mockReset();
@@ -185,7 +182,6 @@ describe("runResearchPipeline orchestration", () => {
     searchCurrentPlatformEngineerPeopleMock.mockResolvedValue([]);
     searchPastSrePeopleMock.mockResolvedValue([]);
     bulkEnrichPeopleMock.mockResolvedValue([]);
-    runWaterfallEmailForPersonIdsMock.mockResolvedValue(new Map());
     enrichMissingEmailsWithLemlistMock.mockResolvedValue({
       attempted: 0,
       accepted: 0,
@@ -231,7 +227,6 @@ describe("runResearchPipeline orchestration", () => {
     countProcessableCompaniesMock.mockResolvedValue(500);
     process.env.LEMLIST_PUSH_ENABLED = "true";
     process.env.LEMLIST_BULK_FIND_EMAIL_ENABLED = "true";
-    delete process.env.APOLLO_WATERFALL_ENABLED;
   });
 
   it("uses backfill in two phases with max 7 then max 5", async () => {

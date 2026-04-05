@@ -3,7 +3,6 @@ import { PipelineConfig } from "../config/pipelineConfig";
 import {
   bulkEnrichPeople,
   EnrichmentCache,
-  runWaterfallEmailForPersonIds,
 } from "../services/bulkEnrichPeople";
 import { getCompany, ResolvedCompany } from "../services/getCompany";
 import { enrichMissingEmailsWithLemlist } from "../services/lemlistBulkEmailEnrichment";
@@ -68,7 +67,6 @@ function linkedinApolloPeopleFilters(filters: PeopleSearchFilters): PeopleSearch
 }
 const REJECTED_REASON = "rejected because they were using other observability tools";
 const MAX_SRE_COUNT = 15;
-const EMAIL_WATERFALL_WAIT_MS = 20 * 60 * 1000;
 const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
 const WEEKLY_LINKEDIN_PUSH_LIMIT = 100;
 const LINKEDIN_LEADERSHIP_TITLE_REGEX = /\b(director|svp|vp|head|chief)\b/i;
@@ -241,7 +239,6 @@ export async function runResearchPipeline(
   const rejectedCompanies: string[] = [];
   const skippedCompanies: string[] = [];
   const pendingEmailPushBatches: PendingEmailPushBatch[] = [];
-  const globalMissingEmailPersonIds = new Set<string>();
   const enrichmentCache: EnrichmentCache = new Map();
   let totalRows = 0;
   let skippedMissingWebsiteAndApolloAccountIdCount = 0;
@@ -279,7 +276,6 @@ export async function runResearchPipeline(
     setJobMessage(jobId, "Starting engineer and SRE pre-filter...");
 
     const lemlistEnabled = getEnvBoolean("LEMLIST_PUSH_ENABLED", true);
-    const waterfallEnabled = getEnvBoolean("APOLLO_WATERFALL_ENABLED", false);
     const lemlistBulkFindEmailEnabled = getEnvBoolean("LEMLIST_BULK_FIND_EMAIL_ENABLED", true);
     const progressTotalRows = Math.min(
       await countProcessableCompanies({
@@ -714,14 +710,9 @@ export async function runResearchPipeline(
               companyDomain: company.domain,
               candidates: waterfallResult.candidates,
             });
-            for (const { employee } of waterfallResult.candidates) {
-              if (!employee.email && employee.id) {
-                globalMissingEmailPersonIds.add(employee.id);
-              }
-            }
             logPipelineStage(
               "QUEUE_EMAIL_BATCH",
-              `Email batch queued. missing_email_so_far=${globalMissingEmailPersonIds.size}`,
+              `Email batch queued. candidates=${waterfallResult.candidates.length}`,
               companyContext
             );
           }
@@ -775,7 +766,6 @@ export async function runResearchPipeline(
       }
     }
 
-    let recoveredEmailsByPersonId = new Map<string, string>();
     if (lemlistEnabled && lemlistBulkFindEmailEnabled && pendingEmailPushBatches.length > 0) {
       const missingEmailCandidates = pendingEmailPushBatches.flatMap((batch) =>
         batch.candidates
@@ -809,41 +799,6 @@ export async function runResearchPipeline(
       }
     }
 
-    if (lemlistEnabled && lemlistBulkFindEmailEnabled && waterfallEnabled && globalMissingEmailPersonIds.size > 0) {
-      logPipelineStage(
-        "GLOBAL_WATERFALL_SKIPPED",
-        `Global waterfall skipped because LEMLIST_BULK_FIND_EMAIL_ENABLED is true. missing_people=${globalMissingEmailPersonIds.size}`
-      );
-    } else if (lemlistEnabled && waterfallEnabled && globalMissingEmailPersonIds.size > 0) {
-      logPipelineStage(
-        "GLOBAL_WATERFALL_START",
-        `Global waterfall started: missing_people=${globalMissingEmailPersonIds.size} wait_ms=${EMAIL_WATERFALL_WAIT_MS}`
-      );
-      setJobMessage(
-        jobId,
-        `Running Apollo waterfall for ${globalMissingEmailPersonIds.size} missing emails (max wait ${Math.round(EMAIL_WATERFALL_WAIT_MS / 60000)} minutes).`
-      );
-      try {
-        recoveredEmailsByPersonId = await runWaterfallEmailForPersonIds(
-          [...globalMissingEmailPersonIds],
-          EMAIL_WATERFALL_WAIT_MS
-        );
-        logPipelineStage(
-          "GLOBAL_WATERFALL_DONE",
-          `Global waterfall complete: recovered_emails=${recoveredEmailsByPersonId.size}`
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown Apollo waterfall error";
-        addJobWarning(jobId, `Apollo waterfall batch failed: ${message}`);
-        logPipelineStage("GLOBAL_WATERFALL_FAILED", `Global waterfall failed. error=${message}`);
-      }
-    } else if (lemlistEnabled && !waterfallEnabled && globalMissingEmailPersonIds.size > 0) {
-      logPipelineStage(
-        "GLOBAL_WATERFALL_SKIPPED",
-        `Global waterfall skipped because APOLLO_WATERFALL_ENABLED is false. missing_people=${globalMissingEmailPersonIds.size}`
-      );
-    }
-
     if (lemlistEnabled && pendingEmailPushBatches.length > 0) {
       logPipelineStage(
         "EMAIL_PUSH_STAGE_START",
@@ -852,16 +807,6 @@ export async function runResearchPipeline(
       for (const batch of pendingEmailPushBatches) {
         if (isCancelled(jobId)) {
           return;
-        }
-
-        for (const { employee } of batch.candidates) {
-          if (employee.email || !employee.id) {
-            continue;
-          }
-          const recoveredEmail = recoveredEmailsByPersonId.get(employee.id);
-          if (recoveredEmail) {
-            employee.email = recoveredEmail;
-          }
         }
 
         const emailPushMeta = await pushPeopleToLemlistEmailCampaign(
