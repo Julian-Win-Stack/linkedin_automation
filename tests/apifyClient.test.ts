@@ -12,6 +12,7 @@ import {
   filterFrontendEngineers,
   filterByKeywordsInApifyData,
   scrapeAndFilterOpenToWork,
+  filterOpenToWorkFromCache,
 } from "../src/services/apifyClient";
 
 function makeEmployee(
@@ -976,6 +977,58 @@ describe("scrapeAndFilterOpenToWork", () => {
     expect(cached).toBeDefined();
     expect(cached!.openToWork).toBe(false);
     expect(cached!.experience).toHaveLength(1);
+  });
+});
+
+describe("filterOpenToWorkFromCache", () => {
+  it("keeps non-open-to-work employees from cache", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/kept", {
+      openToWork: false,
+      experience: [],
+      profileSkills: [],
+      canonicalLinkedinUrl: "https://linkedin.com/in/kept",
+    });
+
+    const result = filterOpenToWorkFromCache(
+      [makeEmployee({ name: "Kept", linkedinUrl: "https://linkedin.com/in/kept" })],
+      cache,
+      { companyName: "Acme", companyDomain: "acme.com" }
+    );
+
+    expect(result.kept).toHaveLength(1);
+    expect(result.filteredOut).toHaveLength(0);
+  });
+
+  it("filters open-to-work employees from cache", () => {
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/otw", {
+      openToWork: true,
+      experience: [],
+      profileSkills: [],
+      canonicalLinkedinUrl: "https://linkedin.com/in/otw",
+    });
+
+    const result = filterOpenToWorkFromCache(
+      [makeEmployee({ name: "OTW", linkedinUrl: "https://linkedin.com/in/otw" })],
+      cache,
+      { companyName: "Acme", companyDomain: "acme.com" }
+    );
+
+    expect(result.kept).toHaveLength(0);
+    expect(result.filteredOut).toHaveLength(1);
+    expect(result.filteredOut[0].reason).toBe("open_to_work");
+  });
+
+  it("keeps cache misses as fail-open", () => {
+    const result = filterOpenToWorkFromCache(
+      [makeEmployee({ name: "Missing", linkedinUrl: "https://linkedin.com/in/missing" })],
+      new Map(),
+      { companyName: "Acme", companyDomain: "acme.com" }
+    );
+
+    expect(result.kept).toHaveLength(1);
+    expect(result.filteredOut).toHaveLength(0);
   });
 });
 

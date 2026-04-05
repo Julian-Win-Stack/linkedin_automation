@@ -1,20 +1,12 @@
 import { getEnvBoolean } from "../config/env";
 import { PipelineConfig } from "../config/pipelineConfig";
-import {
-  bulkEnrichPeople,
-  EnrichmentCache,
-} from "../services/bulkEnrichPeople";
 import { getCompany, ResolvedCompany } from "../services/getCompany";
 import { enrichMissingEmailsWithLemlist } from "../services/lemlistBulkEmailEnrichment";
 import { pushPeopleToLemlistEmailCampaign } from "../services/lemlistEmailPushQueue";
 import { pushPeopleToLemlistCampaign, TaggedLinkedinCandidate } from "../services/lemlistPushQueue";
 import {
-  searchCurrentPlatformEngineerPeople,
-  searchPastSrePeople,
   PeopleSearchFilters,
   searchPeople,
-  searchEmailCandidatePeopleCached,
-  ApolloSearchCache,
 } from "../services/searchPeople";
 import { countProcessableCompanies, readCompanies } from "../services/observability/csvReader";
 import { researchCompany } from "../services/observability/openaiClient";
@@ -44,10 +36,12 @@ import {
 import { EnrichedEmployee, ApifyOpenToWorkCache, LemlistPushOutcome, Prospect } from "../types/prospect";
 import { SelectedUser } from "../shared/selectedUser";
 import { runEmailCandidateWaterfall, TaggedEmailCandidate, LINKEDIN_KEYWORD_STAGE_INFRA, LINKEDIN_KEYWORD_STAGE_DEVOPS, LINKEDIN_KEYWORD_STAGE_NORMAL_ENG } from "../services/emailCandidateWaterfall";
-import { scrapeAndFilterOpenToWork, splitByTenure, filterByKeywordsInApifyData } from "../services/apifyClient";
+import { filterOpenToWorkFromCache, splitByTenure, filterByKeywordsInApifyData } from "../services/apifyClient";
 import { syncApolloAccountsFromOutputRows } from "../services/apolloBulkUpdateAccounts";
 import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompanyRecords";
 import { getWeeklySuccessCounts, saveWeeklySuccessForJob } from "../services/weeklySuccessStore";
+import { scrapeCompanyEmployees, filterPoolByStage } from "../services/apifyCompanyEmployees";
+import { findEmailsInBulk } from "../services/apifyBulkEmailFinder";
 
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = [
@@ -60,7 +54,7 @@ const SRE_PERSON_TITLES = [
 ];
 const MAX_RESULTS = 30;
 /** Current-title exclusions for LinkedIn Apollo searches (SRE, past SRE, platform backfill). */
-const LINKEDIN_APOLLO_NOT_TITLES = ["contract", "junior", "jr"];
+const LINKEDIN_APOLLO_NOT_TITLES: string[] = [];
 
 function linkedinApolloPeopleFilters(filters: PeopleSearchFilters): PeopleSearchFilters {
   return { ...filters, notTitles: LINKEDIN_APOLLO_NOT_TITLES };
@@ -110,6 +104,13 @@ interface PendingEmailPushBatch {
   companyName: string;
   companyDomain: string;
   candidates: TaggedEmailCandidate[];
+}
+
+type LinkedinPoolBucket = "sre" | "eng" | "engLead";
+
+interface LinkedinPoolCandidate {
+  employee: EnrichedEmployee;
+  linkedinBucket: LinkedinPoolBucket;
 }
 
 function isCancelled(jobId: string): boolean {
@@ -181,6 +182,20 @@ function isLinkedinLeadershipTitle(title: string | null | undefined): boolean {
   return LINKEDIN_LEADERSHIP_TITLE_REGEX.test(title);
 }
 
+function dedupeEmployeesByKey(employees: EnrichedEmployee[]): EnrichedEmployee[] {
+  const seen = new Set<string>();
+  const deduped: EnrichedEmployee[] = [];
+  for (const employee of employees) {
+    const key = toEmployeeKey(employee);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(employee);
+  }
+  return deduped;
+}
+
 function logPipelineInfo(_line: string): void {
   // Intentionally muted to reduce noisy normal-color logs.
 }
@@ -239,7 +254,6 @@ export async function runResearchPipeline(
   const rejectedCompanies: string[] = [];
   const skippedCompanies: string[] = [];
   const pendingEmailPushBatches: PendingEmailPushBatch[] = [];
-  const enrichmentCache: EnrichmentCache = new Map();
   let totalRows = 0;
   let skippedMissingWebsiteAndApolloAccountIdCount = 0;
   let apolloProcessedCompanyCount = 0;
@@ -394,26 +408,39 @@ export async function runResearchPipeline(
       logPipelineStage("COMPANY_START", "Company processing started.", companyContext);
 
       try {
-        const apifyCache: ApifyOpenToWorkCache = new Map();
-        logPipelineInfo(`\n${"═".repeat(78)}\n  LINKEDIN CAMPAIGN — SRE Search — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
-        logPipelineInfo(`  ▸ Reusing ${rawSreCount} pre-filtered current SRE candidates\n`);
-        logPipelineInfo(`  ▸ Enriching ${currentSreProspects.length} current SRE candidates...\n`);
-        logPipelineStage("ENRICH_CURRENT_SRE", "Enriching current SRE candidates.", companyContext);
-        const enrichedEmployees = await bulkEnrichPeople(currentSreProspects, enrichmentCache);
-        const { eligible: tenureEligibleSre } = splitByTenure(enrichedEmployees, 2);
-        logPipelineInfo(`  ▸ Checking openToWork for ${tenureEligibleSre.length} current SRE candidates...\n`);
-        logPipelineStage("APIFY_CURRENT_SRE", `Checking openToWork for ${tenureEligibleSre.length} current SRE candidates.`, companyContext);
-        const {
-          kept: apifyFilteredSre,
-          warnings: apifyWarnsSre,
-          filteredOut: apifyFilteredOutSre,
-        } = await scrapeAndFilterOpenToWork(tenureEligibleSre, apifyCache, {
+        logPipelineInfo(`\n${"═".repeat(78)}\n  APIFY COMPANY POOL — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
+        logPipelineStage("APIFY_COMPANY_POOL_START", "Fetching company-wide engineering pool from Apify.", companyContext);
+        const poolResult = await scrapeCompanyEmployees({
+          companyName: company.companyName,
+          companyDomain: company.domain,
+          companyLinkedinUrl: row.companyLinkedinUrl,
+          maxItemsPerCompany: 100,
+        });
+        const apifyCache = poolResult.apifyCache;
+        const profilePool = dedupeEmployeesByKey(poolResult.employees);
+        logPipelineStage(
+          "APIFY_COMPANY_POOL_DONE",
+          `Company pool loaded. profiles=${poolResult.profileCount} mapped=${profilePool.length}`,
+          companyContext
+        );
+
+        const linkedinCandidates: LinkedinPoolCandidate[] = [];
+        let keywordMatchedEmailRecycled: EnrichedEmployee[] = [];
+        let prePlatformKeys: Set<string> | null = null;
+
+        const currentSrePool = profilePool.filter((employee) =>
+          SRE_PERSON_TITLES.some((keyword) => employee.currentTitle.toLowerCase().includes(keyword.toLowerCase()))
+        );
+        const { eligible: tenureEligibleSre } = splitByTenure(currentSrePool, 2);
+        const currentSreFiltered = filterOpenToWorkFromCache(tenureEligibleSre, apifyCache, {
           companyName: row.companyName,
           companyDomain: row.companyDomain,
         });
-        for (const w of apifyWarnsSre) { addJobWarning(jobId, w); }
+        for (const warning of currentSreFiltered.warnings) {
+          addJobWarning(jobId, warning);
+        }
         campaignPushData.filteredOutCandidates.push(
-          ...apifyFilteredOutSre.map(({ employee, reason }) => ({
+          ...currentSreFiltered.filteredOut.map(({ employee, reason }) => ({
             companyName: company.companyName,
             name: employee.name,
             title: employee.currentTitle,
@@ -421,63 +448,38 @@ export async function runResearchPipeline(
             reason,
           }))
         );
-        const selectedCurrentSre = selectTopSreForLemlist(apifyFilteredSre, 7);
-        logPipelineInfo(`  ▸ Selected ${selectedCurrentSre.length} current SRE for LinkedIn seed\n`);
-        logPipelineStage(
-          "SELECT_CURRENT_SRE",
-          `Current SRE selected for LinkedIn seed. selected=${selectedCurrentSre.length}`,
-          companyContext
+        const selectedCurrentSre = selectTopSreForLemlist(currentSreFiltered.kept, 7);
+        linkedinCandidates.push(
+          ...selectedCurrentSre.map((employee) => ({
+            employee,
+            linkedinBucket: isLinkedinLeadershipTitle(employee.currentTitle) ? "engLead" : "sre",
+          }))
         );
-        let selectedForLemlist = selectedCurrentSre;
-        let prePlatformKeys: Set<string> | null = null;
-        let keywordMatchedEmailRecycled: EnrichedEmployee[] = [];
-        const apolloSearchCache: ApolloSearchCache = new Map();
 
-        // LinkedIn Keyword Expansion: search DevOps/Infra/Normal Eng for SRE-keyword matches
         {
           logPipelineInfo(`\n${"═".repeat(78)}\n  LINKEDIN KEYWORD EXPANSION — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
           logPipelineStage("KEYWORD_EXPANSION_START", "LinkedIn keyword expansion started.", companyContext);
-
           const allKeywordMatched: EnrichedEmployee[] = [];
-          const sreProspectIds = new Set(currentSreProspects.map((p) => p.id));
+          const alreadyLinkedinKeys = new Set(linkedinCandidates.map((candidate) => toEmployeeKey(candidate.employee)));
 
           for (const { label, config: stageConfig } of LINKEDIN_KEYWORD_STAGES) {
-            logPipelineInfo(`  ▸ Searching ${label} candidates...\n`);
-            const searchParams = {
+            logPipelineInfo(`  ▸ Filtering ${label} candidates from local pool...\n`);
+            const stagePool = filterPoolByStage(profilePool, apifyCache, {
               currentTitles: stageConfig.currentTitles,
               pastTitles: stageConfig.pastTitles,
               notTitles: stageConfig.notTitles,
               notPastTitles: stageConfig.notPastTitles,
-            };
-            const rawProspects = await searchEmailCandidatePeopleCached(
-              company,
-              MAX_RESULTS,
-              searchParams,
-              peopleSearchFilters,
-              apolloSearchCache
-            );
-            const prospects = dedupeProspectsById(rawProspects).filter((p) => !sreProspectIds.has(p.id));
-            logPipelineInfo(`  ▸ ${label}: ${rawProspects.length} raw → ${prospects.length} after dedup\n`);
-
-            if (prospects.length === 0) continue;
-
-            const enriched = await bulkEnrichPeople(prospects, enrichmentCache);
-            const { eligible: tenureEligible } = splitByTenure(enriched, 2);
-            logPipelineInfo(`  ▸ ${label}: ${enriched.length} enriched → ${tenureEligible.length} after tenure filter (2mo)\n`);
-
-            if (tenureEligible.length === 0) continue;
-
-            const {
-              kept: apifyFiltered,
-              warnings: apifyWarns,
-              filteredOut: apifyFilteredOut,
-            } = await scrapeAndFilterOpenToWork(tenureEligible, apifyCache, {
+            }).filter((employee) => !alreadyLinkedinKeys.has(toEmployeeKey(employee)));
+            const { eligible: tenureEligible } = splitByTenure(stagePool, 2);
+            const stageFiltered = filterOpenToWorkFromCache(tenureEligible, apifyCache, {
               companyName: row.companyName,
               companyDomain: row.companyDomain,
             });
-            for (const w of apifyWarns) { addJobWarning(jobId, w); }
+            for (const warning of stageFiltered.warnings) {
+              addJobWarning(jobId, warning);
+            }
             campaignPushData.filteredOutCandidates.push(
-              ...apifyFilteredOut.map(({ employee, reason }) => ({
+              ...stageFiltered.filteredOut.map(({ employee, reason }) => ({
                 companyName: company.companyName,
                 name: employee.name,
                 title: employee.currentTitle,
@@ -485,58 +487,46 @@ export async function runResearchPipeline(
                 reason,
               }))
             );
-
-            if (apifyFiltered.length === 0) continue;
-
-            const { matched } = filterByKeywordsInApifyData(apifyFiltered, apifyCache, SRE_WORK_KEYWORDS);
-            logPipelineInfo(`  ▸ ${label}: ${matched.length} matched SRE keywords\n`);
+            const { matched } = filterByKeywordsInApifyData(stageFiltered.kept, apifyCache, SRE_WORK_KEYWORDS);
             allKeywordMatched.push(...matched);
+            logPipelineInfo(`  ▸ ${label}: ${matched.length} matched SRE keywords\n`);
           }
 
           if (allKeywordMatched.length > 0) {
+            const selectedForLinkedin = linkedinCandidates.map((candidate) => candidate.employee);
             const { forLinkedin, forEmailRecycling } = selectKeywordMatchedByTenure(
               allKeywordMatched,
-              selectedForLemlist,
+              selectedForLinkedin,
               7
             );
-            selectedForLemlist = [...selectedForLemlist, ...forLinkedin];
+            linkedinCandidates.push(
+              ...forLinkedin.map((employee) => ({
+                employee,
+                linkedinBucket: isLinkedinLeadershipTitle(employee.currentTitle) ? "engLead" : "sre",
+              }))
+            );
             keywordMatchedEmailRecycled = forEmailRecycling;
-            logPipelineInfo(`  ▸ Keyword expansion: ${forLinkedin.length} added to LinkedIn, ${forEmailRecycling.length} recycled to email\n`);
           }
-
           logPipelineStage(
             "KEYWORD_EXPANSION_DONE",
-            `Keyword expansion complete. linkedin_total=${selectedForLemlist.length} recycled=${keywordMatchedEmailRecycled.length}`,
+            `Keyword expansion complete. linkedin_total=${linkedinCandidates.length} recycled=${keywordMatchedEmailRecycled.length}`,
             companyContext
           );
         }
 
+        let selectedForLemlist = dedupeEmployeesByKey(linkedinCandidates.map((candidate) => candidate.employee));
         if (selectedForLemlist.length < 7) {
-          logPipelineInfo(`  ▸ Backfill Phase 1 — Searching past SRE candidates...\n`);
           logPipelineStage("BACKFILL_PHASE_1_START", "Backfill phase 1 (past SRE) started.", companyContext);
-          const pastSreProspects = dedupeProspectsById(
-            await searchPastSrePeople(
-              company,
-              MAX_RESULTS,
-              linkedinApolloPeopleFilters({ apolloOrganizationId: row.apolloAccountId })
-            )
-          );
-          logPipelineInfo(`  ▸ Enriching ${pastSreProspects.length} past SRE candidates...\n`);
-          const pastSreEnriched = await bulkEnrichPeople(pastSreProspects, enrichmentCache);
-          const { eligible: tenureEligiblePastSre } = splitByTenure(pastSreEnriched, 2);
-          logPipelineInfo(`  ▸ Checking openToWork for ${tenureEligiblePastSre.length} past SRE candidates...\n`);
-          logPipelineStage("APIFY_PAST_SRE", `Checking openToWork for ${tenureEligiblePastSre.length} past SRE candidates.`, companyContext);
-          const {
-            kept: apifyFilteredPastSre,
-            warnings: apifyWarnsPastSre,
-            filteredOut: apifyFilteredOutPastSre,
-          } = await scrapeAndFilterOpenToWork(tenureEligiblePastSre, apifyCache, {
+          const pastSrePool = filterPoolByStage(profilePool, apifyCache, {
+            pastTitles: SRE_PERSON_TITLES,
+          });
+          const { eligible: tenureEligiblePastSre } = splitByTenure(pastSrePool, 2);
+          const pastSreFiltered = filterOpenToWorkFromCache(tenureEligiblePastSre, apifyCache, {
             companyName: row.companyName,
             companyDomain: row.companyDomain,
           });
-          for (const w of apifyWarnsPastSre) { addJobWarning(jobId, w); }
           campaignPushData.filteredOutCandidates.push(
-            ...apifyFilteredOutPastSre.map(({ employee, reason }) => ({
+            ...pastSreFiltered.filteredOut.map(({ employee, reason }) => ({
               companyName: company.companyName,
               name: employee.name,
               title: employee.currentTitle,
@@ -544,11 +534,10 @@ export async function runResearchPipeline(
               reason,
             }))
           );
-          selectedForLemlist = fillToMinimumWithBackfill(selectedCurrentSre, apifyFilteredPastSre, [], {
+          selectedForLemlist = fillToMinimumWithBackfill(selectedCurrentSre, pastSreFiltered.kept, [], {
             minimum: 7,
             max: 7,
           });
-          logPipelineInfo(`  ▸ Backfill Phase 1 done — ${selectedForLemlist.length} selected so far\n`);
           logPipelineStage(
             "BACKFILL_PHASE_1_DONE",
             `Backfill phase 1 complete. selected_after_phase1=${selectedForLemlist.length}`,
@@ -557,31 +546,17 @@ export async function runResearchPipeline(
 
           if (selectedForLemlist.length < 5) {
             prePlatformKeys = new Set(selectedForLemlist.map(toEmployeeKey));
-            logPipelineInfo(`  ▸ Backfill Phase 2 — Searching platform candidates...\n`);
             logPipelineStage("BACKFILL_PHASE_2_START", "Backfill phase 2 (platform) started.", companyContext);
-            const platformProspects = dedupeProspectsById(
-              await searchCurrentPlatformEngineerPeople(
-                company,
-                MAX_RESULTS,
-                linkedinApolloPeopleFilters({ apolloOrganizationId: row.apolloAccountId })
-              )
-            );
-            logPipelineInfo(`  ▸ Enriching ${platformProspects.length} platform candidates...\n`);
-            const platformEnriched = await bulkEnrichPeople(platformProspects, enrichmentCache);
-            const { eligible: tenureEligiblePlatform } = splitByTenure(platformEnriched, 11);
-            logPipelineInfo(`  ▸ Checking openToWork for ${tenureEligiblePlatform.length} platform candidates...\n`);
-            logPipelineStage("APIFY_PLATFORM", `Checking openToWork for ${tenureEligiblePlatform.length} platform candidates.`, companyContext);
-            const {
-              kept: apifyFilteredPlatform,
-              warnings: apifyWarnsPlatform,
-              filteredOut: apifyFilteredOutPlatform,
-            } = await scrapeAndFilterOpenToWork(tenureEligiblePlatform, apifyCache, {
+            const platformPool = filterPoolByStage(profilePool, apifyCache, {
+              currentTitles: ["platform engineer"],
+            });
+            const { eligible: tenureEligiblePlatform } = splitByTenure(platformPool, 11);
+            const platformFiltered = filterOpenToWorkFromCache(tenureEligiblePlatform, apifyCache, {
               companyName: row.companyName,
               companyDomain: row.companyDomain,
             });
-            for (const w of apifyWarnsPlatform) { addJobWarning(jobId, w); }
             campaignPushData.filteredOutCandidates.push(
-              ...apifyFilteredOutPlatform.map(({ employee, reason }) => ({
+              ...platformFiltered.filteredOut.map(({ employee, reason }) => ({
                 companyName: company.companyName,
                 name: employee.name,
                 title: employee.currentTitle,
@@ -589,11 +564,10 @@ export async function runResearchPipeline(
                 reason,
               }))
             );
-            selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, [], apifyFilteredPlatform, {
+            selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, [], platformFiltered.kept, {
               minimum: 5,
               max: 5,
             });
-            logPipelineInfo(`  ▸ Backfill Phase 2 done — ${selectedForLemlist.length} selected so far\n`);
             logPipelineStage(
               "BACKFILL_PHASE_2_DONE",
               `Backfill phase 2 complete. selected_after_phase2=${selectedForLemlist.length}`,
@@ -664,10 +638,9 @@ export async function runResearchPipeline(
           const waterfallResult = await runEmailCandidateWaterfall(
             company,
             attemptedLinkedinKeys,
-            enrichmentCache,
-            peopleSearchFilters,
+            profilePool,
             apifyCache,
-            { rawSreCount, apolloSearchCache, recycledKeywordMatched: keywordMatchedEmailRecycled }
+            { rawSreCount, recycledKeywordMatched: keywordMatchedEmailRecycled }
           );
           logPipelineStage(
             "EMAIL_WATERFALL_DONE",
@@ -767,6 +740,45 @@ export async function runResearchPipeline(
     }
 
     if (lemlistEnabled && lemlistBulkFindEmailEnabled && pendingEmailPushBatches.length > 0) {
+      const linkedinUrlsForBulkFinder = pendingEmailPushBatches.flatMap((batch) =>
+        batch.candidates
+          .map(({ employee }) => employee.linkedinUrl?.trim() ?? "")
+          .filter((url) => url.length > 0)
+      );
+      if (linkedinUrlsForBulkFinder.length > 0) {
+        try {
+          logPipelineStage(
+            "APIFY_BULK_EMAIL_FINDER_START",
+            `Apify bulk email finder started. urls=${linkedinUrlsForBulkFinder.length}`
+          );
+          const emailsByLinkedin = await findEmailsInBulk(linkedinUrlsForBulkFinder);
+          for (const batch of pendingEmailPushBatches) {
+            for (const candidate of batch.candidates) {
+              const linkedinUrl = candidate.employee.linkedinUrl?.trim() ?? "";
+              if (!linkedinUrl || (candidate.employee.email && candidate.employee.email.trim().length > 0)) {
+                continue;
+              }
+              const normalized = linkedinUrl
+                .replace(/^https?:\/\//i, "")
+                .replace(/^www\./i, "")
+                .replace(/\/+$/, "")
+                .toLowerCase();
+              const foundEmail = emailsByLinkedin.get(normalized);
+              if (foundEmail) {
+                candidate.employee.email = foundEmail;
+              }
+            }
+          }
+          logPipelineStage(
+            "APIFY_BULK_EMAIL_FINDER_DONE",
+            `Apify bulk email finder complete. found=${emailsByLinkedin.size}`
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unknown Apify bulk email finder error";
+          addJobWarning(jobId, `Apify bulk email finder failed: ${message}`);
+        }
+      }
+
       const missingEmailCandidates = pendingEmailPushBatches.flatMap((batch) =>
         batch.candidates
           .filter(({ employee }) => !employee.email || employee.email.trim().length === 0)

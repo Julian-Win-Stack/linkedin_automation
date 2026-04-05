@@ -440,6 +440,111 @@ export async function scrapeAndFilterOpenToWork(
   return { kept, warnings, filteredOut };
 }
 
+export function filterOpenToWorkFromCache(
+  employees: EnrichedEmployee[],
+  cache: ApifyOpenToWorkCache,
+  context: { companyName: string; companyDomain: string }
+): ApifyFilterResult {
+  if (employees.length === 0) {
+    return { kept: [], warnings: [], filteredOut: [] };
+  }
+
+  const kept: EnrichedEmployee[] = [];
+  const filteredOut: ApifyFilteredCandidate[] = [];
+  const warnings: string[] = [];
+  const tableRows: TableRow[] = [];
+  const counts = { kept: 0, removed: 0, cached: 0, skipped: 0, errors: 0 };
+
+  for (const employee of employees) {
+    const rawUrl = employee.linkedinUrl?.trim() ?? "";
+    if (!rawUrl) {
+      kept.push(employee);
+      counts.skipped += 1;
+      tableRows.push({
+        name: employee.name,
+        linkedinUrl: null,
+        openToWork: "—",
+        status: "SKIPPED (no URL)",
+      });
+      continue;
+    }
+
+    const key = normalizeLinkedinUrl(rawUrl);
+    const cached = cache.get(key);
+    if (!cached) {
+      kept.push(employee);
+      counts.errors += 1;
+      tableRows.push({
+        name: employee.name,
+        linkedinUrl: employee.linkedinUrl,
+        openToWork: "—",
+        status: "KEPT (cache miss)",
+      });
+      continue;
+    }
+
+    counts.cached += 1;
+    if (cached.canonicalLinkedinUrl) {
+      employee.linkedinUrl = cached.canonicalLinkedinUrl;
+    }
+
+    if (cached.openToWork) {
+      filteredOut.push({ employee, reason: "open_to_work" });
+      counts.removed += 1;
+      tableRows.push({
+        name: employee.name,
+        linkedinUrl: employee.linkedinUrl,
+        openToWork: "true",
+        status: "REMOVED (cached)",
+      });
+      continue;
+    }
+
+    if (shouldRejectForContractEmployment(cached.experience)) {
+      filteredOut.push({ employee, reason: "contract_employment" });
+      counts.removed += 1;
+      tableRows.push({
+        name: employee.name,
+        linkedinUrl: employee.linkedinUrl,
+        openToWork: "false",
+        status: "REMOVED (employment type, cached)",
+      });
+      continue;
+    }
+
+    kept.push(employee);
+    counts.kept += 1;
+    tableRows.push({
+      name: employee.name,
+      linkedinUrl: employee.linkedinUrl,
+      openToWork: "false",
+      status: "KEPT (cached)",
+    });
+  }
+
+  if (counts.skipped > 0) {
+    const names = employees
+      .filter((employee) => !employee.linkedinUrl || employee.linkedinUrl.trim().length === 0)
+      .map((employee) => employee.name)
+      .join(", ");
+    warnings.push(
+      `${context.companyName}: ${counts.skipped} candidate(s) skipped from Apify openToWork check — no LinkedIn URL (${names})`
+    );
+  }
+
+  printApifyTable(
+    context.companyName,
+    context.companyDomain,
+    tableRows,
+    counts,
+    employees.length,
+    counts.cached,
+    0
+  );
+
+  return { kept, warnings, filteredOut };
+}
+
 function isCurrentRole(entry: ApifyExperienceEntry): boolean {
   if (!entry.endDate) return true;
   const text = entry.endDate.text?.toLowerCase().trim() ?? "";

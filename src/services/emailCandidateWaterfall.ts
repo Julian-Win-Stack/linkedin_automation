@@ -1,8 +1,7 @@
 import { ResolvedCompany } from "./getCompany";
-import { bulkEnrichPeople, EnrichmentCache } from "./bulkEnrichPeople";
-import { searchEmailCandidatePeople, searchEmailCandidatePeopleCached, ApolloSearchCache, PeopleSearchFilters } from "./searchPeople";
-import { EnrichedEmployee, Prospect, ApifyOpenToWorkCache } from "../types/prospect";
-import { scrapeAndFilterOpenToWork, splitByTenure, filterFrontendEngineers } from "./apifyClient";
+import { EnrichedEmployee, ApifyOpenToWorkCache } from "../types/prospect";
+import { filterOpenToWorkFromCache, splitByTenure, filterFrontendEngineers } from "./apifyClient";
+import { filterPoolByStage } from "./apifyCompanyEmployees";
 
 export type EmailCampaignBucket = "sre" | "eng" | "engLead";
 
@@ -39,7 +38,6 @@ export interface EmailWaterfallResult {
 
 export interface EmailWaterfallOptions {
   rawSreCount?: number;
-  apolloSearchCache?: ApolloSearchCache;
   recycledKeywordMatched?: EnrichedEmployee[];
 }
 
@@ -49,7 +47,6 @@ export interface NormalEngineerApifyWarningCandidate {
 }
 
 const MAX_PER_COMPANY = 7;
-const MAX_SEARCH_RESULTS = 30;
 const LINE_WIDTH = 62;
 const HEAVY_LINE = "═".repeat(LINE_WIDTH);
 const LIGHT_LINE = "─".repeat(LINE_WIDTH);
@@ -433,21 +430,6 @@ function hasEmployeeIdentifier(set: Set<string>, employee: EnrichedEmployee): bo
   return false;
 }
 
-function dedupeProspectsById(items: Prospect[]): Prospect[] {
-  const seen = new Set<string>();
-  const deduped: Prospect[] = [];
-
-  for (const item of items) {
-    if (seen.has(item.id)) {
-      continue;
-    }
-    seen.add(item.id);
-    deduped.push(item);
-  }
-
-  return deduped;
-}
-
 function rankAndSelectCandidates(
   enriched: EnrichedEmployee[],
   minTenureMonths: number,
@@ -552,8 +534,7 @@ function partitionLeadershipCandidates(
 export async function runEmailCandidateWaterfall(
   company: ResolvedCompany,
   linkedinAttemptedKeys: Set<string>,
-  enrichmentCache: EnrichmentCache,
-  filters: PeopleSearchFilters,
+  profilePool: EnrichedEmployee[],
   apifyCache: ApifyOpenToWorkCache,
   options: EmailWaterfallOptions = {}
 ): Promise<EmailWaterfallResult> {
@@ -563,7 +544,6 @@ export async function runEmailCandidateWaterfall(
   const warnings: string[] = [];
   const normalEngineerApifyWarnings: NormalEngineerApifyWarningCandidate[] = [];
   const rawSreCount = options.rawSreCount ?? Number.POSITIVE_INFINITY;
-  const apolloSearchCache = options.apolloSearchCache;
   const recycledKeywordMatched = options.recycledKeywordMatched ?? [];
 
   print("");
@@ -624,58 +604,35 @@ export async function runEmailCandidateWaterfall(
     print(`    Campaign bucket  : ${stage.campaignBucket}`);
     print("");
 
-    const searchParams = { currentTitles: stage.currentTitles, pastTitles: stage.pastTitles, notTitles: stage.notTitles, notPastTitles: stage.notPastTitles };
-    const rawProspects = apolloSearchCache
-      ? await searchEmailCandidatePeopleCached(company, MAX_SEARCH_RESULTS, searchParams, filters, apolloSearchCache)
-      : await searchEmailCandidatePeople(company, MAX_SEARCH_RESULTS, searchParams, filters);
+    const stagePool = filterPoolByStage(profilePool, apifyCache, {
+      currentTitles: stage.currentTitles,
+      pastTitles: stage.pastTitles,
+      notTitles: stage.notTitles,
+      notPastTitles: stage.notPastTitles,
+    });
 
-    const prospects = dedupeProspectsById(rawProspects);
+    print(`    Pool         ${String(profilePool.length).padStart(3)} total → ${stagePool.length} stage-matched`);
 
-    print(`    Search       ${String(rawProspects.length).padStart(3)} raw → ${prospects.length} after self-dedup`);
-
-    if (prospects.length === 0) {
-      printStageSkip("0 prospects from search");
+    if (stagePool.length === 0) {
+      printStageSkip("0 candidates from local stage filter");
       continue;
     }
 
-    const deduped = prospects.filter((prospect) => {
-      return !linkedinAttemptedKeys.has(prospect.id) && !listAKeys.has(prospect.id);
+    const deduped = stagePool.filter((employee) => {
+      return !hasEmployeeIdentifier(linkedinAttemptedKeys, employee) && !hasEmployeeIdentifier(listAKeys, employee);
     });
 
-    const removedCount = prospects.length - deduped.length;
-    print(`    Dedup        ${String(prospects.length).padStart(3)} → ${deduped.length}  (removed ${removedCount})`);
+    const removedCount = stagePool.length - deduped.length;
+    print(`    Dedup        ${String(stagePool.length).padStart(3)} → ${deduped.length}  (removed ${removedCount})`);
 
     if (deduped.length === 0) {
-      printStageSkip("all prospects removed by dedup");
+      printStageSkip("all candidates removed by dedup");
       continue;
     }
 
-    const enriched = await bulkEnrichPeople(deduped, enrichmentCache);
-
-    print(`    Enrichment   ${String(deduped.length).padStart(3)} sent → ${enriched.length} returned`);
-
-    if (enriched.length === 0) {
-      printStageSkip("0 enriched results");
-      continue;
-    }
-
-    const filtered = enriched.filter((employee) => {
-      const key = toEmployeeKey(employee);
-      return !linkedinAttemptedKeys.has(key) && !listAKeys.has(key);
-    });
-
-    if (filtered.length < enriched.length) {
-      print(`    Post-dedup   ${String(enriched.length).padStart(3)} → ${filtered.length}  (removed ${enriched.length - filtered.length} by enriched-key dedup)`);
-    }
-
-    if (filtered.length === 0) {
-      printStageSkip("all enriched removed by post-enrich dedup");
-      continue;
-    }
-
-    const { eligible: tenureEligible, droppedByTenure } = splitByTenure(filtered, stage.minTenureMonths);
+    const { eligible: tenureEligible, droppedByTenure } = splitByTenure(deduped, stage.minTenureMonths);
     if (droppedByTenure.length > 0) {
-      print(`    Pre-tenure   ${String(filtered.length).padStart(3)} → ${tenureEligible.length}  (dropped ${droppedByTenure.length} below ${stage.minTenureMonths}mo)`);
+      print(`    Pre-tenure   ${String(deduped.length).padStart(3)} → ${tenureEligible.length}  (dropped ${droppedByTenure.length} below ${stage.minTenureMonths}mo)`);
     }
 
     if (tenureEligible.length === 0) {
@@ -688,7 +645,7 @@ export async function runEmailCandidateWaterfall(
       kept: apifyFiltered,
       warnings: apifyWarnings,
       filteredOut: apifyFilteredOut,
-    } = await scrapeAndFilterOpenToWork(tenureEligible, apifyCache, {
+    } = filterOpenToWorkFromCache(tenureEligible, apifyCache, {
       companyName: company.companyName,
       companyDomain: company.domain,
     });
