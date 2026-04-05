@@ -314,6 +314,167 @@ describe("runResearchPipeline orchestration", () => {
     );
   });
 
+  it("routes leadership titles from pre-platform LinkedIn selection to engLead bucket", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce(makeProspects(1, "current"));
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      {
+        id: "leader-1",
+        startDate: "2022-01-01",
+        endDate: null,
+        name: "Leader One",
+        linkedinUrl: "https://linkedin.com/in/leader-one",
+        currentTitle: "VP of Engineering",
+        tenure: 24,
+      },
+    ]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([
+      {
+        id: "leader-1",
+        startDate: "2022-01-01",
+        endDate: null,
+        name: "Leader One",
+        linkedinUrl: "https://linkedin.com/in/leader-one",
+        currentTitle: "VP of Engineering",
+        tenure: 24,
+      },
+    ]);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    expect(pushPeopleToLemlistCampaignMock).toHaveBeenCalledTimes(1);
+    const tagged = pushPeopleToLemlistCampaignMock.mock.calls[0][0] as Array<{ linkedinBucket: string }>;
+    expect(tagged).toHaveLength(1);
+    expect(tagged[0].linkedinBucket).toBe("engLead");
+  });
+
+  it("routes platform leadership titles to engLead and non-leaders to eng", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce(makeProspects(1, "current"));
+    searchPastSrePeopleMock.mockResolvedValueOnce([]);
+    searchCurrentPlatformEngineerPeopleMock.mockResolvedValueOnce(makeProspects(2, "platform"));
+    bulkEnrichPeopleMock
+      .mockResolvedValueOnce([
+        {
+          id: "current-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Current SRE",
+          linkedinUrl: "https://linkedin.com/in/current-sre",
+          currentTitle: "Site Reliability Engineer",
+          tenure: 24,
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "platform-lead-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Platform Leader",
+          linkedinUrl: "https://linkedin.com/in/platform-leader",
+          currentTitle: "Director of Platform Engineering",
+          tenure: 24,
+        },
+        {
+          id: "platform-eng-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Platform Engineer",
+          linkedinUrl: "https://linkedin.com/in/platform-engineer",
+          currentTitle: "Platform Engineer",
+          tenure: 24,
+        },
+      ]);
+    selectTopSreForLemlistMock.mockReturnValueOnce([
+      {
+        id: "current-1",
+        startDate: "2022-01-01",
+        endDate: null,
+        name: "Current SRE",
+        linkedinUrl: "https://linkedin.com/in/current-sre",
+        currentTitle: "Site Reliability Engineer",
+        tenure: 24,
+      },
+    ]);
+    fillToMinimumWithBackfillMock
+      .mockReturnValueOnce([
+        {
+          id: "current-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Current SRE",
+          linkedinUrl: "https://linkedin.com/in/current-sre",
+          currentTitle: "Site Reliability Engineer",
+          tenure: 24,
+        },
+      ])
+      .mockReturnValueOnce([
+        {
+          id: "current-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Current SRE",
+          linkedinUrl: "https://linkedin.com/in/current-sre",
+          currentTitle: "Site Reliability Engineer",
+          tenure: 24,
+        },
+        {
+          id: "platform-lead-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Platform Leader",
+          linkedinUrl: "https://linkedin.com/in/platform-leader",
+          currentTitle: "Director of Platform Engineering",
+          tenure: 24,
+        },
+        {
+          id: "platform-eng-1",
+          startDate: "2022-01-01",
+          endDate: null,
+          name: "Platform Engineer",
+          linkedinUrl: "https://linkedin.com/in/platform-engineer",
+          currentTitle: "Platform Engineer",
+          tenure: 24,
+        },
+      ]);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", {
+      azureOpenAiApiKey: "k",
+      azureOpenAiBaseUrl: "u",
+      searchApiKey: "s",
+      model: "m",
+      maxCompletionTokens: 1000,
+      nameColumn: "Company Name",
+      domainColumn: "Website",
+      apolloAccountIdColumn: "Apollo Account Id",
+    }, "julian", Date.now());
+
+    const tagged = pushPeopleToLemlistCampaignMock.mock.calls[0][0] as Array<{ employee: { name: string }; linkedinBucket: string }>;
+    expect(tagged).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ employee: expect.objectContaining({ name: "Current SRE" }), linkedinBucket: "sre" }),
+        expect.objectContaining({ employee: expect.objectContaining({ name: "Platform Leader" }), linkedinBucket: "engLead" }),
+        expect.objectContaining({ employee: expect.objectContaining({ name: "Platform Engineer" }), linkedinBucket: "eng" }),
+      ])
+    );
+  });
+
   it("calls email waterfall and pushes candidates to email campaign", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", apolloAccountId: "org_1", rowNumber: 2 }])

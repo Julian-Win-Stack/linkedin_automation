@@ -47,10 +47,11 @@ const UNKNOWN_COMPANY_LABEL = "Unknown company";
 
 function buildSections(data: CampaignPushData): CampaignSection[] {
   const mapping: {
-    key: "linkedinSre" | "linkedinEng" | "emailSre" | "emailEng" | "emailEngLead";
+    key: "linkedinSre" | "linkedinEngLead" | "linkedinEng" | "emailSre" | "emailEng" | "emailEngLead";
     label: string;
   }[] = [
     { key: "linkedinSre", label: "LinkedIn — SRE Campaign" },
+    { key: "linkedinEngLead", label: "LinkedIn — Engineering Leaders Campaign" },
     { key: "linkedinEng", label: "LinkedIn — Engineering Campaign" },
     { key: "emailSre", label: "Email — SRE Campaign" },
     { key: "emailEng", label: "Email — Engineering Campaign" },

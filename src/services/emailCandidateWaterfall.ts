@@ -15,6 +15,7 @@ export interface EmailSearchStageConfig {
   campaignBucket: EmailCampaignBucket;
   splitLeadership?: boolean;
   leadershipBucket?: EmailCampaignBucket;
+  leadershipTitleKeywords?: string[];
 }
 
 export interface TaggedEmailCandidate {
@@ -53,6 +54,7 @@ const LINE_WIDTH = 62;
 const HEAVY_LINE = "═".repeat(LINE_WIDTH);
 const LIGHT_LINE = "─".repeat(LINE_WIDTH);
 const LEADERSHIP_TITLE_KEYWORDS = ["vp", "manager", "director", "head", "chief", "principal"];
+const LINKEDIN_LEADERSHIP_TITLE_KEYWORDS = ["director", "vp", "svp", "head", "chief"];
 const NORMAL_ENGINEER_STAGE_LABEL = "Normal Engineer Search";
 const SPLIT_LEADERSHIP_BUCKET: EmailCampaignBucket = "engLead";
 const MIN_SRE_COUNT_FOR_EMAIL_SRE_STAGES = 8;
@@ -63,12 +65,18 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
     notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
     minTenureMonths: 2,
     campaignBucket: "sre",
+    splitLeadership: true,
+    leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
+    leadershipTitleKeywords: LINKEDIN_LEADERSHIP_TITLE_KEYWORDS,
   },
   {
     pastTitles: ["site reliability", "SRE", "Site Reliability Engineer", "Site Reliability Engineering", "Head of Reliability"],
     notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
     minTenureMonths: 2,
     campaignBucket: "sre",
+    splitLeadership: true,
+    leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
+    leadershipTitleKeywords: LINKEDIN_LEADERSHIP_TITLE_KEYWORDS,
   },
   {
     currentTitles: ["Infrastructure"],
@@ -503,19 +511,22 @@ function printPeopleTable(selected: EnrichedEmployee[], bucket: EmailCampaignBuc
   }
 }
 
-function isLeadershipRoleTitle(title: string): boolean {
+function isLeadershipRoleTitle(title: string, leadershipTitleKeywords: string[] = LEADERSHIP_TITLE_KEYWORDS): boolean {
   const normalized = title.toLowerCase();
-  return LEADERSHIP_TITLE_KEYWORDS.some((keyword) => normalized.includes(keyword));
+  return leadershipTitleKeywords.some((keyword) => normalized.includes(keyword));
 }
 
-function partitionLeadershipCandidates(candidates: EnrichedEmployee[]): {
+function partitionLeadershipCandidates(
+  candidates: EnrichedEmployee[],
+  leadershipTitleKeywords: string[] = LEADERSHIP_TITLE_KEYWORDS
+): {
   icCandidates: EnrichedEmployee[];
   leadershipCandidates: EnrichedEmployee[];
 } {
   const icCandidates: EnrichedEmployee[] = [];
   const leadershipCandidates: EnrichedEmployee[] = [];
   for (const employee of candidates) {
-    if (isLeadershipRoleTitle(employee.currentTitle)) {
+    if (isLeadershipRoleTitle(employee.currentTitle, leadershipTitleKeywords)) {
       leadershipCandidates.push(employee);
     } else {
       icCandidates.push(employee);
@@ -704,7 +715,10 @@ export async function runEmailCandidateWaterfall(
     }
 
     if (stage.splitLeadership) {
-      const { icCandidates, leadershipCandidates } = partitionLeadershipCandidates(candidatesForRanking);
+      const { icCandidates, leadershipCandidates } = partitionLeadershipCandidates(
+        candidatesForRanking,
+        stage.leadershipTitleKeywords
+      );
       const icSlots = MAX_PER_COMPANY - listA.length;
       const icResult = rankAndSelectCandidates(icCandidates, stage.minTenureMonths, icSlots);
       print(

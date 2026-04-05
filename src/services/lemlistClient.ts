@@ -56,6 +56,7 @@ function getLemlistApiKey(): string {
 
 export interface LemlistLinkedinCampaignIds {
   sreCampaignId: string;
+  engLeadCampaignId: string;
   engCampaignId: string;
 }
 
@@ -85,6 +86,7 @@ export function getCampaignIdsForUser(selectedUser: SelectedUser): LemlistCampai
   return {
     linkedin: {
       sreCampaignId: getRequiredEnv(`${prefix}_LINKEDIN_SRE_CAMPAIGN_ID`),
+      engLeadCampaignId: getRequiredEnv(`${prefix}_ENG_LEAD_EMAIL_CAMPAIGN_ID`),
       engCampaignId: getRequiredEnv(`${prefix}_LINKEDIN_ENG_CAMPAIGN_ID`),
     },
     email: {

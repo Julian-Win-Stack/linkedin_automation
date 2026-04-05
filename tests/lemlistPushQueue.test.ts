@@ -16,6 +16,7 @@ describe("pushPeopleToLemlistCampaign", () => {
     getLemlistLinkedinCampaignIdsForUserMock.mockReset();
     getLemlistLinkedinCampaignIdsForUserMock.mockReturnValue({
       sreCampaignId: "cam_sre",
+      engLeadCampaignId: "cam_eng_lead",
       engCampaignId: "cam_eng",
     });
   });
@@ -101,6 +102,39 @@ describe("pushPeopleToLemlistCampaign", () => {
         companyName: "Acme",
         jobTitle: "Platform Engineer",
         linkedinUrl: "https://linkedin.com/in/platform",
+        companyDomain: "acme.com",
+      },
+      expect.any(Object)
+    );
+  });
+
+  it("routes engLead-bucketed candidates to engineering leader campaign", async () => {
+    createLeadInCampaignMock.mockResolvedValue(undefined);
+
+    const candidates: TaggedLinkedinCandidate[] = [
+      {
+        employee: {
+          startDate: "2024-01-01",
+          endDate: null,
+          name: "Leader Person",
+          linkedinUrl: "https://linkedin.com/in/leader",
+          currentTitle: "VP of Engineering",
+          tenure: 12,
+        },
+        linkedinBucket: "engLead",
+      },
+    ];
+
+    await pushPeopleToLemlistCampaign(candidates, "Acme", "acme.com", "julian");
+
+    expect(createLeadInCampaignMock).toHaveBeenCalledWith(
+      "cam_eng_lead",
+      {
+        firstName: "Leader",
+        lastName: "Person",
+        companyName: "Acme",
+        jobTitle: "VP of Engineering",
+        linkedinUrl: "https://linkedin.com/in/leader",
         companyDomain: "acme.com",
       },
       expect.any(Object)

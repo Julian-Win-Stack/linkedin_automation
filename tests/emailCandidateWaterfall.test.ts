@@ -134,6 +134,33 @@ describe("runEmailCandidateWaterfall", () => {
     expect(result.candidates[1].employee.id).toBe("sre-2");
   });
 
+  it("splits SRE stage into sre and engLead buckets by leadership titles", async () => {
+    searchEmailCandidatePeopleMock.mockResolvedValueOnce([
+      makeProspect("sre-ic", "Site Reliability Engineer"),
+      makeProspect("sre-lead", "Director of Site Reliability"),
+      makeProspect("sre-chief", "Chief Reliability Officer"),
+    ]);
+    bulkEnrichPeopleMock.mockResolvedValueOnce([
+      makeEmployee("sre-ic", "Site Reliability Engineer", 6),
+      makeEmployee("sre-lead", "Director of Site Reliability", 8),
+      makeEmployee("sre-chief", "Chief Reliability Officer", 10),
+    ]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      new Map() as EnrichmentCache,
+      FILTERS,
+      APIFY_CACHE
+    );
+
+    expect(result.candidates).toHaveLength(3);
+    const byId = new Map(result.candidates.map((candidate) => [candidate.employee.id, candidate.campaignBucket]));
+    expect(byId.get("sre-ic")).toBe("sre");
+    expect(byId.get("sre-lead")).toBe("engLead");
+    expect(byId.get("sre-chief")).toBe("engLead");
+  });
+
   it("stops after reaching 7 candidates", async () => {
     const prospects = Array.from({ length: 8 }, (_, i) =>
       makeProspect(`sre-${i + 1}`, "SRE")

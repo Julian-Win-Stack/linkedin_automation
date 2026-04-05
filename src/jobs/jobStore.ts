@@ -31,6 +31,7 @@ export interface NormalEngineerApifyWarningEntry {
 
 export interface CampaignPushData {
   linkedinSre: CampaignPushEntry[];
+  linkedinEngLead: CampaignPushEntry[];
   linkedinEng: CampaignPushEntry[];
   emailSre: CampaignPushEntry[];
   emailEng: CampaignPushEntry[];

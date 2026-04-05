@@ -64,6 +64,7 @@ const MAX_SRE_COUNT = 15;
 const EMAIL_WATERFALL_WAIT_MS = 20 * 60 * 1000;
 const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
 const WEEKLY_LINKEDIN_PUSH_LIMIT = 100;
+const LINKEDIN_LEADERSHIP_TITLE_REGEX = /\b(director|svp|vp|head|chief)\b/i;
 
 const SRE_WORK_KEYWORDS: string[] = [
   "incident response",
@@ -166,6 +167,13 @@ function toCampaignPushEntry(
   };
 }
 
+function isLinkedinLeadershipTitle(title: string | null | undefined): boolean {
+  if (!title) {
+    return false;
+  }
+  return LINKEDIN_LEADERSHIP_TITLE_REGEX.test(title);
+}
+
 function logPipelineStage(
   step: string,
   message: string,
@@ -223,6 +231,7 @@ export async function runResearchPipeline(
 
   const campaignPushData: CampaignPushData = {
     linkedinSre: [],
+    linkedinEngLead: [],
     linkedinEng: [],
     emailSre: [],
     emailEng: [],
@@ -573,12 +582,17 @@ export async function runResearchPipeline(
         let lemlistSuccessful = 0;
         let lemlistFailed = 0;
         if (lemlistEnabled && selectedForLemlist.length > 0) {
-          const taggedForLemlist: TaggedLinkedinCandidate[] = selectedForLemlist.map((emp) => ({
-            employee: emp,
-            linkedinBucket: prePlatformKeys === null || prePlatformKeys.has(toEmployeeKey(emp))
-              ? "sre" as const
-              : "eng" as const,
-          }));
+          const taggedForLemlist: TaggedLinkedinCandidate[] = selectedForLemlist.map((emp) => {
+            const fromPrePlatformPhase = prePlatformKeys === null || prePlatformKeys.has(toEmployeeKey(emp));
+            const isLeadershipTitle = isLinkedinLeadershipTitle(emp.currentTitle);
+            const linkedinBucket = fromPrePlatformPhase
+              ? (isLeadershipTitle ? "engLead" as const : "sre" as const)
+              : (isLeadershipTitle ? "engLead" as const : "eng" as const);
+            return {
+              employee: emp,
+              linkedinBucket,
+            };
+          });
           process.stdout.write(`  ▸ Pushing ${taggedForLemlist.length} candidates to LinkedIn campaign...\n`);
           logPipelineStage(
             "PUSH_LINKEDIN_START",
@@ -596,6 +610,8 @@ export async function runResearchPipeline(
             const entry = toCampaignPushEntry(tagged.employee, linkedinOutcomeByKey, row.companyName);
             if (tagged.linkedinBucket === "sre") {
               campaignPushData.linkedinSre.push(entry);
+            } else if (tagged.linkedinBucket === "engLead") {
+              campaignPushData.linkedinEngLead.push(entry);
             } else {
               campaignPushData.linkedinEng.push(entry);
             }

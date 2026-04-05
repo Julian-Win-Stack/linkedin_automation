@@ -26,7 +26,7 @@ const ALREADY_IN_CAMPAIGN_ERROR = "lead already in the campaign";
 
 type QueueTask = () => Promise<void>;
 
-export type LinkedinCampaignBucket = "sre" | "eng";
+export type LinkedinCampaignBucket = "sre" | "engLead" | "eng";
 
 export interface TaggedLinkedinCandidate {
   employee: EnrichedEmployee;
@@ -79,6 +79,7 @@ function toLeadPayload(
 function groupByBucket(candidates: TaggedLinkedinCandidate[]): Record<LinkedinCampaignBucket, EnrichedEmployee[]> {
   const buckets: Record<LinkedinCampaignBucket, EnrichedEmployee[]> = {
     sre: [],
+    engLead: [],
     eng: [],
   };
 
@@ -116,11 +117,12 @@ export async function pushPeopleToLemlistCampaign(
         let windowStartedAt = Date.now();
 
         console.log(
-          `[Lemlist] Campaign routing (${companyName}) user=${selectedUser}: SRE=${grouped.sre.length}, ENG=${grouped.eng.length}`
+          `[Lemlist] Campaign routing (${companyName}) user=${selectedUser}: SRE=${grouped.sre.length}, ENG_LEAD=${grouped.engLead.length}, ENG=${grouped.eng.length}`
         );
 
         const bucketOrder: Array<{ campaignId: string; people: EnrichedEmployee[] }> = [
           { campaignId: campaignIds.sreCampaignId, people: grouped.sre },
+          { campaignId: campaignIds.engLeadCampaignId, people: grouped.engLead },
           { campaignId: campaignIds.engCampaignId, people: grouped.eng },
         ];
 
