@@ -41,6 +41,7 @@ const queueItems = ref<QueueItem[]>([]);
 const selectedUser = ref<SelectedUser | null>(null);
 const queuePollIntervalId = ref<number | null>(null);
 const weeklySuccessTotals = ref({ linkedin: 0, email: 0 });
+const clearedFinishedQueueItemIds = ref<string[]>([]);
 
 const canAddToQueue = computed(() => !isSubmitting.value && !!selectedFile.value && !!selectedUser.value);
 const selectedUserLabel = computed(() => {
@@ -52,6 +53,13 @@ const selectedUserLabel = computed(() => {
 
 const activeQueueCount = computed(() =>
   queueItems.value.filter((item) => item.status === "queued" || item.status === "running").length
+);
+
+const clearableFinishedQueueCount = computed(() =>
+  queueItems.value.filter((item) => (
+    (item.status === "done" || item.status === "error")
+    && !clearedFinishedQueueItemIds.value.includes(item.queueItemId)
+  )).length
 );
 
 function toQueueLabel(order: number): string {
@@ -67,12 +75,24 @@ function toQueueLabel(order: number): string {
 }
 
 const visibleQueueItems = computed<VisibleQueueItem[]>(() =>
-  queueItems.value
-    .filter((item) => item.status !== "cancelled")
-    .map((item, index) => ({
-      ...item,
-      displayQueueLabel: toQueueLabel(index + 1),
-    }))
+  {
+    const clearedIds = new Set(clearedFinishedQueueItemIds.value);
+    return queueItems.value
+      .filter((item) => {
+        if (item.status === "cancelled") {
+          return false;
+        }
+        const isFinished = item.status === "done" || item.status === "error";
+        if (isFinished && clearedIds.has(item.queueItemId)) {
+          return false;
+        }
+        return true;
+      })
+      .map((item, index) => ({
+        ...item,
+        displayQueueLabel: toQueueLabel(index + 1),
+      }));
+  }
 );
 
 const storedUser = localStorage.getItem(SELECTED_USER_STORAGE_KEY);
@@ -104,6 +124,7 @@ function setSelectedUser(user: SelectedUser): void {
   localStorage.setItem(SELECTED_USER_STORAGE_KEY, user);
   error.value = null;
   queueItems.value = [];
+  clearedFinishedQueueItemIds.value = [];
   void refreshQueueItems();
   void refreshWeeklySuccessTotals();
   startQueuePolling();
@@ -113,6 +134,7 @@ async function logoutSelectedUser(): Promise<void> {
   selectedUser.value = null;
   localStorage.removeItem(SELECTED_USER_STORAGE_KEY);
   queueItems.value = [];
+  clearedFinishedQueueItemIds.value = [];
   selectedFile.value = null;
   error.value = null;
   weeklySuccessTotals.value = { linkedin: 0, email: 0 };
@@ -305,6 +327,20 @@ async function cancelAllQueueItems(): Promise<void> {
     error.value = cancelError instanceof Error ? cancelError.message : String(cancelError);
   }
 }
+
+function clearFinishedQueueItems(): void {
+  const finishedIds = queueItems.value
+    .filter((item) => item.status === "done" || item.status === "error")
+    .map((item) => item.queueItemId);
+  if (finishedIds.length === 0) {
+    return;
+  }
+  const nextIds = new Set(clearedFinishedQueueItemIds.value);
+  for (const id of finishedIds) {
+    nextIds.add(id);
+  }
+  clearedFinishedQueueItemIds.value = Array.from(nextIds);
+}
 </script>
 
 <template>
@@ -380,6 +416,13 @@ async function cancelAllQueueItems(): Promise<void> {
                 @click="cancelAllQueueItems"
               >
                 Cancel all
+              </button>
+              <button
+                class="rounded-md border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition hover:border-emerald-300/50 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                :disabled="clearableFinishedQueueCount === 0"
+                @click="clearFinishedQueueItems"
+              >
+                Clear finished queues
               </button>
               <button
                 class="rounded-md bg-indigo-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40"
