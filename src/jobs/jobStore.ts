@@ -126,6 +126,10 @@ export function getJob(jobId: string): JobState | undefined {
   return jobs.get(jobId);
 }
 
+export function removeJob(jobId: string): void {
+  jobs.delete(jobId);
+}
+
 export function setJobStatus(jobId: string, status: JobStatus): void {
   const job = jobs.get(jobId);
   if (!job) {

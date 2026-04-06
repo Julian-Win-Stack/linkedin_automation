@@ -6,6 +6,7 @@ import {
   setJobMessage,
   setJobProgress,
   createJob,
+  getJob,
   markJobDone,
   markJobCancelled,
   markJobError,
@@ -23,6 +24,7 @@ const setQueueItemJobIdMock = vi.fn();
 const recoverRunningItemsToQueuedMock = vi.fn();
 const listQueueItemsForUserMock = vi.fn();
 const getQueueItemByIdMock = vi.fn();
+const getQueueItemByJobIdMock = vi.fn();
 const completeQueueItemMock = vi.fn();
 const toQueueLabelMock = vi.fn();
 
@@ -45,6 +47,7 @@ vi.mock("../src/services/queueStore", () => ({
   recoverRunningItemsToQueued: (...args: unknown[]) => recoverRunningItemsToQueuedMock(...args),
   listQueueItemsForUser: (...args: unknown[]) => listQueueItemsForUserMock(...args),
   getQueueItemById: (...args: unknown[]) => getQueueItemByIdMock(...args),
+  getQueueItemByJobId: (...args: unknown[]) => getQueueItemByJobIdMock(...args),
   completeQueueItem: (...args: unknown[]) => completeQueueItemMock(...args),
   toQueueLabel: (...args: unknown[]) => toQueueLabelMock(...args),
 }));
@@ -67,6 +70,7 @@ describe("research job routes", () => {
     recoverRunningItemsToQueuedMock.mockReset();
     listQueueItemsForUserMock.mockReset();
     getQueueItemByIdMock.mockReset();
+    getQueueItemByJobIdMock.mockReset();
     completeQueueItemMock.mockReset();
     toQueueLabelMock.mockReset();
     loadPipelineConfigMock.mockReturnValue({
@@ -91,6 +95,7 @@ describe("research job routes", () => {
     claimNextQueuedItemForUserMock.mockReturnValue(null);
     recoverRunningItemsToQueuedMock.mockReturnValue(0);
     listQueueItemsForUserMock.mockReturnValue([]);
+    getQueueItemByJobIdMock.mockReturnValue(null);
     toQueueLabelMock.mockReturnValue("1st queue");
   });
 
@@ -210,6 +215,54 @@ describe("research job routes", () => {
     const app = createTestApp();
     const response = await request(app).get("/status/not-a-real-job");
     expect(response.status).toBe(404);
+  });
+
+  it("returns done status from persisted queue item when finished job was evicted from memory", async () => {
+    const app = createTestApp();
+    getQueueItemByJobIdMock.mockReturnValueOnce({
+      queueItemId: "queue-1",
+      selectedUser: "julian",
+      queueOrder: 1,
+      status: "done",
+      weekStartMs: 0,
+      csvInput: "Company Name,Website\nAcme,acme.com\n",
+      jobId: "finished-job",
+      csvOutputBase64: Buffer.from("a,b\n1,2\n", "utf8").toString("base64"),
+      summary: {
+        totalRows: 2,
+        eligibleCompanyCount: 1,
+        rejectedCompanyCount: 1,
+        skippedMissingWebsiteAndApolloAccountIdCount: 0,
+        apolloProcessedCompanyCount: 1,
+        totalSreFound: 3,
+        totalLinkedinCampaignSuccessful: 1,
+        totalLinkedinCampaignFailed: 0,
+        totalLinkedinCampaignSkipped: 0,
+        totalLemlistSuccessful: 2,
+        totalLemlistFailed: 1,
+        totalLemlistSkipped: 0,
+        totalEmailCampaignSuccessful: 1,
+        totalEmailCampaignFailed: 0,
+        totalEmailCampaignSkipped: 0,
+        weeklyLimitSkippedCompanyCount: 0,
+      },
+      warnings: ["warn-1"],
+      skippedCompanies: [],
+      rejectedCompanies: ["Company X"],
+      rejectedReason: "rejected",
+      errorMessage: null,
+      campaignPushData: null,
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      startedAtMs: 3,
+      completedAtMs: 4,
+    });
+
+    const response = await request(app).get("/status/finished-job");
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe("done");
+    expect(response.body.rejectedCompanies).toEqual(["Company X"]);
+    expect(response.body.summary.apolloProcessedCompanyCount).toBe(1);
   });
 
   it("lists queue items for selected user", async () => {
@@ -360,6 +413,35 @@ describe("research job routes", () => {
     expect(response.status).toBe(409);
   });
 
+  it("returns 409 when cancelling a persisted finished job", async () => {
+    const app = createTestApp();
+    getQueueItemByJobIdMock.mockReturnValueOnce({
+      queueItemId: "queue-1",
+      selectedUser: "julian",
+      queueOrder: 1,
+      status: "done",
+      weekStartMs: 0,
+      csvInput: "x",
+      jobId: "finished-job",
+      csvOutputBase64: null,
+      summary: null,
+      warnings: [],
+      skippedCompanies: [],
+      rejectedCompanies: [],
+      rejectedReason: null,
+      errorMessage: null,
+      campaignPushData: null,
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      startedAtMs: 3,
+      completedAtMs: 4,
+    });
+
+    const response = await request(app).post("/cancel/finished-job");
+    expect(response.status).toBe(409);
+    expect(response.body.error).toContain('"done"');
+  });
+
   it("downloads queue csv with clean filename", async () => {
     const app = createTestApp();
     getQueueItemByIdMock.mockReturnValueOnce({
@@ -387,6 +469,129 @@ describe("research job routes", () => {
     const response = await request(app).get("/queue/queue-1/csv");
     expect(response.status).toBe(200);
     expect(response.headers["content-disposition"]).toContain('attachment; filename="research-results.csv"');
+  });
+
+  it("downloads pdf for a persisted finished job", async () => {
+    const app = createTestApp();
+    getQueueItemByJobIdMock.mockReturnValueOnce({
+      queueItemId: "queue-1",
+      selectedUser: "julian",
+      queueOrder: 1,
+      status: "done",
+      weekStartMs: 0,
+      csvInput: "x",
+      jobId: "finished-job",
+      csvOutputBase64: null,
+      summary: null,
+      warnings: [],
+      skippedCompanies: [],
+      rejectedCompanies: [],
+      rejectedReason: null,
+      errorMessage: null,
+      campaignPushData: {
+        linkedinSre: [
+          {
+            companyName: "Acme",
+            name: "Jane Doe",
+            title: "SRE",
+            linkedinUrl: "https://linkedin.com/in/jane",
+            lemlistStatus: "succeed",
+          },
+        ],
+        linkedinEngLead: [],
+        linkedinEng: [],
+        emailSre: [],
+        emailEng: [],
+        emailEngLead: [],
+        filteredOutCandidates: [],
+        normalEngineerApifyWarnings: [],
+      },
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      startedAtMs: 3,
+      completedAtMs: 4,
+    });
+
+    const response = await request(app).get("/pdf/finished-job");
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("application/pdf");
+  });
+
+  it("evicts a finished job from memory after persisting the queue item", async () => {
+    const app = createTestApp();
+    enqueueQueueItemMock.mockReturnValueOnce({
+      queueItemId: "queue-1",
+      queueOrder: 1,
+      status: "queued",
+    });
+    claimNextQueuedItemForUserMock
+      .mockReturnValueOnce({
+        queueItemId: "queue-1",
+        selectedUser: "julian",
+        queueOrder: 1,
+        status: "running",
+        weekStartMs: 0,
+        csvInput: "Company Name,Website\nAcme,acme.com\n",
+        jobId: null,
+        csvOutputBase64: null,
+        summary: null,
+        warnings: [],
+        skippedCompanies: [],
+        rejectedCompanies: [],
+        rejectedReason: null,
+        errorMessage: null,
+        campaignPushData: null,
+        createdAtMs: 1,
+        updatedAtMs: 2,
+        startedAtMs: 3,
+        completedAtMs: null,
+      })
+      .mockReturnValueOnce(null);
+    getQueueItemByIdMock.mockReturnValue({
+      queueItemId: "queue-1",
+      selectedUser: "julian",
+      queueOrder: 1,
+      status: "running",
+      weekStartMs: 0,
+      csvInput: "Company Name,Website\nAcme,acme.com\n",
+      jobId: "dynamic",
+      csvOutputBase64: null,
+      summary: null,
+      warnings: [],
+      skippedCompanies: [],
+      rejectedCompanies: [],
+      rejectedReason: null,
+      errorMessage: null,
+      campaignPushData: null,
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      startedAtMs: 3,
+      completedAtMs: null,
+    });
+    runResearchPipelineMock.mockImplementationOnce(async (jobId: string) => {
+      markJobDone(jobId, Buffer.from("a,b\n1,2\n", "utf8").toString("base64"));
+    });
+
+    const response = await request(app)
+      .post("/research")
+      .field("selectedUser", "julian")
+      .attach("csv", Buffer.from("Company Name,Website\nAcme,acme.com\n", "utf8"), "input.csv");
+
+    expect(response.status).toBe(200);
+
+    let persistedJobId = "";
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const jobId = setQueueItemJobIdMock.mock.calls[0]?.[1] as string | undefined;
+      if (jobId && completeQueueItemMock.mock.calls.length > 0 && !getJob(jobId)) {
+        persistedJobId = jobId;
+        break;
+      }
+      await Promise.resolve();
+    }
+
+    expect(persistedJobId).not.toBe("");
+    expect(getJob(persistedJobId)).toBeUndefined();
+    expect(completeQueueItemMock).toHaveBeenCalledTimes(1);
   });
 
   it("cancels all active queue items for selected user", async () => {

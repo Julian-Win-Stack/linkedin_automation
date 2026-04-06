@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import multer from "multer";
 import { loadPipelineConfig } from "../config/pipelineConfig";
-import { createJob, getJob, markJobCancelled } from "../jobs/jobStore";
+import { createJob, getJob, markJobCancelled, removeJob } from "../jobs/jobStore";
 import { runResearchPipeline } from "../jobs/researchPipeline";
 import { isSelectedUser, SelectedUser } from "../shared/selectedUser";
 import { generateCampaignPdf } from "../services/pdfReportGenerator";
@@ -12,6 +12,7 @@ import {
   completeQueueItem,
   enqueueQueueItem,
   getQueueItemById,
+  getQueueItemByJobId,
   listQueueItemsForUser,
   recoverRunningItemsToQueued,
   setQueueItemJobId,
@@ -38,6 +39,45 @@ function ensureQueueRecovery(): void {
   }
   recoverRunningItemsToQueued();
   queueRecovered = true;
+}
+
+function toCompletedJobStatusResponse(item: ReturnType<typeof getQueueItemById>) {
+  if (!item) {
+    return null;
+  }
+  if (item.status === "done") {
+    return {
+      statusCode: 200,
+      body: {
+        status: "done",
+        csv: item.csvOutputBase64 ?? "",
+        warnings: item.warnings,
+        skippedCompanies: item.skippedCompanies,
+        rejectedCompanies: item.rejectedCompanies,
+        rejectedReason: item.rejectedReason,
+        summary: item.summary,
+      },
+    };
+  }
+  if (item.status === "error") {
+    return {
+      statusCode: 200,
+      body: {
+        status: "error",
+        error: item.errorMessage ?? "Unknown error",
+      },
+    };
+  }
+  if (item.status === "cancelled") {
+    return {
+      statusCode: 200,
+      body: {
+        status: "error",
+        error: item.errorMessage ?? "Job was cancelled",
+      },
+    };
+  }
+  return null;
 }
 
 async function processUserQueue(selectedUser: SelectedUser): Promise<void> {
@@ -76,6 +116,7 @@ async function processUserQueue(selectedUser: SelectedUser): Promise<void> {
         rejectedReason: job.rejectedReason ?? null,
         campaignPushData: job.campaignPushData ?? null,
       });
+      removeJob(jobId);
       continue;
     }
     if (job.status === "cancelled") {
@@ -84,6 +125,7 @@ async function processUserQueue(selectedUser: SelectedUser): Promise<void> {
         warnings: job.warnings,
         errorMessage: job.message ?? "Queue item cancelled.",
       });
+      removeJob(jobId);
       continue;
     }
     completeQueueItem(queueItem.queueItemId, {
@@ -96,6 +138,7 @@ async function processUserQueue(selectedUser: SelectedUser): Promise<void> {
       errorMessage: job.error ?? "Queue item failed.",
       campaignPushData: job.campaignPushData ?? null,
     });
+    removeJob(jobId);
   }
 }
 
@@ -208,6 +251,11 @@ router.get("/queue", (req, res) => {
 router.get("/status/:jobId", (req, res) => {
   const job = getJob(req.params.jobId);
   if (!job) {
+    const completedItem = getQueueItemByJobId(req.params.jobId);
+    const completedResponse = toCompletedJobStatusResponse(completedItem);
+    if (completedResponse) {
+      return res.status(completedResponse.statusCode).json(completedResponse.body);
+    }
     return res.status(404).json({ error: "Job not found" });
   }
 
@@ -275,6 +323,10 @@ router.get("/weekly-counts", (req, res) => {
 router.post("/cancel/:jobId", (req, res) => {
   const job = getJob(req.params.jobId);
   if (!job) {
+    const completedItem = getQueueItemByJobId(req.params.jobId);
+    if (completedItem) {
+      return res.status(409).json({ error: `Cannot cancel a job in status "${completedItem.status}"` });
+    }
     return res.status(404).json({ error: "Job not found" });
   }
   if (job.status === "done" || job.status === "error" || job.status === "cancelled") {
@@ -358,7 +410,19 @@ router.post("/queue/clear-finished", (req, res) => {
 router.get("/pdf/:jobId", (req, res) => {
   const job = getJob(req.params.jobId);
   if (!job) {
-    return res.status(404).json({ error: "Job not found" });
+    const completedItem = getQueueItemByJobId(req.params.jobId);
+    if (!completedItem) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+    if (completedItem.status !== "done" || !completedItem.campaignPushData) {
+      return res.status(400).json({ error: "PDF is not available for this job." });
+    }
+    const persistedDoc = generateCampaignPdf(completedItem.campaignPushData);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", 'attachment; filename="people.pdf"');
+    persistedDoc.pipe(res);
+    persistedDoc.end();
+    return;
   }
   if (job.status !== "done" || !job.campaignPushData) {
     return res.status(400).json({ error: "PDF is not available for this job." });

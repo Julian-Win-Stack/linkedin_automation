@@ -458,7 +458,9 @@ export async function runResearchPipeline(
             await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES, linkedinApolloPeopleFilters(peopleSearchFilters))
           )
         : [];
-      let rawSreCount = currentSreProspects.length;
+      const apolloSreCount = currentSreProspects.length;
+      let rawSreCount = apolloSreCount;
+      let exportedSreCount = apolloSreCount;
       if (trustCurrentSrePrefilter) {
         logCurrentSrePrefilterResults(row.companyName, currentSreProspects, MAX_RESULTS);
       } else {
@@ -559,8 +561,10 @@ export async function runResearchPipeline(
               (employee.headline ?? "").toLowerCase().includes(keyword.toLowerCase())
           )
         );
+        const linkedinCurrentSreCount = currentSrePool.length;
         if (!trustCurrentSrePrefilter) {
-          rawSreCount = currentSrePool.length;
+          rawSreCount = linkedinCurrentSreCount;
+          exportedSreCount = rawSreCount;
           console.error("");
           console.error(`SRE count from Apify for ${row.companyName}: ${rawSreCount}`);
           for (const [index, employee] of currentSrePool.entries()) {
@@ -583,6 +587,8 @@ export async function runResearchPipeline(
             });
             continue;
           }
+        } else {
+          exportedSreCount = Math.max(apolloSreCount, linkedinCurrentSreCount);
         }
         const { eligible: tenureEligibleSre } = splitByTenure(currentSrePool, 3);
         const currentSreFiltered = filterOpenToWorkFromCache(tenureEligibleSre, apifyCache, {
@@ -855,7 +861,7 @@ export async function runResearchPipeline(
           apollo_account_id: row.apolloAccountId ?? "",
           observability_tool_research: observability,
           stage: "ChasingPOC",
-          sre_count: rawSreCount,
+          sre_count: exportedSreCount,
           notes: "",
         });
         syncableOutputRows.push({
@@ -865,7 +871,7 @@ export async function runResearchPipeline(
           apollo_account_id: row.apolloAccountId ?? "",
           observability_tool_research: observability,
           stage: "ChasingPOC",
-          sre_count: rawSreCount,
+          sre_count: exportedSreCount,
           notes: "",
         });
         logPipelineStage("COMPANY_DONE", "Company processing complete.", companyContext);

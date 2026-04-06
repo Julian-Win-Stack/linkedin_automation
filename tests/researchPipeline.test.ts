@@ -452,6 +452,93 @@ describe("runResearchPipeline orchestration", () => {
     expect(acmeRow?.sre_count).toBe(5);
   });
 
+  it("uses the larger linkedin current SRE count for csv and sync outputs", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([{ id: "apollo-1", name: "Apollo One", title: "SRE" }]);
+    const linkedinSreEmployees = Array.from({ length: 4 }, (_, index) => makeEmployee(`linkedin-${index + 1}`, "SRE", 12));
+    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
+      employees: linkedinSreEmployees,
+      apifyCache: new Map(),
+      profileCount: 4,
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian",
+      Date.now()
+    );
+
+    const csvArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
+    const apolloSyncArg =
+      syncApolloAccountsFromOutputRowsMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
+    const attioSyncArg =
+      syncAttioCompaniesFromOutputRowsMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
+
+    expect(csvArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(4);
+    expect(apolloSyncArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(4);
+    expect(attioSyncArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(4);
+  });
+
+  it("keeps the Apollo SRE count when it is larger than linkedin current SRE count", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([
+      { id: "apollo-1", name: "Apollo One", title: "SRE" },
+      { id: "apollo-2", name: "Apollo Two", title: "SRE" },
+      { id: "apollo-3", name: "Apollo Three", title: "SRE" },
+      { id: "apollo-4", name: "Apollo Four", title: "SRE" },
+      { id: "apollo-5", name: "Apollo Five", title: "SRE" },
+    ]);
+    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
+      employees: [makeEmployee("linkedin-1", "SRE", 12), makeEmployee("linkedin-2", "SRE", 12)],
+      apifyCache: new Map(),
+      profileCount: 2,
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian",
+      Date.now()
+    );
+
+    const csvArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
+    const apolloSyncArg =
+      syncApolloAccountsFromOutputRowsMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
+    const attioSyncArg =
+      syncAttioCompaniesFromOutputRowsMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
+
+    expect(csvArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(5);
+    expect(apolloSyncArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(5);
+    expect(attioSyncArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(5);
+  });
+
   it("runs email waterfall from local pool", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
