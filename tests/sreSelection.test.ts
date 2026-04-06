@@ -9,6 +9,7 @@ function employee(overrides: Partial<EnrichedEmployee>): EnrichedEmployee {
     name: "Default Name",
     linkedinUrl: null,
     currentTitle: "SRE",
+    headline: "",
     tenure: 12,
     ...overrides,
   };

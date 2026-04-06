@@ -12,6 +12,7 @@ export interface EnrichedEmployee {
   email?: string | null;
   linkedinUrl: string | null;
   currentTitle: string;
+  headline: string;
   tenure: number | null;
 }
 

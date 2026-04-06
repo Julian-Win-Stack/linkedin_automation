@@ -33,6 +33,7 @@ function makeEmployee(
     email: null,
     linkedinUrl: null,
     currentTitle: title,
+    headline: "",
     tenure,
   };
 }

@@ -54,6 +54,7 @@ describe("bulkEnrichPeople", () => {
       email: "a.person@example.com",
       linkedinUrl: "https://linkedin.com/in/a",
       currentTitle: "SRE",
+      headline: "",
       tenure: expect.any(Number),
     });
   });
@@ -150,6 +151,7 @@ describe("bulkEnrichPeople", () => {
       email: "cached@example.com",
       linkedinUrl: "https://linkedin.com/in/cached",
       currentTitle: "SRE",
+      headline: "",
       tenure: 12,
     });
     cache.set("person_missing", null);

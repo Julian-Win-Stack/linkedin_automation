@@ -24,6 +24,7 @@ describe("enrichMissingEmailsWithLemlist", () => {
       email: null,
       linkedinUrl: null,
       currentTitle: "Platform Engineer",
+      headline: "",
       tenure: 12,
     };
     bulkEnrichDataMock.mockResolvedValueOnce([

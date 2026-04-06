@@ -40,7 +40,7 @@ import { filterOpenToWorkFromCache, splitByTenure, filterByKeywordsInApifyData }
 import { syncApolloAccountsFromOutputRows } from "../services/apolloBulkUpdateAccounts";
 import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompanyRecords";
 import { getWeeklySuccessCounts, saveWeeklySuccessForJob } from "../services/weeklySuccessStore";
-import { scrapeCompanyEmployees, filterPoolByStage } from "../services/apifyCompanyEmployees";
+import { scrapeCompanyEmployees, scrapePastSreEmployees, filterPoolByStage } from "../services/apifyCompanyEmployees";
 import { findEmailsInBulk } from "../services/apifyBulkEmailFinder";
 
 const MAX_ROWS = 500;
@@ -504,17 +504,36 @@ export async function runResearchPipeline(
       try {
         logPipelineInfo(`\n${"═".repeat(78)}\n  APIFY COMPANY POOL — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
         logPipelineStage("APIFY_COMPANY_POOL_START", "Fetching company-wide engineering pool from Apify.", companyContext);
-        const poolResult = await scrapeCompanyEmployees({
-          companyName: company.companyName,
-          companyDomain: company.domain,
-          companyLinkedinUrl: row.companyLinkedinUrl,
-          maxItemsPerCompany: 100,
-        });
+        const [poolResult, pastSreResult] = await Promise.all([
+          scrapeCompanyEmployees({
+            companyName: company.companyName,
+            companyDomain: company.domain,
+            companyLinkedinUrl: row.companyLinkedinUrl,
+            maxItemsPerCompany: 100,
+          }),
+          scrapePastSreEmployees({
+            companyName: company.companyName,
+            companyDomain: company.domain,
+            companyLinkedinUrl: row.companyLinkedinUrl,
+            maxItemsPerCompany: 100,
+          }),
+        ]);
         const apifyCache = poolResult.apifyCache;
+        for (const [key, value] of pastSreResult.apifyCache) {
+          if (!apifyCache.has(key)) {
+            apifyCache.set(key, value);
+          }
+        }
         const profilePool = dedupeEmployeesByKey(poolResult.employees);
+        const pastSrePool = dedupeEmployeesByKey(pastSreResult.employees);
         logPipelineStage(
           "APIFY_COMPANY_POOL_DONE",
           `Company pool loaded. profiles=${poolResult.profileCount} mapped=${profilePool.length}`,
+          companyContext
+        );
+        logPipelineStage(
+          "APIFY_PAST_SRE_POOL_DONE",
+          `Past SRE pool loaded. profiles=${pastSreResult.profileCount} mapped=${pastSrePool.length}`,
           companyContext
         );
 
@@ -523,7 +542,11 @@ export async function runResearchPipeline(
         let prePlatformKeys: Set<string> | null = null;
 
         const currentSrePool = profilePool.filter((employee) =>
-          SRE_PERSON_TITLES.some((keyword) => employee.currentTitle.toLowerCase().includes(keyword.toLowerCase()))
+          SRE_PERSON_TITLES.some(
+            (keyword) =>
+              employee.currentTitle.toLowerCase().includes(keyword.toLowerCase()) ||
+              (employee.headline ?? "").toLowerCase().includes(keyword.toLowerCase())
+          )
         );
         const { eligible: tenureEligibleSre } = splitByTenure(currentSrePool, 3);
         const currentSreFiltered = filterOpenToWorkFromCache(tenureEligibleSre, apifyCache, {
@@ -611,9 +634,6 @@ export async function runResearchPipeline(
         let selectedForLemlist = dedupeEmployeesByKey(linkedinCandidates.map((candidate) => candidate.employee));
         if (selectedForLemlist.length < 7) {
           logPipelineStage("BACKFILL_PHASE_1_START", "Backfill phase 1 (past SRE) started.", companyContext);
-          const pastSrePool = filterPoolByStage(profilePool, apifyCache, {
-            pastTitles: SRE_PERSON_TITLES,
-          });
           const { eligible: tenureEligiblePastSre } = splitByTenure(pastSrePool, 3);
           const pastSreFiltered = filterOpenToWorkFromCache(tenureEligiblePastSre, apifyCache, {
             companyName: row.companyName,

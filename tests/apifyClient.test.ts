@@ -26,6 +26,7 @@ function makeEmployee(
     email: overrides.email ?? null,
     linkedinUrl: overrides.linkedinUrl ?? null,
     currentTitle: overrides.currentTitle ?? "SRE",
+    headline: overrides.headline ?? "",
     tenure: overrides.tenure ?? null,
   };
 }

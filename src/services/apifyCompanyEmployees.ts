@@ -33,6 +33,7 @@ const JOB_TITLES = [
 ];
 
 const PAST_JOB_TITLES = ["SRE", "Site Reliability Engineer", "incident", "on-call"];
+const YEARS_AT_CURRENT_COMPANY_IDS = ["2", "3", "4", "5"];
 const EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "110", "310", "320"];
 const EXCLUDE_FUNCTION_IDS = [
   "1",
@@ -89,6 +90,7 @@ interface CompanyEmployeesProfile {
   linkedinUrl?: string;
   firstName?: string;
   lastName?: string;
+  headline?: string;
   openToWork?: boolean;
   skills?: Array<{ name?: string }>;
   experience?: Array<{
@@ -292,6 +294,7 @@ export function mapProfileToEnrichedEmployee(
   const experience = mapExperience(profile);
   const currentRole = findCurrentRole(experience);
   const currentTitle = currentRole?.position?.trim() ?? "";
+  const headline = profile.headline?.trim() ?? "";
   const startDateObj = currentRole?.startDate;
   const parsedStartDate = toDate(startDateObj);
   const startDate = parsedStartDate ? parsedStartDate.toISOString().slice(0, 10) : null;
@@ -305,6 +308,7 @@ export function mapProfileToEnrichedEmployee(
     email: null,
     linkedinUrl,
     currentTitle,
+    headline,
     tenure,
   };
 }
@@ -341,10 +345,7 @@ function populateApifyCache(profile: CompanyEmployeesProfile, cache: ApifyOpenTo
   cache.set(normalized, cacheEntry);
 }
 
-async function callCompanyEmployeesActor(
-  input: CompanyEmployeesInput,
-  apiKey: string
-): Promise<CompanyEmployeesProfile[]> {
+function buildCompaniesList(input: CompanyEmployeesInput): string[] {
   const companies: string[] = [];
   const linkedin = input.companyLinkedinUrl?.trim();
   if (linkedin) {
@@ -352,22 +353,16 @@ async function callCompanyEmployeesActor(
   } else {
     companies.push(input.companyName.trim());
   }
+  return companies;
+}
 
+async function runCompanyEmployeesActor(
+  payload: Record<string, unknown>,
+  apiKey: string
+): Promise<CompanyEmployeesProfile[]> {
   const endpoint =
     `${APIFY_BASE_URL}/acts/${APIFY_ACTOR_ID}/run-sync-get-dataset-items` +
     `?token=${apiKey}&timeout=${RUN_TIMEOUT_SECONDS}`;
-
-  const payload = {
-    profileScraperMode: "Full ($8 per 1k)",
-    companyBatchMode: "all_at_once",
-    maxItems: input.maxItemsPerCompany ?? 100,
-    companies,
-    jobTitles: JOB_TITLES,
-    pastJobTitles: PAST_JOB_TITLES,
-    functionIds: ["8"],
-    excludeSeniorityLevelIds: EXCLUDE_SENIORITY_LEVEL_IDS,
-    excludeFunctionIds: EXCLUDE_FUNCTION_IDS,
-  };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     try {
@@ -395,9 +390,44 @@ async function callCompanyEmployeesActor(
   return [];
 }
 
-export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Promise<CompanyEmployeesResult> {
-  const apiKey = getRequiredEnv("APIFY_API_KEY");
-  const profiles = await callCompanyEmployeesActor(input, apiKey);
+async function callCompanyEmployeesActor(
+  input: CompanyEmployeesInput,
+  apiKey: string
+): Promise<CompanyEmployeesProfile[]> {
+  const companies = buildCompaniesList(input);
+  return runCompanyEmployeesActor({
+    profileScraperMode: "Full ($8 per 1k)",
+    companyBatchMode: "all_at_once",
+    maxItems: input.maxItemsPerCompany ?? 100,
+    companies,
+    jobTitles: JOB_TITLES,
+    functionIds: ["8"],
+    excludeSeniorityLevelIds: EXCLUDE_SENIORITY_LEVEL_IDS,
+    excludeFunctionIds: EXCLUDE_FUNCTION_IDS,
+  }, apiKey);
+}
+
+async function callPastSreActor(
+  input: CompanyEmployeesInput,
+  apiKey: string
+): Promise<CompanyEmployeesProfile[]> {
+  const companies = buildCompaniesList(input);
+  return runCompanyEmployeesActor({
+    profileScraperMode: "Full ($8 per 1k)",
+    companies,
+    excludeFunctionIds: EXCLUDE_FUNCTION_IDS,
+    excludeSeniorityLevelIds: EXCLUDE_SENIORITY_LEVEL_IDS,
+    functionIds: ["8"],
+    pastJobTitles: PAST_JOB_TITLES,
+    recentlyChangedJobs: false,
+    yearsAtCurrentCompanyIds: YEARS_AT_CURRENT_COMPANY_IDS,
+  }, apiKey);
+}
+
+function mapProfilesToCompanyEmployees(
+  profiles: CompanyEmployeesProfile[],
+  input: CompanyEmployeesInput
+): CompanyEmployeesResult {
   const employees: EnrichedEmployee[] = [];
   const apifyCache: ApifyOpenToWorkCache = new Map();
   const seen = new Set<string>();
@@ -421,6 +451,18 @@ export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Prom
     apifyCache,
     profileCount: profiles.length,
   };
+}
+
+export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Promise<CompanyEmployeesResult> {
+  const apiKey = getRequiredEnv("APIFY_API_KEY");
+  const profiles = await callCompanyEmployeesActor(input, apiKey);
+  return mapProfilesToCompanyEmployees(profiles, input);
+}
+
+export async function scrapePastSreEmployees(input: CompanyEmployeesInput): Promise<CompanyEmployeesResult> {
+  const apiKey = getRequiredEnv("APIFY_API_KEY");
+  const profiles = await callPastSreActor(input, apiKey);
+  return mapProfilesToCompanyEmployees(profiles, input);
 }
 
 function containsAnyKeyword(text: string, keywords: string[]): boolean {

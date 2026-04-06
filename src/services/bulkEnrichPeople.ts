@@ -143,6 +143,7 @@ function toEnrichedEmployee(record: BulkMatchRecord): EnrichedEmployee | null {
     email: record.email ?? null,
     linkedinUrl: record.linkedin_url ?? null,
     currentTitle: currentRole?.title ?? record.title ?? "",
+    headline: "",
     tenure,
   };
 }

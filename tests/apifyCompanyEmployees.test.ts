@@ -4,6 +4,7 @@ import {
   filterPoolByStage,
   mapProfileToEnrichedEmployee,
   scrapeCompanyEmployees,
+  scrapePastSreEmployees,
 } from "../src/services/apifyCompanyEmployees";
 import { ApifyOpenToWorkCache, EnrichedEmployee } from "../src/types/prospect";
 
@@ -22,6 +23,7 @@ function makeEmployee(id: string, currentTitle: string, linkedinUrl: string): En
     email: null,
     linkedinUrl,
     currentTitle,
+    headline: "",
     tenure: 10,
   };
 }
@@ -78,6 +80,52 @@ describe("apifyCompanyEmployees", () => {
     });
   });
 
+  it("extracts headline from profile into enriched employee", () => {
+    const employee = mapProfileToEnrichedEmployee(
+      {
+        id: "hl-1",
+        firstName: "Bob",
+        lastName: "Smith",
+        headline: "Site Reliability Engineer | Platform | Kubernetes",
+        linkedinUrl: "https://linkedin.com/in/bob",
+        experience: [
+          {
+            companyName: "Acme",
+            position: "Staff Engineer",
+            startDate: { month: "Jan", year: 2023 },
+            endDate: { text: "Present" },
+          },
+        ],
+      },
+      { companyName: "Acme", companyDomain: "acme.com" }
+    );
+
+    expect(employee?.headline).toBe("Site Reliability Engineer | Platform | Kubernetes");
+    expect(employee?.currentTitle).toBe("Staff Engineer");
+  });
+
+  it("defaults headline to empty string when profile has no headline", () => {
+    const employee = mapProfileToEnrichedEmployee(
+      {
+        id: "hl-2",
+        firstName: "Carol",
+        lastName: "Jones",
+        linkedinUrl: "https://linkedin.com/in/carol",
+        experience: [
+          {
+            companyName: "Acme",
+            position: "Backend Engineer",
+            startDate: { month: "Mar", year: 2022 },
+            endDate: { text: "Present" },
+          },
+        ],
+      },
+      { companyName: "Acme", companyDomain: "acme.com" }
+    );
+
+    expect(employee?.headline).toBe("");
+  });
+
   it("filters pool by current and past title conditions", () => {
     const pool = [
       makeEmployee("1", "SRE", "https://linkedin.com/in/1"),
@@ -132,5 +180,55 @@ describe("apifyCompanyEmployees", () => {
     expect(result.profileCount).toBe(1);
     expect(result.employees).toHaveLength(1);
     expect(result.apifyCache.get("linkedin.com/in/emp-1")).toBeDefined();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    expect(requestBody.jobTitles).toBeDefined();
+    expect(requestBody.pastJobTitles).toBeUndefined();
+    expect(requestBody.companyBatchMode).toBe("all_at_once");
+    expect(requestBody.maxItems).toBe(100);
+  });
+
+  it("scrapes past SRE employees with dedicated payload", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => [
+        {
+          id: "past-1",
+          firstName: "Past",
+          lastName: "Sre",
+          linkedinUrl: "https://linkedin.com/in/past-1",
+          openToWork: false,
+          experience: [
+            {
+              companyName: "Acme",
+              position: "Platform Engineer",
+              startDate: { month: "Jan", year: 2022 },
+              endDate: { text: "Present", month: "Apr", year: 2024 },
+            },
+          ],
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await scrapePastSreEmployees({
+      companyName: "Acme",
+      companyDomain: "acme.com",
+      companyLinkedinUrl: "http://www.linkedin.com/company/acme",
+      maxItemsPerCompany: 100,
+    });
+
+    expect(result.profileCount).toBe(1);
+    expect(result.employees).toHaveLength(1);
+    expect(result.apifyCache.get("linkedin.com/in/past-1")).toBeDefined();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    expect(requestBody.jobTitles).toBeUndefined();
+    expect(requestBody.pastJobTitles).toEqual(["SRE", "Site Reliability Engineer", "incident", "on-call"]);
+    expect(requestBody.yearsAtCurrentCompanyIds).toEqual(["2", "3", "4", "5"]);
+    expect(requestBody.recentlyChangedJobs).toBe(false);
+    expect(requestBody.companyBatchMode).toBeUndefined();
+    expect(requestBody.maxItems).toBeUndefined();
+    expect(requestBody.companies).toEqual(["https://www.linkedin.com/company/acme"]);
   });
 });
