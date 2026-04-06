@@ -625,6 +625,115 @@ describe("runResearchPipeline orchestration", () => {
     expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[1][1]).toBe("Beta");
   });
 
+  it("stores filtered candidate summaries as per-company counts", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    const currentSre = [makeEmployee("sre-1", "SRE", 12)];
+    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
+      employees: currentSre,
+      apifyCache: new Map(),
+      profileCount: 1,
+    });
+    filterOpenToWorkFromCacheMock
+      .mockReturnValueOnce({
+        kept: currentSre,
+        warnings: [],
+        filteredOut: [
+          { employee: makeEmployee("filtered-1", "SRE", 12), reason: "open_to_work" },
+          { employee: makeEmployee("filtered-2", "SRE", 12), reason: "frontend_role" },
+        ],
+      })
+      .mockReturnValue({
+        kept: [],
+        warnings: [],
+        filteredOut: [],
+      });
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
+      candidates: [],
+      filteredOutCandidates: [
+        { employee: makeEmployee("filtered-3", "Engineer", 12), reason: "contract_employment" },
+        { employee: makeEmployee("filtered-4", "Engineer", 12), reason: "open_to_work" },
+      ],
+      warnings: [],
+      normalEngineerApifyWarnings: [],
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian",
+      Date.now()
+    );
+
+    const job = getJob(jobId);
+    expect(job?.campaignPushData?.filteredOutCandidates).toEqual([
+      {
+        companyName: "Acme",
+        openToWorkCount: 2,
+        frontendRoleCount: 1,
+        contractEmploymentCount: 1,
+      },
+    ]);
+  });
+
+  it("stores normal engineer warnings as per-company problem summaries", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
+      candidates: [],
+      filteredOutCandidates: [],
+      warnings: [],
+      normalEngineerApifyWarnings: [
+        { employee: makeEmployee("warn-1", "Engineer", 12), problem: "Missing skills data" },
+        { employee: makeEmployee("warn-2", "Engineer", 12), problem: "Missing skills data" },
+        { employee: makeEmployee("warn-3", "Engineer", 12), problem: "Missing headline data" },
+      ],
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian",
+      Date.now()
+    );
+
+    const job = getJob(jobId);
+    expect(job?.campaignPushData?.normalEngineerApifyWarnings).toEqual([
+      {
+        companyName: "Acme",
+        totalCount: 3,
+        problems: [
+          { problem: "Missing skills data", count: 2 },
+          { problem: "Missing headline data", count: 1 },
+        ],
+      },
+    ]);
+  });
+
   it("skips company when weekly linkedin limit reached", async () => {
     getWeeklySuccessCountsMock.mockReturnValueOnce({ linkedinCount: 100, emailCount: 0 });
     readCompaniesMock.mockReturnValueOnce(

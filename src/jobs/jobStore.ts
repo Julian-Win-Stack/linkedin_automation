@@ -13,20 +13,22 @@ export interface CampaignPushEntry {
 
 export type FilteredOutReason = "open_to_work" | "frontend_role" | "contract_employment";
 
-export interface FilteredOutCampaignEntry {
+export interface FilteredOutCampaignSummary {
   companyName: string;
-  name: string;
-  title: string;
-  linkedinUrl: string | null;
-  reason: FilteredOutReason;
+  openToWorkCount: number;
+  frontendRoleCount: number;
+  contractEmploymentCount: number;
 }
 
-export interface NormalEngineerApifyWarningEntry {
-  companyName: string;
-  name: string;
-  title: string;
-  linkedinUrl: string | null;
+export interface WarningProblemSummary {
   problem: string;
+  count: number;
+}
+
+export interface NormalEngineerApifyWarningSummary {
+  companyName: string;
+  totalCount: number;
+  problems: WarningProblemSummary[];
 }
 
 export interface CampaignPushData {
@@ -36,8 +38,8 @@ export interface CampaignPushData {
   emailSre: CampaignPushEntry[];
   emailEng: CampaignPushEntry[];
   emailEngLead: CampaignPushEntry[];
-  filteredOutCandidates: FilteredOutCampaignEntry[];
-  normalEngineerApifyWarnings: NormalEngineerApifyWarningEntry[];
+  filteredOutCandidates: FilteredOutCampaignSummary[];
+  normalEngineerApifyWarnings: NormalEngineerApifyWarningSummary[];
 }
 
 export interface JobSummary {

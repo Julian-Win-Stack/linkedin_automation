@@ -21,7 +21,7 @@ import {
   JobSummary,
   CampaignPushData,
   CampaignPushEntry,
-  FilteredOutCampaignEntry,
+  FilteredOutReason,
   markJobDone,
   markJobError,
   setJobMessage,
@@ -104,17 +104,94 @@ const LINKEDIN_KEYWORD_STAGES = [
   { label: "Normal Engineer", config: LINKEDIN_KEYWORD_STAGE_NORMAL_ENG },
 ];
 
-interface PendingEmailPushBatch {
-  companyName: string;
-  companyDomain: string;
-  candidates: TaggedEmailCandidate[];
-}
-
 type LinkedinPoolBucket = "sre" | "eng" | "engLead";
 
 interface LinkedinPoolCandidate {
   employee: EnrichedEmployee;
   linkedinBucket: LinkedinPoolBucket;
+}
+
+interface WarningProblemCounter {
+  count: number;
+}
+
+function getOrCreateFilteredOutSummary(
+  campaignPushData: CampaignPushData,
+  companyName: string
+) {
+  let existing = campaignPushData.filteredOutCandidates.find((entry) => entry.companyName === companyName);
+  if (!existing) {
+    existing = {
+      companyName,
+      openToWorkCount: 0,
+      frontendRoleCount: 0,
+      contractEmploymentCount: 0,
+    };
+    campaignPushData.filteredOutCandidates.push(existing);
+  }
+  return existing;
+}
+
+function addFilteredOutCounts(
+  campaignPushData: CampaignPushData,
+  companyName: string,
+  reasons: FilteredOutReason[]
+): void {
+  if (reasons.length === 0) {
+    return;
+  }
+  const summary = getOrCreateFilteredOutSummary(campaignPushData, companyName);
+  for (const reason of reasons) {
+    if (reason === "open_to_work") {
+      summary.openToWorkCount += 1;
+    } else if (reason === "frontend_role") {
+      summary.frontendRoleCount += 1;
+    } else if (reason === "contract_employment") {
+      summary.contractEmploymentCount += 1;
+    }
+  }
+}
+
+function getOrCreateWarningSummary(
+  campaignPushData: CampaignPushData,
+  companyName: string
+) {
+  let existing = campaignPushData.normalEngineerApifyWarnings.find((entry) => entry.companyName === companyName);
+  if (!existing) {
+    existing = {
+      companyName,
+      totalCount: 0,
+      problems: [],
+    };
+    campaignPushData.normalEngineerApifyWarnings.push(existing);
+  }
+  return existing;
+}
+
+function addWarningProblemCounts(
+  campaignPushData: CampaignPushData,
+  companyName: string,
+  problems: string[]
+): void {
+  if (problems.length === 0) {
+    return;
+  }
+  const summary = getOrCreateWarningSummary(campaignPushData, companyName);
+  const problemMap = new Map<string, WarningProblemCounter>(
+    summary.problems.map((entry) => [entry.problem, { count: entry.count }])
+  );
+  for (const problem of problems) {
+    const existing = problemMap.get(problem);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      problemMap.set(problem, { count: 1 });
+    }
+    summary.totalCount += 1;
+  }
+  summary.problems = [...problemMap.entries()]
+    .map(([problem, entry]) => ({ problem, count: entry.count }))
+    .sort((a, b) => b.count - a.count || a.problem.localeCompare(b.problem));
 }
 
 function isCancelled(jobId: string): boolean {
@@ -515,14 +592,10 @@ export async function runResearchPipeline(
         for (const warning of currentSreFiltered.warnings) {
           addJobWarning(jobId, warning);
         }
-        campaignPushData.filteredOutCandidates.push(
-          ...currentSreFiltered.filteredOut.map(({ employee, reason }) => ({
-            companyName: company.companyName,
-            name: employee.name,
-            title: employee.currentTitle,
-            linkedinUrl: employee.linkedinUrl ?? null,
-            reason,
-          }))
+        addFilteredOutCounts(
+          campaignPushData,
+          company.companyName,
+          currentSreFiltered.filteredOut.map(({ reason }) => reason)
         );
         const selectedCurrentSre = selectTopSreForLemlist(currentSreFiltered.kept, 7);
         linkedinCandidates.push(
@@ -554,14 +627,10 @@ export async function runResearchPipeline(
             for (const warning of stageFiltered.warnings) {
               addJobWarning(jobId, warning);
             }
-            campaignPushData.filteredOutCandidates.push(
-              ...stageFiltered.filteredOut.map(({ employee, reason }) => ({
-                companyName: company.companyName,
-                name: employee.name,
-                title: employee.currentTitle,
-                linkedinUrl: employee.linkedinUrl ?? null,
-                reason,
-              }))
+            addFilteredOutCounts(
+              campaignPushData,
+              company.companyName,
+              stageFiltered.filteredOut.map(({ reason }) => reason)
             );
             const { matched } = filterByKeywordsInApifyData(stageFiltered.kept, apifyCache, SRE_WORK_KEYWORDS);
             allKeywordMatched.push(...matched);
@@ -598,14 +667,10 @@ export async function runResearchPipeline(
             companyName: row.companyName,
             companyDomain: row.companyDomain,
           });
-          campaignPushData.filteredOutCandidates.push(
-            ...pastSreFiltered.filteredOut.map(({ employee, reason }) => ({
-              companyName: company.companyName,
-              name: employee.name,
-              title: employee.currentTitle,
-              linkedinUrl: employee.linkedinUrl ?? null,
-              reason,
-            }))
+          addFilteredOutCounts(
+            campaignPushData,
+            company.companyName,
+            pastSreFiltered.filteredOut.map(({ reason }) => reason)
           );
           selectedForLemlist = fillToMinimumWithBackfill(selectedCurrentSre, pastSreFiltered.kept, [], {
             minimum: 7,
@@ -628,14 +693,10 @@ export async function runResearchPipeline(
               companyName: row.companyName,
               companyDomain: row.companyDomain,
             });
-            campaignPushData.filteredOutCandidates.push(
-              ...platformFiltered.filteredOut.map(({ employee, reason }) => ({
-                companyName: company.companyName,
-                name: employee.name,
-                title: employee.currentTitle,
-                linkedinUrl: employee.linkedinUrl ?? null,
-                reason,
-              }))
+            addFilteredOutCounts(
+              campaignPushData,
+              company.companyName,
+              platformFiltered.filteredOut.map(({ reason }) => reason)
             );
             selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, [], platformFiltered.kept, {
               minimum: 5,
@@ -731,28 +792,19 @@ export async function runResearchPipeline(
           }
 
           if (waterfallResult.normalEngineerApifyWarnings.length > 0) {
-            campaignPushData.normalEngineerApifyWarnings.push(
-              ...waterfallResult.normalEngineerApifyWarnings.map(({ employee, problem }) => ({
-                companyName: company.companyName,
-                name: employee.name,
-                title: employee.currentTitle,
-                linkedinUrl: employee.linkedinUrl ?? null,
-                problem,
-              }))
+            addWarningProblemCounts(
+              campaignPushData,
+              company.companyName,
+              waterfallResult.normalEngineerApifyWarnings.map(({ problem }) => problem)
             );
           }
 
           if (waterfallResult.filteredOutCandidates.length > 0) {
-            const filteredEntries: FilteredOutCampaignEntry[] = waterfallResult.filteredOutCandidates.map(
-              ({ employee, reason }) => ({
-                companyName: company.companyName,
-                name: employee.name,
-                title: employee.currentTitle,
-                linkedinUrl: employee.linkedinUrl ?? null,
-                reason,
-              })
+            addFilteredOutCounts(
+              campaignPushData,
+              company.companyName,
+              waterfallResult.filteredOutCandidates.map(({ reason }) => reason)
             );
-            campaignPushData.filteredOutCandidates.push(...filteredEntries);
           }
 
           if (waterfallResult.candidates.length > 0) {

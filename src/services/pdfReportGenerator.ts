@@ -2,8 +2,8 @@ import PDFDocument from "pdfkit";
 import {
   CampaignPushData,
   CampaignPushEntry,
-  FilteredOutCampaignEntry,
-  NormalEngineerApifyWarningEntry,
+  FilteredOutCampaignSummary,
+  NormalEngineerApifyWarningSummary,
 } from "../jobs/jobStore";
 
 interface CampaignSection {
@@ -18,7 +18,8 @@ interface CompanyGroup {
 
 interface FilteredOutReasonGroup {
   label: string;
-  entries: FilteredOutCampaignEntry[];
+  totalCount: number;
+  companySummaries: Array<{ companyName: string; count: number }>;
 }
 
 const PAGE_MARGIN = 50;
@@ -71,20 +72,38 @@ function formatDate(): string {
   });
 }
 
-function buildFilteredOutReasonGroups(entries: FilteredOutCampaignEntry[]): FilteredOutReasonGroup[] {
-  const openToWork = entries.filter((entry) => entry.reason === "open_to_work");
-  const frontendRole = entries.filter((entry) => entry.reason === "frontend_role");
-  const contractEmployment = entries.filter((entry) => entry.reason === "contract_employment");
+function buildFilteredOutReasonGroups(entries: FilteredOutCampaignSummary[]): FilteredOutReasonGroup[] {
   const groups: FilteredOutReasonGroup[] = [];
 
-  if (openToWork.length > 0) {
-    groups.push({ label: "Filtered for OpenToWork", entries: openToWork });
+  const openToWorkSummaries = entries
+    .filter((entry) => entry.openToWorkCount > 0)
+    .map((entry) => ({ companyName: entry.companyName, count: entry.openToWorkCount }));
+  if (openToWorkSummaries.length > 0) {
+    groups.push({
+      label: "Filtered for OpenToWork",
+      totalCount: openToWorkSummaries.reduce((sum, entry) => sum + entry.count, 0),
+      companySummaries: openToWorkSummaries,
+    });
   }
-  if (contractEmployment.length > 0) {
-    groups.push({ label: "Filtered for Contract Employment", entries: contractEmployment });
+  const contractEmploymentSummaries = entries
+    .filter((entry) => entry.contractEmploymentCount > 0)
+    .map((entry) => ({ companyName: entry.companyName, count: entry.contractEmploymentCount }));
+  if (contractEmploymentSummaries.length > 0) {
+    groups.push({
+      label: "Filtered for Contract Employment",
+      totalCount: contractEmploymentSummaries.reduce((sum, entry) => sum + entry.count, 0),
+      companySummaries: contractEmploymentSummaries,
+    });
   }
-  if (frontendRole.length > 0) {
-    groups.push({ label: "Filtered for Frontend Role", entries: frontendRole });
+  const frontendRoleSummaries = entries
+    .filter((entry) => entry.frontendRoleCount > 0)
+    .map((entry) => ({ companyName: entry.companyName, count: entry.frontendRoleCount }));
+  if (frontendRoleSummaries.length > 0) {
+    groups.push({
+      label: "Filtered for Frontend Role",
+      totalCount: frontendRoleSummaries.reduce((sum, entry) => sum + entry.count, 0),
+      companySummaries: frontendRoleSummaries,
+    });
   }
 
   return groups;
@@ -341,7 +360,7 @@ function renderEntry(
 
 function renderFilteredOutSection(
   doc: PDFKit.PDFDocument,
-  entries: FilteredOutCampaignEntry[],
+  entries: FilteredOutCampaignSummary[],
   pageWidth: number
 ): void {
   const groups = buildFilteredOutReasonGroups(entries);
@@ -379,7 +398,11 @@ function renderFilteredOutSection(
     .font("Helvetica")
     .fontSize(9)
     .fillColor(MUTED_COLOR)
-    .text(`${entries.length} candidate${entries.length === 1 ? "" : "s"} were filtered out`, PAGE_MARGIN, doc.y);
+    .text(
+      `${groups.reduce((sum, group) => sum + group.totalCount, 0)} candidate summaries recorded across ${entries.length} compan${entries.length === 1 ? "y" : "ies"}`,
+      PAGE_MARGIN,
+      doc.y
+    );
   doc.y += 14;
 
   for (const group of groups) {
@@ -389,90 +412,85 @@ function renderFilteredOutSection(
       .fontSize(9)
       .fillColor("#1e3a8a")
       .text(group.label, PAGE_MARGIN, doc.y, { width: pageWidth });
-    doc.y += 6;
+    doc
+      .font("Helvetica")
+      .fontSize(8.5)
+      .fillColor(MUTED_COLOR)
+      .text(`${group.totalCount} candidate${group.totalCount === 1 ? "" : "s"} across ${group.companySummaries.length} compan${group.companySummaries.length === 1 ? "y" : "ies"}`, PAGE_MARGIN, doc.y + 14, { width: pageWidth });
+    doc.y += 28;
 
-    for (const entry of group.entries) {
-      renderFilteredOutEntry(doc, entry, pageWidth);
+    for (const entry of group.companySummaries) {
+      renderSummaryCountCard(doc, {
+        companyName: entry.companyName,
+        count: entry.count,
+        badgeLabel: "Filtered",
+        badgeBg: FILTER_REASON_BADGE_BG,
+        badgeText: FILTER_REASON_BADGE_TEXT,
+      }, pageWidth, FILTER_CARD_BG);
     }
 
     doc.y += 4;
   }
 }
 
-function renderFilteredOutEntry(
+function renderSummaryCountCard(
   doc: PDFKit.PDFDocument,
-  entry: FilteredOutCampaignEntry,
-  pageWidth: number
+  entry: {
+    companyName: string;
+    count: number;
+    badgeLabel: string;
+    badgeBg: string;
+    badgeText: string;
+  },
+  pageWidth: number,
+  backgroundColor: string
 ): void {
-  ensureSpace(doc, 72);
+  ensureSpace(doc, 54);
   const cardX = PAGE_MARGIN + 4;
   const cardY = doc.y;
   const cardWidth = pageWidth - 8;
-  const cardHeight = 60;
+  const cardHeight = 42;
 
   doc
     .save()
     .roundedRect(cardX, cardY, cardWidth, cardHeight, 6)
-    .fill(FILTER_CARD_BG)
+    .fill(backgroundColor)
     .restore();
 
-  const reasonLabel = entry.reason === "open_to_work"
-    ? "Reason: OpenToWork profile"
-    : entry.reason === "contract_employment"
-      ? "Reason: Contract employment type"
-      : "Reason: Frontend-focused role";
-  const reasonTextWidth = doc.font("Helvetica-Bold").fontSize(7.5).widthOfString(reasonLabel);
-  const badgeWidth = reasonTextWidth + 10;
+  const badgeTextWidth = doc.font("Helvetica-Bold").fontSize(7.5).widthOfString(entry.badgeLabel);
+  const badgeWidth = badgeTextWidth + 10;
   const badgeX = cardX + cardWidth - badgeWidth - 10;
   const badgeY = cardY + 8;
 
   doc
     .save()
     .roundedRect(badgeX, badgeY, badgeWidth, 14, 6)
-    .fill(FILTER_REASON_BADGE_BG)
+    .fill(entry.badgeBg)
     .restore();
   doc
     .font("Helvetica-Bold")
     .fontSize(7.5)
-    .fillColor(FILTER_REASON_BADGE_TEXT)
-    .text(reasonLabel, badgeX + 5, badgeY + 4, { width: reasonTextWidth + 1 });
+    .fillColor(entry.badgeText)
+    .text(entry.badgeLabel, badgeX + 5, badgeY + 4, { width: badgeTextWidth + 1 });
 
   doc
     .font("Helvetica-Bold")
     .fontSize(10)
     .fillColor("#111827")
-    .text(entry.name, cardX + 10, cardY + 9, { width: Math.max(90, badgeX - (cardX + 16)) });
+    .text(entry.companyName, cardX + 10, cardY + 10, { width: Math.max(90, badgeX - (cardX + 16)) });
 
   doc
     .font("Helvetica")
     .fontSize(9)
     .fillColor(MUTED_COLOR)
-    .text(entry.title || "—", cardX + 10, cardY + 28, { width: cardWidth - 20 });
-
-  if (entry.linkedinUrl) {
-    doc
-      .font("Helvetica")
-      .fontSize(8.5)
-      .fillColor(LINK_COLOR)
-      .text(entry.linkedinUrl, cardX + 10, cardY + 44, {
-        width: cardWidth - 20,
-        link: normalizeLink(entry.linkedinUrl),
-        underline: true,
-      });
-  } else {
-    doc
-      .font("Helvetica")
-      .fontSize(8.5)
-      .fillColor(MUTED_COLOR)
-      .text("LinkedIn URL: —", cardX + 10, cardY + 44, { width: cardWidth - 20 });
-  }
+    .text(`${entry.count} candidate${entry.count === 1 ? "" : "s"}`, cardX + 10, cardY + 26, { width: cardWidth - 20 });
 
   doc.y = cardY + cardHeight + 8;
 }
 
 function renderNormalEngineerApifyWarningSection(
   doc: PDFKit.PDFDocument,
-  entries: NormalEngineerApifyWarningEntry[],
+  entries: NormalEngineerApifyWarningSummary[],
   pageWidth: number
 ): void {
   doc.y += 8;
@@ -505,7 +523,11 @@ function renderNormalEngineerApifyWarningSection(
     .font("Helvetica")
     .fontSize(9)
     .fillColor(MUTED_COLOR)
-    .text(`${entries.length} candidate${entries.length === 1 ? "" : "s"} passed with warning`, PAGE_MARGIN, doc.y);
+    .text(
+      `${entries.reduce((sum, entry) => sum + entry.totalCount, 0)} warning${entries.reduce((sum, entry) => sum + entry.totalCount, 0) === 1 ? "" : "s"} across ${entries.length} compan${entries.length === 1 ? "y" : "ies"}`,
+      PAGE_MARGIN,
+      doc.y
+    );
   doc.y += 14;
 
   for (const entry of entries) {
@@ -515,14 +537,17 @@ function renderNormalEngineerApifyWarningSection(
 
 function renderNormalEngineerApifyWarningEntry(
   doc: PDFKit.PDFDocument,
-  entry: NormalEngineerApifyWarningEntry,
+  entry: NormalEngineerApifyWarningSummary,
   pageWidth: number
 ): void {
-  ensureSpace(doc, 96);
+  const problemText = entry.problems
+    .map((problem) => `${problem.problem}: ${problem.count}`)
+    .join(" | ");
+  ensureSpace(doc, 86);
   const cardX = PAGE_MARGIN + 4;
   const cardY = doc.y;
   const cardWidth = pageWidth - 8;
-  const cardHeight = 84;
+  const cardHeight = 74;
 
   doc
     .save()
@@ -551,37 +576,19 @@ function renderNormalEngineerApifyWarningEntry(
     .font("Helvetica-Bold")
     .fontSize(10)
     .fillColor("#111827")
-    .text(entry.name, cardX + 10, cardY + 9, { width: Math.max(90, badgeX - (cardX + 16)) });
+    .text(entry.companyName, cardX + 10, cardY + 9, { width: Math.max(90, badgeX - (cardX + 16)) });
 
   doc
     .font("Helvetica")
     .fontSize(9)
     .fillColor(MUTED_COLOR)
-    .text(entry.title || "—", cardX + 10, cardY + 28, { width: cardWidth - 20 });
-
-  if (entry.linkedinUrl) {
-    doc
-      .font("Helvetica")
-      .fontSize(8.5)
-      .fillColor(LINK_COLOR)
-      .text(entry.linkedinUrl, cardX + 10, cardY + 44, {
-        width: cardWidth - 20,
-        link: normalizeLink(entry.linkedinUrl),
-        underline: true,
-      });
-  } else {
-    doc
-      .font("Helvetica")
-      .fontSize(8.5)
-      .fillColor(MUTED_COLOR)
-      .text("LinkedIn URL: —", cardX + 10, cardY + 44, { width: cardWidth - 20 });
-  }
+    .text(`${entry.totalCount} warning${entry.totalCount === 1 ? "" : "s"}`, cardX + 10, cardY + 28, { width: cardWidth - 20 });
 
   doc
     .font("Helvetica")
     .fontSize(8.5)
     .fillColor(WARNING_TEXT)
-    .text(`Problem: ${entry.problem}`, cardX + 10, cardY + 60, { width: cardWidth - 20 });
+    .text(`Problems: ${problemText}`, cardX + 10, cardY + 46, { width: cardWidth - 20 });
 
   doc.y = cardY + cardHeight + 8;
 }
