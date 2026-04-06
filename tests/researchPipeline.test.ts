@@ -80,9 +80,9 @@ vi.mock("../src/services/lemlistEmailPushQueue", () => ({
 
 vi.mock("../src/services/emailCandidateWaterfall", () => ({
   runEmailCandidateWaterfall: (...args: unknown[]) => runEmailCandidateWaterfallMock(...args),
-  LINKEDIN_KEYWORD_STAGE_INFRA: { currentTitles: ["Infrastructure"], minTenureMonths: 11, campaignBucket: "eng" },
-  LINKEDIN_KEYWORD_STAGE_DEVOPS: { currentTitles: ["DevOps"], minTenureMonths: 11, campaignBucket: "eng" },
-  LINKEDIN_KEYWORD_STAGE_NORMAL_ENG: { currentTitles: ["Engineer"], minTenureMonths: 11, campaignBucket: "eng" },
+  LINKEDIN_KEYWORD_STAGE_INFRA: { currentTitles: ["Infrastructure"], minTenureMonths: 12, campaignBucket: "eng" },
+  LINKEDIN_KEYWORD_STAGE_DEVOPS: { currentTitles: ["DevOps"], minTenureMonths: 12, campaignBucket: "eng" },
+  LINKEDIN_KEYWORD_STAGE_NORMAL_ENG: { currentTitles: ["Engineer"], minTenureMonths: 12, campaignBucket: "eng" },
 }));
 
 vi.mock("../src/services/observability/csvWriter", () => ({

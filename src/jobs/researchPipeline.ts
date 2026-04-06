@@ -186,6 +186,80 @@ function toLinkedinPoolBucket(employee: EnrichedEmployee): LinkedinPoolBucket {
   return isLinkedinLeadershipTitle(employee.currentTitle) ? "engLead" : "sre";
 }
 
+function normalizeLinkedinUrlForLookup(url: string): string {
+  return url
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+}
+
+async function findEmailsForBatch(
+  batch: PendingEmailPushBatch,
+  jobId: string,
+  logPipelineStage: (
+    step: string,
+    message: string,
+    companyContext?: { index: number; total: number; companyName: string }
+  ) => void,
+  companyContext: { index: number; total: number; companyName: string }
+): Promise<void> {
+  const linkedinUrlsForBulkFinder = batch.candidates
+    .map(({ employee }) => employee.linkedinUrl?.trim() ?? "")
+    .filter((url) => url.length > 0);
+
+  if (linkedinUrlsForBulkFinder.length > 0) {
+    try {
+      logPipelineStage(
+        "APIFY_BULK_EMAIL_FINDER_START",
+        `Apify bulk email finder started. urls=${linkedinUrlsForBulkFinder.length}`,
+        companyContext
+      );
+      const emailsByLinkedin = await findEmailsInBulk(linkedinUrlsForBulkFinder);
+      for (const candidate of batch.candidates) {
+        const linkedinUrl = candidate.employee.linkedinUrl?.trim() ?? "";
+        if (!linkedinUrl || (candidate.employee.email && candidate.employee.email.trim().length > 0)) {
+          continue;
+        }
+        const foundEmail = emailsByLinkedin.get(normalizeLinkedinUrlForLookup(linkedinUrl));
+        if (foundEmail) {
+          candidate.employee.email = foundEmail;
+        }
+      }
+      logPipelineStage(
+        "APIFY_BULK_EMAIL_FINDER_DONE",
+        `Apify bulk email finder complete. found=${emailsByLinkedin.size}`,
+        companyContext
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown Apify bulk email finder error";
+      addJobWarning(jobId, `Apify bulk email finder failed for ${batch.companyName}: ${message}`);
+    }
+  }
+
+  const missingEmailCandidates = batch.candidates
+    .filter(({ employee }) => !employee.email || employee.email.trim().length === 0)
+    .map(({ employee }) => ({
+      employee,
+      companyName: batch.companyName,
+      companyDomain: batch.companyDomain,
+    }));
+
+  if (missingEmailCandidates.length > 0) {
+    logPipelineStage(
+      "LEMLIST_EMAIL_ENRICH_START",
+      `Lemlist bulk find_email started. candidates=${missingEmailCandidates.length}`,
+      companyContext
+    );
+    const summary = await enrichMissingEmailsWithLemlist(missingEmailCandidates);
+    logPipelineStage(
+      "LEMLIST_EMAIL_ENRICH_DONE",
+      `Lemlist bulk find_email complete. attempted=${summary.attempted} accepted=${summary.accepted} recovered=${summary.recovered} not_found=${summary.notFound}`,
+      companyContext
+    );
+  }
+}
+
 function dedupeEmployeesByKey(employees: EnrichedEmployee[]): EnrichedEmployee[] {
   const seen = new Set<string>();
   const deduped: EnrichedEmployee[] = [];
@@ -258,6 +332,7 @@ export async function runResearchPipeline(
   const rejectedCompanies: string[] = [];
   const skippedCompanies: string[] = [];
   const pendingEmailPushBatches: PendingEmailPushBatch[] = [];
+  const emailSearchPromises: Promise<void>[] = [];
   let totalRows = 0;
   let skippedMissingWebsiteAndApolloAccountIdCount = 0;
   let apolloProcessedCompanyCount = 0;
@@ -438,7 +513,7 @@ export async function runResearchPipeline(
         const currentSrePool = profilePool.filter((employee) =>
           SRE_PERSON_TITLES.some((keyword) => employee.currentTitle.toLowerCase().includes(keyword.toLowerCase()))
         );
-        const { eligible: tenureEligibleSre } = splitByTenure(currentSrePool, 2);
+        const { eligible: tenureEligibleSre } = splitByTenure(currentSrePool, 3);
         const currentSreFiltered = filterOpenToWorkFromCache(tenureEligibleSre, apifyCache, {
           companyName: row.companyName,
           companyDomain: row.companyDomain,
@@ -477,7 +552,7 @@ export async function runResearchPipeline(
               notTitles: stageConfig.notTitles,
               notPastTitles: stageConfig.notPastTitles,
             }).filter((employee) => !alreadyLinkedinKeys.has(toEmployeeKey(employee)));
-            const { eligible: tenureEligible } = splitByTenure(stagePool, 2);
+            const { eligible: tenureEligible } = splitByTenure(stagePool, 3);
             const stageFiltered = filterOpenToWorkFromCache(tenureEligible, apifyCache, {
               companyName: row.companyName,
               companyDomain: row.companyDomain,
@@ -527,7 +602,7 @@ export async function runResearchPipeline(
           const pastSrePool = filterPoolByStage(profilePool, apifyCache, {
             pastTitles: SRE_PERSON_TITLES,
           });
-          const { eligible: tenureEligiblePastSre } = splitByTenure(pastSrePool, 2);
+          const { eligible: tenureEligiblePastSre } = splitByTenure(pastSrePool, 3);
           const pastSreFiltered = filterOpenToWorkFromCache(tenureEligiblePastSre, apifyCache, {
             companyName: row.companyName,
             companyDomain: row.companyDomain,
@@ -557,7 +632,7 @@ export async function runResearchPipeline(
             const platformPool = filterPoolByStage(profilePool, apifyCache, {
               currentTitles: ["platform engineer"],
             });
-            const { eligible: tenureEligiblePlatform } = splitByTenure(platformPool, 11);
+            const { eligible: tenureEligiblePlatform } = splitByTenure(platformPool, 12);
             const platformFiltered = filterOpenToWorkFromCache(tenureEligiblePlatform, apifyCache, {
               companyName: row.companyName,
               companyDomain: row.companyDomain,
@@ -690,11 +765,15 @@ export async function runResearchPipeline(
           }
 
           if (waterfallResult.candidates.length > 0) {
-            pendingEmailPushBatches.push({
+            const emailBatch: PendingEmailPushBatch = {
               companyName: company.companyName,
               companyDomain: company.domain,
               candidates: waterfallResult.candidates,
-            });
+            };
+            pendingEmailPushBatches.push(emailBatch);
+            if (lemlistBulkFindEmailEnabled) {
+              emailSearchPromises.push(findEmailsForBatch(emailBatch, jobId, logPipelineStage, companyContext));
+            }
             logPipelineStage(
               "QUEUE_EMAIL_BATCH",
               `Email batch queued. candidates=${waterfallResult.candidates.length}`,
@@ -702,6 +781,9 @@ export async function runResearchPipeline(
             );
           }
         }
+
+        const shouldStopAfterCurrentCompany =
+          weeklyCounts.linkedinCount + sessionLinkedinSuccessfulCount >= WEEKLY_LINKEDIN_PUSH_LIMIT;
 
         outputRows.push({
           company_name: row.companyName,
@@ -724,6 +806,24 @@ export async function runResearchPipeline(
           notes: "",
         });
         logPipelineStage("COMPANY_DONE", "Company processing complete.", companyContext);
+
+        if (shouldStopAfterCurrentCompany) {
+          const estimatedRemainingCompanies = Math.max(progressTotalRows - totalRows, 0);
+          weeklyLimitSkippedCompanyCount += estimatedRemainingCompanies;
+          if (!weeklyLimitWarningAdded) {
+            addJobWarning(
+              jobId,
+              `Weekly LinkedIn push limit (${WEEKLY_LINKEDIN_PUSH_LIMIT}) reached. Remaining companies were fully skipped.`
+            );
+            weeklyLimitWarningAdded = true;
+          }
+          logPipelineStage(
+            "WEEKLY_LINKEDIN_LIMIT_REACHED",
+            `LinkedIn weekly limit reached after company processing. remaining_companies_estimate=${estimatedRemainingCompanies}`,
+            companyContext
+          );
+          break;
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown pipeline error";
         addJobWarning(jobId, `Apollo/Lemlist failed for ${row.companyName}: ${message}`);
@@ -751,75 +851,13 @@ export async function runResearchPipeline(
       }
     }
 
-    if (lemlistEnabled && lemlistBulkFindEmailEnabled && pendingEmailPushBatches.length > 0) {
-      const linkedinUrlsForBulkFinder = pendingEmailPushBatches.flatMap((batch) =>
-        batch.candidates
-          .map(({ employee }) => employee.linkedinUrl?.trim() ?? "")
-          .filter((url) => url.length > 0)
-      );
-      if (linkedinUrlsForBulkFinder.length > 0) {
-        try {
-          logPipelineStage(
-            "APIFY_BULK_EMAIL_FINDER_START",
-            `Apify bulk email finder started. urls=${linkedinUrlsForBulkFinder.length}`
-          );
-          const emailsByLinkedin = await findEmailsInBulk(linkedinUrlsForBulkFinder);
-          for (const batch of pendingEmailPushBatches) {
-            for (const candidate of batch.candidates) {
-              const linkedinUrl = candidate.employee.linkedinUrl?.trim() ?? "";
-              if (!linkedinUrl || (candidate.employee.email && candidate.employee.email.trim().length > 0)) {
-                continue;
-              }
-              const normalized = linkedinUrl
-                .replace(/^https?:\/\//i, "")
-                .replace(/^www\./i, "")
-                .replace(/\/+$/, "")
-                .toLowerCase();
-              const foundEmail = emailsByLinkedin.get(normalized);
-              if (foundEmail) {
-                candidate.employee.email = foundEmail;
-              }
-            }
-          }
-          logPipelineStage(
-            "APIFY_BULK_EMAIL_FINDER_DONE",
-            `Apify bulk email finder complete. found=${emailsByLinkedin.size}`
-          );
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "Unknown Apify bulk email finder error";
-          addJobWarning(jobId, `Apify bulk email finder failed: ${message}`);
+    if (lemlistEnabled && lemlistBulkFindEmailEnabled && emailSearchPromises.length > 0) {
+      const results = await Promise.allSettled(emailSearchPromises);
+      for (const result of results) {
+        if (result.status === "rejected") {
+          const message = result.reason instanceof Error ? result.reason.message : "Unknown error";
+          addJobWarning(jobId, `Email search failed for a company: ${message}`);
         }
-      }
-
-      const missingEmailCandidates = pendingEmailPushBatches.flatMap((batch) =>
-        batch.candidates
-          .filter(({ employee }) => !employee.email || employee.email.trim().length === 0)
-          .map(({ employee }) => ({
-            employee,
-            companyName: batch.companyName,
-            companyDomain: batch.companyDomain,
-          }))
-      );
-
-      if (missingEmailCandidates.length > 0) {
-        logPipelineStage(
-          "LEMLIST_EMAIL_ENRICH_START",
-          `Lemlist bulk find_email started. candidates=${missingEmailCandidates.length}`
-        );
-        setJobMessage(
-          jobId,
-          `Missing ${missingEmailCandidates.length} emails. Started an additional search for missing emails.`
-        );
-        const summary = await enrichMissingEmailsWithLemlist(missingEmailCandidates, (progress) => {
-          setJobMessage(
-            jobId,
-            `Missing email search update: found=${progress.recovered}, not found=${progress.notFound}, pending=${progress.pending}.`
-          );
-        });
-        logPipelineStage(
-          "LEMLIST_EMAIL_ENRICH_DONE",
-          `Lemlist bulk find_email complete. attempted=${summary.attempted} accepted=${summary.accepted} recovered=${summary.recovered} not_found=${summary.notFound}`
-        );
       }
     }
 

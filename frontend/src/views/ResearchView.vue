@@ -110,6 +110,54 @@ function statusLabel(status: QueueItemStatus): string {
   return "Error";
 }
 
+function toFriendlyStageMessage(message: string): string {
+  const lowered = message.toLowerCase();
+  if (lowered.includes("starting engineer and sre pre-filter")) {
+    return "Preparing the company checks.";
+  }
+  if (lowered.includes("engineer/sre pre-filter")) {
+    return "Checking if each company is a good fit.";
+  }
+  if (lowered.includes("observability research")) {
+    return "Researching each company's observability setup.";
+  }
+  if (lowered.includes("apollo stage")) {
+    return "Finding and selecting the best contacts.";
+  }
+  if (lowered.includes("missing email search update")) {
+    return "Looking up missing work emails.";
+  }
+  if (lowered.includes("missing") && lowered.includes("email")) {
+    return "Looking up missing work emails.";
+  }
+  return message;
+}
+
+function progressLabel(item: QueueItem): string | null {
+  if (item.status === "queued") {
+    return "Waiting in queue.";
+  }
+  if (item.status === "running") {
+    const base = item.progressMessage
+      ? toFriendlyStageMessage(item.progressMessage)
+      : "Processing this queue item.";
+    if (item.currentRow !== null && item.totalRows !== null) {
+      return `${base} (${item.currentRow} of ${item.totalRows} companies)`;
+    }
+    return base;
+  }
+  if (item.status === "done") {
+    return "Completed. Results are ready to download.";
+  }
+  if (item.status === "cancelled") {
+    return "Stopped by user.";
+  }
+  if (item.status === "error") {
+    return item.errorMessage ? `Stopped due to an error: ${item.errorMessage}` : "Stopped due to an error.";
+  }
+  return null;
+}
+
 function setSelectedUser(user: SelectedUser): void {
   selectedUser.value = user;
   localStorage.setItem(SELECTED_USER_STORAGE_KEY, user);
@@ -456,9 +504,8 @@ async function clearFinishedQueueItems(): Promise<void> {
                 <p class="text-[11px] text-zinc-500">Created {{ new Date(item.createdAtMs).toLocaleString() }}</p>
               </div>
 
-              <p v-if="item.progressMessage" class="mt-2 text-xs text-indigo-200">{{ item.progressMessage }}</p>
-              <p v-if="item.currentRow !== null && item.totalRows !== null" class="mt-1 text-[11px] text-zinc-400">
-                Progress: {{ item.currentRow }} / {{ item.totalRows }}
+              <p v-if="progressLabel(item)" class="mt-2 text-xs text-indigo-200">
+                {{ progressLabel(item) }}
               </p>
               <p v-if="item.errorMessage" class="mt-2 text-xs text-rose-300">{{ item.errorMessage }}</p>
 
@@ -469,10 +516,6 @@ async function clearFinishedQueueItems(): Promise<void> {
                 <p>Email skipped: {{ item.summary.totalEmailCampaignSkipped ?? 0 }}</p>
                 <p>LinkedIn failed: {{ item.summary.totalLinkedinCampaignFailed ?? 0 }}</p>
                 <p>Email failed: {{ item.summary.totalEmailCampaignFailed ?? 0 }}</p>
-              </div>
-
-              <div v-if="item.warnings.length > 0" class="mt-2 rounded-md border border-amber-800 bg-amber-950/40 p-2">
-                <p class="text-xs font-medium text-amber-300">Warnings ({{ item.warnings.length }})</p>
               </div>
 
               <div class="mt-3 flex flex-wrap gap-2">
