@@ -223,6 +223,7 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
       expect.objectContaining({
         name: "No Email",
         status: "skipped",
+        error: "Missing email for Lemlist email campaign payload.",
       }),
     ]);
   });
@@ -262,5 +263,6 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
         status: "skipped",
       }),
     ]);
+    expect(result.outcomes[0]).not.toHaveProperty("error");
   });
 });

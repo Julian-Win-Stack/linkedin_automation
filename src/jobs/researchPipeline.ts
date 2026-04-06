@@ -40,6 +40,7 @@ import { syncApolloAccountsFromOutputRows } from "../services/apolloBulkUpdateAc
 import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompanyRecords";
 import { getWeeklySuccessCounts, saveWeeklySuccessForJob } from "../services/weeklySuccessStore";
 import { scrapeCompanyEmployees, scrapePastSreEmployees, filterPoolByStage } from "../services/apifyCompanyEmployees";
+import { findEmailsInBulk } from "../services/apifyBulkEmailFinder";
 
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = [
@@ -103,6 +104,12 @@ const LINKEDIN_KEYWORD_STAGES = [
   { label: "Infrastructure", config: LINKEDIN_KEYWORD_STAGE_INFRA },
   { label: "Normal Engineer", config: LINKEDIN_KEYWORD_STAGE_NORMAL_ENG },
 ];
+
+interface PendingEmailPushBatch {
+  companyName: string;
+  companyDomain: string;
+  candidates: TaggedEmailCandidate[];
+}
 
 type LinkedinPoolBucket = "sre" | "eng" | "engLead";
 
@@ -267,6 +274,78 @@ function toLinkedinPoolBucket(employee: EnrichedEmployee): LinkedinPoolBucket {
   return isLinkedinLeadershipTitle(employee.currentTitle) ? "engLead" : "sre";
 }
 
+function normalizeLinkedinUrlForLookup(url: string): string {
+  return url
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+}
+
+async function findEmailsForBatch(
+  batch: PendingEmailPushBatch,
+  jobId: string,
+  companyContext: { index: number; total: number; companyName: string }
+): Promise<void> {
+  const linkedinUrls = batch.candidates
+    .map(({ employee }) => employee.linkedinUrl?.trim() ?? "")
+    .filter((url) => url.length > 0);
+
+  if (linkedinUrls.length === 0) {
+    return;
+  }
+
+  try {
+    const emailsByLinkedin = await findEmailsInBulk(linkedinUrls);
+    for (const candidate of batch.candidates) {
+      const linkedinUrl = candidate.employee.linkedinUrl?.trim() ?? "";
+      if (!linkedinUrl || (candidate.employee.email && candidate.employee.email.trim().length > 0)) {
+        continue;
+      }
+      const foundEmail = emailsByLinkedin.get(normalizeLinkedinUrlForLookup(linkedinUrl));
+      if (foundEmail) {
+        candidate.employee.email = foundEmail;
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown Apify bulk email finder error";
+    addJobWarning(jobId, `Apify bulk email finder failed for ${batch.companyName}: ${message}`);
+  }
+}
+
+async function enrichAndPushEmailBatch(
+  batch: PendingEmailPushBatch,
+  jobId: string,
+  companyContext: { index: number; total: number; companyName: string },
+  selectedUser: SelectedUser,
+  campaignPushData: CampaignPushData,
+  onTotals: (result: { successful: number; failed: number; skipped: number }) => void
+): Promise<void> {
+  await findEmailsForBatch(batch, jobId, companyContext);
+  const emailPushMeta = await pushPeopleToLemlistEmailCampaign(
+    batch.candidates,
+    batch.companyName,
+    batch.companyDomain,
+    selectedUser
+  );
+  const emailOutcomeByKey = toOutcomeMap(emailPushMeta.outcomes);
+  for (const { employee, campaignBucket } of batch.candidates) {
+    const entry = toCampaignPushEntry(employee, emailOutcomeByKey, batch.companyName);
+    if (campaignBucket === "sre") {
+      campaignPushData.emailSre.push(entry);
+    } else if (campaignBucket === "engLead") {
+      campaignPushData.emailEngLead.push(entry);
+    } else {
+      campaignPushData.emailEng.push(entry);
+    }
+  }
+  onTotals({
+    successful: emailPushMeta.successful,
+    failed: emailPushMeta.failed,
+    skipped: emailPushMeta.outcomes.filter((outcome) => outcome.status === "skipped").length,
+  });
+}
+
 
 function dedupeEmployeesByKey(employees: EnrichedEmployee[]): EnrichedEmployee[] {
   const seen = new Set<string>();
@@ -348,6 +427,7 @@ export async function runResearchPipeline(
   const rejectedOutputRows: RejectedOutputRow[] = [];
   const rejectedCompanies: string[] = [];
   const skippedCompanies: string[] = [];
+  const emailCompanyTasks: Promise<void>[] = [];
   let totalRows = 0;
   let skippedMissingWebsiteAndApolloAccountIdCount = 0;
   let apolloProcessedCompanyCount = 0;
@@ -814,39 +894,30 @@ export async function runResearchPipeline(
           }
 
           if (waterfallResult.candidates.length > 0) {
-            logPipelineStage(
-              "PUSH_EMAIL_START",
-              `Pushing email campaigns. candidates=${waterfallResult.candidates.length}`,
-              companyContext
-            );
-            const emailPushMeta = await pushPeopleToLemlistEmailCampaign(
-              waterfallResult.candidates,
-              company.companyName,
-              company.domain,
-              selectedUser
-            );
-            const emailOutcomeByKey = toOutcomeMap(emailPushMeta.outcomes);
-            for (const { employee, campaignBucket } of waterfallResult.candidates) {
-              const entry = toCampaignPushEntry(employee, emailOutcomeByKey, company.companyName);
-              if (campaignBucket === "sre") {
-                campaignPushData.emailSre.push(entry);
-              } else if (campaignBucket === "engLead") {
-                campaignPushData.emailEngLead.push(entry);
-              } else {
-                campaignPushData.emailEng.push(entry);
-              }
-            }
-            totalLemlistSuccessful += emailPushMeta.successful;
-            totalLemlistFailed += emailPushMeta.failed;
-            const emailSkipped = emailPushMeta.outcomes.filter((outcome) => outcome.status === "skipped").length;
-            totalLemlistSkipped += emailSkipped;
-            totalEmailCampaignSuccessful += emailPushMeta.successful;
-            totalEmailCampaignFailed += emailPushMeta.failed;
-            totalEmailCampaignSkipped += emailSkipped;
-            logPipelineStage(
-              "PUSH_EMAIL_DONE",
-              `Email push complete. successful=${emailPushMeta.successful} failed=${emailPushMeta.failed} skipped=${emailSkipped}`,
-              companyContext
+            const emailBatch: PendingEmailPushBatch = {
+              companyName: company.companyName,
+              companyDomain: company.domain,
+              candidates: waterfallResult.candidates,
+            };
+            emailCompanyTasks.push(
+              enrichAndPushEmailBatch(
+                emailBatch,
+                jobId,
+                companyContext,
+                selectedUser,
+                campaignPushData,
+                ({ successful, failed, skipped }) => {
+                  totalLemlistSuccessful += successful;
+                  totalLemlistFailed += failed;
+                  totalLemlistSkipped += skipped;
+                  totalEmailCampaignSuccessful += successful;
+                  totalEmailCampaignFailed += failed;
+                  totalEmailCampaignSkipped += skipped;
+                }
+              ).catch((error) => {
+                const message = error instanceof Error ? error.message : "Unknown email company task error";
+                addJobWarning(jobId, `Email push failed for ${emailBatch.companyName}: ${message}`);
+              })
             );
           }
         }
@@ -918,6 +989,10 @@ export async function runResearchPipeline(
           notes: "",
         });
       }
+    }
+
+    if (emailCompanyTasks.length > 0) {
+      await Promise.allSettled(emailCompanyTasks);
     }
 
     setJobMessage(jobId, "Finalizing results and syncing company updates.");

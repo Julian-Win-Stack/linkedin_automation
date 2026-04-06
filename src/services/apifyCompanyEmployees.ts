@@ -32,8 +32,6 @@ const JOB_TITLES = [
   "VP of Engineering",
 ];
 
-const PAST_JOB_TITLES = ["SRE", "Site Reliability Engineer", "incident", "on-call"];
-const YEARS_AT_CURRENT_COMPANY_IDS = ["2", "3", "4", "5"];
 const EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "110", "310", "320"];
 const EXCLUDE_FUNCTION_IDS = [
   "1",
@@ -412,16 +410,46 @@ async function callPastSreActor(
   apiKey: string
 ): Promise<CompanyEmployeesProfile[]> {
   const companies = buildCompaniesList(input);
-  return runCompanyEmployeesActor({
-    profileScraperMode: "Full ($8 per 1k)",
-    companies,
-    excludeFunctionIds: EXCLUDE_FUNCTION_IDS,
-    excludeSeniorityLevelIds: EXCLUDE_SENIORITY_LEVEL_IDS,
-    functionIds: ["8"],
-    pastJobTitles: PAST_JOB_TITLES,
-    recentlyChangedJobs: false,
-    yearsAtCurrentCompanyIds: YEARS_AT_CURRENT_COMPANY_IDS,
-  }, apiKey);
+  return runCompanyEmployeesActor(
+    {
+      companies,
+      excludeCurrentJobTitles: ["SRE", "Site Reliability Engineer", "on-call", "incident"],
+      excludeFunctionIds: [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "25",
+        "24",
+        "26",
+      ],
+      excludeSeniorityLevelIds: ["100", "110", "310", "320"],
+      functionIds: ["8"],
+      pastJobTitles: ["SRE", "Site Reliability Engineer", "incident", "on-call"],
+      profileScraperMode: "Full ($8 per 1k)",
+      recentlyChangedJobs: false,
+      yearsAtCurrentCompanyIds: ["2", "3", "4", "5"],
+    },
+    apiKey
+  );
 }
 
 function mapProfilesToCompanyEmployees(

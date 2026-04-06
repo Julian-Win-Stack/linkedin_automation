@@ -224,11 +224,18 @@ describe("apifyCompanyEmployees", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
     expect(requestBody.jobTitles).toBeUndefined();
+    expect(requestBody.excludeCurrentJobTitles).toEqual([
+      "SRE",
+      "Site Reliability Engineer",
+      "on-call",
+      "incident",
+    ]);
     expect(requestBody.pastJobTitles).toEqual(["SRE", "Site Reliability Engineer", "incident", "on-call"]);
     expect(requestBody.yearsAtCurrentCompanyIds).toEqual(["2", "3", "4", "5"]);
     expect(requestBody.recentlyChangedJobs).toBe(false);
     expect(requestBody.companyBatchMode).toBeUndefined();
     expect(requestBody.maxItems).toBeUndefined();
     expect(requestBody.companies).toEqual(["https://www.linkedin.com/company/acme"]);
+    expect(requestBody.excludeFunctionIds?.slice(-3)).toEqual(["25", "24", "26"]);
   });
 });

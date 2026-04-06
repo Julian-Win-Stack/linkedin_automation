@@ -15,6 +15,7 @@ const filterPoolByStageMock = vi.fn();
 const filterOpenToWorkFromCacheMock = vi.fn();
 const splitByTenureMock = vi.fn();
 const filterByKeywordsInApifyDataMock = vi.fn();
+const findEmailsInBulkMock = vi.fn();
 const selectTopSreForLemlistMock = vi.fn();
 const fillToMinimumWithBackfillMock = vi.fn();
 const selectKeywordMatchedByTenureMock = vi.fn();
@@ -54,6 +55,10 @@ vi.mock("../src/services/apifyClient", () => ({
   filterOpenToWorkFromCache: (...args: unknown[]) => filterOpenToWorkFromCacheMock(...args),
   splitByTenure: (...args: unknown[]) => splitByTenureMock(...args),
   filterByKeywordsInApifyData: (...args: unknown[]) => filterByKeywordsInApifyDataMock(...args),
+}));
+
+vi.mock("../src/services/apifyBulkEmailFinder", () => ({
+  findEmailsInBulk: (...args: unknown[]) => findEmailsInBulkMock(...args),
 }));
 
 vi.mock("../src/services/sreSelection", () => ({
@@ -149,6 +154,7 @@ describe("runResearchPipeline orchestration", () => {
     filterOpenToWorkFromCacheMock.mockReset();
     splitByTenureMock.mockReset();
     filterByKeywordsInApifyDataMock.mockReset();
+    findEmailsInBulkMock.mockReset();
     selectTopSreForLemlistMock.mockReset();
     fillToMinimumWithBackfillMock.mockReset();
     selectKeywordMatchedByTenureMock.mockReset();
@@ -191,6 +197,7 @@ describe("runResearchPipeline orchestration", () => {
     }));
     splitByTenureMock.mockImplementation((employees: EnrichedEmployee[]) => ({ eligible: employees, droppedByTenure: [] }));
     filterByKeywordsInApifyDataMock.mockReturnValue({ matched: [], unmatched: [] });
+    findEmailsInBulkMock.mockResolvedValue(new Map());
     runEmailCandidateWaterfallMock.mockResolvedValue(emptyWaterfallResult());
     selectTopSreForLemlistMock.mockImplementation((employees: EnrichedEmployee[]) => employees.slice(0, 7));
     fillToMinimumWithBackfillMock.mockImplementation((selected: EnrichedEmployee[]) => selected);
@@ -573,12 +580,12 @@ describe("runResearchPipeline orchestration", () => {
     );
   });
 
-  it("pushes email campaign from waterfall candidates without searching for missing emails", async () => {
+  it("uses Apify bulk email enrichment before email campaign push", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
     );
     const candidates: TaggedEmailCandidate[] = [
-      { employee: { ...makeEmployee("email-1", "SRE", 8), email: "has@example.com" }, campaignBucket: "sre" },
+      { employee: makeEmployee("email-1", "SRE", 8), campaignBucket: "sre" },
     ];
     runEmailCandidateWaterfallMock.mockResolvedValueOnce({
       candidates,
@@ -586,6 +593,9 @@ describe("runResearchPipeline orchestration", () => {
       warnings: [],
       normalEngineerApifyWarnings: [],
     });
+    findEmailsInBulkMock.mockResolvedValueOnce(
+      new Map([["linkedin.com/in/email-1", "has@example.com"]])
+    );
 
     const jobId = createJob();
     await runResearchPipeline(
@@ -605,11 +615,13 @@ describe("runResearchPipeline orchestration", () => {
       Date.now()
     );
 
+    expect(findEmailsInBulkMock).toHaveBeenCalledTimes(1);
+    expect(candidates[0].employee.email).toBe("has@example.com");
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
     expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[0][0]).toEqual(candidates);
   });
 
-  it("pushes each company's email candidates before processing the next company", async () => {
+  it("continues processing the next company while first email enrichment is still running", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([
         { companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 },
@@ -627,45 +639,50 @@ describe("runResearchPipeline orchestration", () => {
       .mockResolvedValueOnce({ companyName: "Acme", domain: "acme.com" })
       .mockResolvedValueOnce({ companyName: "Beta", domain: "beta.com" });
 
-    let allowFirstEmailPushToFinish: (() => void) | null = null;
-    pushPeopleToLemlistEmailCampaignMock.mockImplementationOnce(
+    let allowFirstEmailEnrichmentToFinish: (() => void) | null = null;
+    findEmailsInBulkMock.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          allowFirstEmailPushToFinish = () =>
-            resolve({
-              attempted: acmeCandidates.length,
-              successful: 1,
-              failed: 0,
-              successItems: ["Person email-1"],
-              failedItems: [],
-              outcomes: [
-                {
-                  key: "email-1",
-                  name: "Person email-1",
-                  title: "SRE",
-                  linkedinUrl: "https://linkedin.com/in/email-1",
-                  status: "succeed",
-                },
-              ],
-            });
+          allowFirstEmailEnrichmentToFinish = () =>
+            resolve(new Map([["linkedin.com/in/email-1", "acme@example.com"]]));
         })
     );
-    pushPeopleToLemlistEmailCampaignMock.mockResolvedValueOnce({
-      attempted: betaCandidates.length,
-      successful: 1,
-      failed: 0,
-      successItems: ["Person email-2"],
-      failedItems: [],
-      outcomes: [
-        {
-          key: "email-2",
-          name: "Person email-2",
-          title: "SRE",
-          linkedinUrl: "https://linkedin.com/in/email-2",
-          status: "succeed",
-        },
-      ],
-    });
+    findEmailsInBulkMock.mockResolvedValueOnce(
+      new Map([["linkedin.com/in/email-2", "beta@example.com"]])
+    );
+    pushPeopleToLemlistEmailCampaignMock
+      .mockResolvedValueOnce({
+        attempted: acmeCandidates.length,
+        successful: 1,
+        failed: 0,
+        successItems: ["Person email-1"],
+        failedItems: [],
+        outcomes: [
+          {
+            key: "email-1",
+            name: "Person email-1",
+            title: "SRE",
+            linkedinUrl: "https://linkedin.com/in/email-1",
+            status: "succeed",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        attempted: betaCandidates.length,
+        successful: 1,
+        failed: 0,
+        successItems: ["Person email-2"],
+        failedItems: [],
+        outcomes: [
+          {
+            key: "email-2",
+            name: "Person email-2",
+            title: "SRE",
+            linkedinUrl: "https://linkedin.com/in/email-2",
+            status: "succeed",
+          },
+        ],
+      });
     runEmailCandidateWaterfallMock
       .mockResolvedValueOnce({
         candidates: acmeCandidates,
@@ -699,17 +716,125 @@ describe("runResearchPipeline orchestration", () => {
     );
 
     await waitForCondition(() => {
+      expect(researchCompanyMock).toHaveBeenCalledTimes(2);
+    });
+    expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(0);
+
+    allowFirstEmailEnrichmentToFinish?.();
+
+    await waitForCondition(() => {
       expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
     });
-    expect(researchCompanyMock).toHaveBeenCalledTimes(1);
+    expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[0][1]).toBe("Acme");
 
-    allowFirstEmailPushToFinish?.();
     await runPromise;
 
+    expect(findEmailsInBulkMock).toHaveBeenCalledTimes(2);
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(2);
     expect(researchCompanyMock).toHaveBeenCalledTimes(2);
-    expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[0][1]).toBe("Acme");
     expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[1][1]).toBe("Beta");
+  });
+
+  it("waits for pending email task completion before finalizing after linkedin limit is reached", async () => {
+    getWeeklySuccessCountsMock.mockReturnValueOnce({ linkedinCount: 99, emailCount: 0 });
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([
+        { companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 },
+        { companyName: "Beta", companyDomain: "beta.com", companyLinkedinUrl: "", apolloAccountId: "org_2", rowNumber: 3 },
+      ])
+    );
+    const linkedinSelection = [makeEmployee("linkedin-1", "SRE", 12)];
+    const emailCandidates: TaggedEmailCandidate[] = [
+      { employee: makeEmployee("email-1", "SRE", 8), campaignBucket: "sre" },
+    ];
+    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
+      employees: linkedinSelection,
+      apifyCache: new Map(),
+      profileCount: 1,
+    });
+    searchPeopleMock.mockResolvedValueOnce([{ id: "apollo-1", name: "Apollo One", title: "SRE" }]);
+    selectTopSreForLemlistMock.mockReturnValueOnce(linkedinSelection);
+    pushPeopleToLemlistCampaignMock.mockResolvedValueOnce({
+      attempted: 1,
+      successful: 1,
+      failed: 0,
+      successItems: ["Person linkedin-1"],
+      failedItems: [],
+      outcomes: [
+        {
+          key: "linkedin-1",
+          name: "Person linkedin-1",
+          title: "SRE",
+          linkedinUrl: "https://linkedin.com/in/linkedin-1",
+          status: "succeed",
+        },
+      ],
+    });
+    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
+      candidates: emailCandidates,
+      filteredOutCandidates: [],
+      warnings: [],
+      normalEngineerApifyWarnings: [],
+    });
+
+    let releaseEnrichment: (() => void) | null = null;
+    findEmailsInBulkMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseEnrichment = () =>
+            resolve(new Map([["linkedin.com/in/email-1", "acme@example.com"]]));
+        })
+    );
+    pushPeopleToLemlistEmailCampaignMock.mockResolvedValueOnce({
+      attempted: 1,
+      successful: 1,
+      failed: 0,
+      successItems: ["Person email-1"],
+      failedItems: [],
+      outcomes: [
+        {
+          key: "email-1",
+          name: "Person email-1",
+          title: "SRE",
+          linkedinUrl: "https://linkedin.com/in/email-1",
+          status: "succeed",
+        },
+      ],
+    });
+
+    const jobId = createJob();
+    const runPromise = runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian",
+      Date.now()
+    );
+
+    await waitForCondition(() => {
+      expect(findEmailsInBulkMock).toHaveBeenCalledTimes(1);
+    });
+    expect(researchCompanyMock).toHaveBeenCalledTimes(1);
+    expect(pushPeopleToLemlistEmailCampaignMock).not.toHaveBeenCalled();
+
+    releaseEnrichment?.();
+    await waitForCondition(() => {
+      expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
+    });
+    await runPromise;
+
+    expect(researchCompanyMock).toHaveBeenCalledTimes(1);
+    expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
+    expect(emailCandidates[0].employee.email).toBe("acme@example.com");
   });
 
   it("stores filtered candidate summaries as per-company counts", async () => {

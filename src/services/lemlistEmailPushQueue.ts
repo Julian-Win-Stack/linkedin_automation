@@ -24,6 +24,7 @@ const DEFAULT_LEMLIST_QUERY = {
 const LEMLIST_ERROR_COLOR = "\x1b[31m";
 const ANSI_RESET = "\x1b[0m";
 const ALREADY_IN_CAMPAIGN_ERROR = "lead already in the campaign";
+const MISSING_EMAIL_SKIP_REASON = "Missing email for Lemlist email campaign payload.";
 
 type QueueTask = () => Promise<void>;
 
@@ -150,6 +151,7 @@ export async function pushPeopleToLemlistEmailCampaign(
                   title: employee.currentTitle,
                   linkedinUrl: employee.linkedinUrl ?? null,
                   status: "skipped",
+                  error: MISSING_EMAIL_SKIP_REASON,
                 });
                 continue;
               }

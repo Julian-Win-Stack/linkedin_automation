@@ -287,6 +287,10 @@ function renderEntry(
   const hasFailureError = entry.lemlistStatus === "failed" && Boolean(entry.lemlistError);
   ensureSpace(doc, hasFailureError ? 78 : 58);
 
+  const skippedStatusLabel = entry.lemlistError?.toLowerCase().includes("missing email")
+    ? "Missing email"
+    : "Already in campaign";
+
   doc
     .font("Helvetica-Bold")
     .fontSize(10)
@@ -297,7 +301,7 @@ function renderEntry(
     ? "Lemlist succeed"
     : entry.lemlistStatus === "failed"
       ? "Lemlist failed"
-      : "Already in campaign";
+      : skippedStatusLabel;
   const statusBg = entry.lemlistStatus === "succeed"
     ? SUCCESS_BG
     : entry.lemlistStatus === "failed"
@@ -347,12 +351,14 @@ function renderEntry(
       .text(title, PAGE_MARGIN + 8, detailY, { width: pageWidth - 16 });
   }
 
-  if (entry.lemlistStatus === "failed" && entry.lemlistError) {
+  if ((entry.lemlistStatus === "failed" || entry.lemlistStatus === "skipped") && entry.lemlistError) {
     doc
       .font("Helvetica")
       .fontSize(8.5)
-      .fillColor(FAILURE_TEXT)
-      .text(`Error: ${entry.lemlistError}`, PAGE_MARGIN + 8, doc.y + 2, { width: pageWidth - 16 });
+      .fillColor(entry.lemlistStatus === "failed" ? FAILURE_TEXT : SKIPPED_TEXT)
+      .text(`${entry.lemlistStatus === "failed" ? "Error" : "Reason"}: ${entry.lemlistError}`, PAGE_MARGIN + 8, doc.y + 2, {
+        width: pageWidth - 16,
+      });
   }
 
   doc.y += 8;
