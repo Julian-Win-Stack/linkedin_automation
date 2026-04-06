@@ -423,4 +423,34 @@ describe("runResearchPipeline orchestration", () => {
     expect(job?.status).toBe("done");
     expect(job?.warnings).toContain("Apollo bulk account sync failed: sync fail");
   });
+
+  it("does not sync rejected companies to Attio", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([
+        { companyName: "Rejected Co", companyDomain: "rejected.co", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 },
+      ])
+    );
+    researchCompanyMock.mockResolvedValueOnce("New Relic");
+
+    const jobId = createJob();
+    await runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian",
+      Date.now()
+    );
+
+    expect(syncAttioCompaniesFromOutputRowsMock).toHaveBeenCalledTimes(1);
+    expect(syncAttioCompaniesFromOutputRowsMock).toHaveBeenCalledWith([]);
+  });
 });
