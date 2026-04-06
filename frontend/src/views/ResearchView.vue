@@ -470,6 +470,8 @@ function clearFinishedQueueItems(): void {
               <div v-if="item.summary" class="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-300">
                 <p>LinkedIn pushed: {{ item.summary.totalLinkedinCampaignSuccessful ?? 0 }}</p>
                 <p>Email pushed: {{ item.summary.totalEmailCampaignSuccessful ?? 0 }}</p>
+                <p>LinkedIn skipped: {{ item.summary.totalLinkedinCampaignSkipped ?? 0 }}</p>
+                <p>Email skipped: {{ item.summary.totalEmailCampaignSkipped ?? 0 }}</p>
                 <p>LinkedIn failed: {{ item.summary.totalLinkedinCampaignFailed ?? 0 }}</p>
                 <p>Email failed: {{ item.summary.totalEmailCampaignFailed ?? 0 }}</p>
               </div>

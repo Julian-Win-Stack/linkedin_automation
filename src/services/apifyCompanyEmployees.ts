@@ -141,6 +141,15 @@ function normalizeCompanyName(name: string): string {
     .trim();
 }
 
+function normalizeLinkedinCompanyInput(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  const withoutProtocol = trimmed.replace(/^https?:\/\//i, "");
+  return `https://${withoutProtocol.replace(/\/+$/, "")}`;
+}
+
 function isPresentDate(raw?: ApifyDateObject | null): boolean {
   const text = raw?.text?.trim().toLowerCase() ?? "";
   return text === "" || text === "present";
@@ -339,7 +348,7 @@ async function callCompanyEmployeesActor(
   const companies: string[] = [];
   const linkedin = input.companyLinkedinUrl?.trim();
   if (linkedin) {
-    companies.push(linkedin);
+    companies.push(normalizeLinkedinCompanyInput(linkedin));
   } else {
     companies.push(input.companyName.trim());
   }
@@ -350,8 +359,8 @@ async function callCompanyEmployeesActor(
 
   const payload = {
     profileScraperMode: "Full ($8 per 1k)",
-    companyBatchMode: "one_by_one",
-    maxItemsPerCompany: input.maxItemsPerCompany ?? 100,
+    companyBatchMode: "all_at_once",
+    maxItems: input.maxItemsPerCompany ?? 100,
     companies,
     jobTitles: JOB_TITLES,
     pastJobTitles: PAST_JOB_TITLES,
