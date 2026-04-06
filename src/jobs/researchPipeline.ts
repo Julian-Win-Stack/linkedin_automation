@@ -986,7 +986,7 @@ export async function runResearchPipeline(
 
     const [apolloSyncOutcome, attioSyncOutcome] = await Promise.allSettled([
       syncApolloAccountsFromOutputRows(syncRows),
-      syncAttioCompaniesFromOutputRows(syncableOutputRows),
+      syncAttioCompaniesFromOutputRows(syncRows),
     ]);
 
     if (apolloSyncOutcome.status === "fulfilled") {
