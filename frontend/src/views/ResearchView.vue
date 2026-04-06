@@ -41,7 +41,6 @@ const queueItems = ref<QueueItem[]>([]);
 const selectedUser = ref<SelectedUser | null>(null);
 const queuePollIntervalId = ref<number | null>(null);
 const weeklySuccessTotals = ref({ linkedin: 0, email: 0 });
-const clearedFinishedQueueItemIds = ref<string[]>([]);
 
 const canAddToQueue = computed(() => !isSubmitting.value && !!selectedFile.value && !!selectedUser.value);
 const selectedUserLabel = computed(() => {
@@ -56,10 +55,7 @@ const activeQueueCount = computed(() =>
 );
 
 const clearableFinishedQueueCount = computed(() =>
-  queueItems.value.filter((item) => (
-    (item.status === "done" || item.status === "error")
-    && !clearedFinishedQueueItemIds.value.includes(item.queueItemId)
-  )).length
+  queueItems.value.filter((item) => item.status === "done" || item.status === "error").length
 );
 
 function toQueueLabel(order: number): string {
@@ -76,14 +72,9 @@ function toQueueLabel(order: number): string {
 
 const visibleQueueItems = computed<VisibleQueueItem[]>(() =>
   {
-    const clearedIds = new Set(clearedFinishedQueueItemIds.value);
     return queueItems.value
       .filter((item) => {
         if (item.status === "cancelled") {
-          return false;
-        }
-        const isFinished = item.status === "done" || item.status === "error";
-        if (isFinished && clearedIds.has(item.queueItemId)) {
           return false;
         }
         return true;
@@ -124,7 +115,6 @@ function setSelectedUser(user: SelectedUser): void {
   localStorage.setItem(SELECTED_USER_STORAGE_KEY, user);
   error.value = null;
   queueItems.value = [];
-  clearedFinishedQueueItemIds.value = [];
   void refreshQueueItems();
   void refreshWeeklySuccessTotals();
   startQueuePolling();
@@ -134,7 +124,6 @@ async function logoutSelectedUser(): Promise<void> {
   selectedUser.value = null;
   localStorage.removeItem(SELECTED_USER_STORAGE_KEY);
   queueItems.value = [];
-  clearedFinishedQueueItemIds.value = [];
   selectedFile.value = null;
   error.value = null;
   weeklySuccessTotals.value = { linkedin: 0, email: 0 };
@@ -328,18 +317,24 @@ async function cancelAllQueueItems(): Promise<void> {
   }
 }
 
-function clearFinishedQueueItems(): void {
-  const finishedIds = queueItems.value
-    .filter((item) => item.status === "done" || item.status === "error")
-    .map((item) => item.queueItemId);
-  if (finishedIds.length === 0) {
+async function clearFinishedQueueItems(): Promise<void> {
+  if (!selectedUser.value || clearableFinishedQueueCount.value === 0 || isSubmitting.value) {
     return;
   }
-  const nextIds = new Set(clearedFinishedQueueItemIds.value);
-  for (const id of finishedIds) {
-    nextIds.add(id);
+  try {
+    const response = await fetch(`${API_URL}/queue/clear-finished`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selectedUser: selectedUser.value }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({ error: response.statusText }));
+      throw new Error(payload.error ?? "Failed to clear finished queues.");
+    }
+    await refreshQueueItems();
+  } catch (clearError) {
+    error.value = clearError instanceof Error ? clearError.message : String(clearError);
   }
-  clearedFinishedQueueItemIds.value = Array.from(nextIds);
 }
 </script>
 

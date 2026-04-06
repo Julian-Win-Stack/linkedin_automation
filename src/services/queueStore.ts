@@ -329,6 +329,17 @@ export function listQueueItemsForUser(selectedUser: SelectedUser): QueueItem[] {
   return stmt.all(selectedUser).map(rowToQueueItem);
 }
 
+export function clearFinishedQueueItemsForUser(selectedUser: SelectedUser): number {
+  const instance = ensureDb();
+  const stmt = instance.prepare<[SelectedUser]>(`
+    DELETE FROM queue_items
+    WHERE selected_user = ?
+      AND status IN ('done', 'error')
+  `);
+  const result = stmt.run(selectedUser);
+  return Number(result.changes ?? 0);
+}
+
 export function getQueueItemById(queueItemId: string): QueueItem | null {
   const instance = ensureDb();
   const stmt = instance.prepare<[string], QueueItemRow>(`

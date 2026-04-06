@@ -8,6 +8,7 @@ import { isSelectedUser, SelectedUser } from "../shared/selectedUser";
 import { generateCampaignPdf } from "../services/pdfReportGenerator";
 import {
   claimNextQueuedItemForUser,
+  clearFinishedQueueItemsForUser,
   completeQueueItem,
   enqueueQueueItem,
   getQueueItemById,
@@ -338,6 +339,20 @@ router.post("/queue/cancel-all", (req, res) => {
   }
 
   return res.status(200).json({ status: "cancelled", cancelledCount: activeItems.length });
+});
+
+router.post("/queue/clear-finished", (req, res) => {
+  const selectedUserRaw = typeof req.body?.selectedUser === "string" ? req.body.selectedUser : "";
+  const normalizedSelectedUser = selectedUserRaw.trim().toLowerCase();
+  if (!isSelectedUser(normalizedSelectedUser)) {
+    return res.status(400).json({
+      error: "selectedUser is required and must be one of: raihan, cherry, julian.",
+    });
+  }
+
+  const selectedUser: SelectedUser = normalizedSelectedUser;
+  const deletedCount = clearFinishedQueueItemsForUser(selectedUser);
+  return res.status(200).json({ status: "cleared", clearedCount: deletedCount });
 });
 
 router.get("/pdf/:jobId", (req, res) => {
