@@ -187,9 +187,8 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
     );
   });
 
-  it("skips missing-email people and logs company and person", async () => {
+  it("silently skips people with missing email — not counted as failed or succeeded", async () => {
     createLeadInCampaignMock.mockResolvedValue(undefined);
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
     const candidates: TaggedEmailCandidate[] = [
       {
@@ -218,14 +217,14 @@ describe("pushPeopleToLemlistEmailCampaign", () => {
     expect(createLeadInCampaignMock).not.toHaveBeenCalled();
     expect(result.attempted).toBe(1);
     expect(result.successful).toBe(0);
-    expect(result.failed).toBe(1);
-    expect(result.failedItems[0]).toEqual({
-      name: "No Email",
-      error: "Missing email for Lemlist email campaign payload.",
-    });
-    expect(logSpy).toHaveBeenCalledWith(
-      "[EmailPush][MissingEmail] company=Acme person=No Email title=SRE"
-    );
+    expect(result.failed).toBe(0);
+    expect(result.failedItems).toEqual([]);
+    expect(result.outcomes).toEqual([
+      expect.objectContaining({
+        name: "No Email",
+        status: "skipped",
+      }),
+    ]);
   });
 
   it('does not count "Lead already in the campaign" as email success or failure', async () => {

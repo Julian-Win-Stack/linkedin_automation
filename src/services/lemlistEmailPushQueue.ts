@@ -144,21 +144,12 @@ export async function pushPeopleToLemlistEmailCampaign(
             const payload = toLeadPayload(employee, companyName, companyDomain);
             if (!payload) {
               if (!employee.email || employee.email.trim().length === 0) {
-                const failureMessage = "Missing email for Lemlist email campaign payload.";
-                console.log(
-                  `[EmailPush][MissingEmail] company=${companyName} person=${employee.name} title=${employee.currentTitle}`
-                );
-                failedItems.push({
-                  name: employee.name,
-                  error: failureMessage,
-                });
                 outcomes.push({
                   key: toEmployeeKey(employee),
                   name: employee.name,
                   title: employee.currentTitle,
                   linkedinUrl: employee.linkedinUrl ?? null,
-                  status: "failed",
-                  error: failureMessage,
+                  status: "skipped",
                 });
                 continue;
               }

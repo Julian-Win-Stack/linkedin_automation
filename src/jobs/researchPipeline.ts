@@ -1,7 +1,6 @@
 import { getEnvBoolean } from "../config/env";
 import { PipelineConfig } from "../config/pipelineConfig";
 import { getCompany, ResolvedCompany } from "../services/getCompany";
-import { enrichMissingEmailsWithLemlist } from "../services/lemlistBulkEmailEnrichment";
 import { pushPeopleToLemlistEmailCampaign } from "../services/lemlistEmailPushQueue";
 import { pushPeopleToLemlistCampaign, TaggedLinkedinCandidate } from "../services/lemlistPushQueue";
 import {
@@ -41,7 +40,6 @@ import { syncApolloAccountsFromOutputRows } from "../services/apolloBulkUpdateAc
 import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompanyRecords";
 import { getWeeklySuccessCounts, saveWeeklySuccessForJob } from "../services/weeklySuccessStore";
 import { scrapeCompanyEmployees, scrapePastSreEmployees, filterPoolByStage } from "../services/apifyCompanyEmployees";
-import { findEmailsInBulk } from "../services/apifyBulkEmailFinder";
 
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = [
@@ -192,79 +190,6 @@ function toLinkedinPoolBucket(employee: EnrichedEmployee): LinkedinPoolBucket {
   return isLinkedinLeadershipTitle(employee.currentTitle) ? "engLead" : "sre";
 }
 
-function normalizeLinkedinUrlForLookup(url: string): string {
-  return url
-    .replace(/^https?:\/\//i, "")
-    .replace(/^www\./i, "")
-    .replace(/\/+$/, "")
-    .toLowerCase();
-}
-
-async function findEmailsForBatch(
-  batch: PendingEmailPushBatch,
-  jobId: string,
-  logPipelineStage: (
-    step: string,
-    message: string,
-    companyContext?: { index: number; total: number; companyName: string }
-  ) => void,
-  companyContext: { index: number; total: number; companyName: string }
-): Promise<void> {
-  const linkedinUrlsForBulkFinder = batch.candidates
-    .map(({ employee }) => employee.linkedinUrl?.trim() ?? "")
-    .filter((url) => url.length > 0);
-
-  if (linkedinUrlsForBulkFinder.length > 0) {
-    try {
-      logPipelineStage(
-        "APIFY_BULK_EMAIL_FINDER_START",
-        `Apify bulk email finder started. urls=${linkedinUrlsForBulkFinder.length}`,
-        companyContext
-      );
-      const emailsByLinkedin = await findEmailsInBulk(linkedinUrlsForBulkFinder);
-      for (const candidate of batch.candidates) {
-        const linkedinUrl = candidate.employee.linkedinUrl?.trim() ?? "";
-        if (!linkedinUrl || (candidate.employee.email && candidate.employee.email.trim().length > 0)) {
-          continue;
-        }
-        const foundEmail = emailsByLinkedin.get(normalizeLinkedinUrlForLookup(linkedinUrl));
-        if (foundEmail) {
-          candidate.employee.email = foundEmail;
-        }
-      }
-      logPipelineStage(
-        "APIFY_BULK_EMAIL_FINDER_DONE",
-        `Apify bulk email finder complete. found=${emailsByLinkedin.size}`,
-        companyContext
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown Apify bulk email finder error";
-      addJobWarning(jobId, `Apify bulk email finder failed for ${batch.companyName}: ${message}`);
-    }
-  }
-
-  const missingEmailCandidates = batch.candidates
-    .filter(({ employee }) => !employee.email || employee.email.trim().length === 0)
-    .map(({ employee }) => ({
-      employee,
-      companyName: batch.companyName,
-      companyDomain: batch.companyDomain,
-    }));
-
-  if (missingEmailCandidates.length > 0) {
-    logPipelineStage(
-      "LEMLIST_EMAIL_ENRICH_START",
-      `Lemlist bulk find_email started. candidates=${missingEmailCandidates.length}`,
-      companyContext
-    );
-    const summary = await enrichMissingEmailsWithLemlist(missingEmailCandidates);
-    logPipelineStage(
-      "LEMLIST_EMAIL_ENRICH_DONE",
-      `Lemlist bulk find_email complete. attempted=${summary.attempted} accepted=${summary.accepted} recovered=${summary.recovered} not_found=${summary.notFound}`,
-      companyContext
-    );
-  }
-}
 
 function dedupeEmployeesByKey(employees: EnrichedEmployee[]): EnrichedEmployee[] {
   const seen = new Set<string>();
@@ -299,6 +224,10 @@ function logCurrentSrePrefilterResults(companyName: string, prospects: Prospect[
     const title = prospect.title.trim() || "Unknown title";
     console.error(`  ${index + 1}. ${name} | ${title} | ${prospect.id}`);
   }
+}
+
+function canTrustSrePrefilter(company: ResolvedCompany): boolean {
+  return company.domain.trim().length > 0;
 }
 
 function createPipelineStepLogger(jobId: string): (
@@ -343,7 +272,6 @@ export async function runResearchPipeline(
   const rejectedCompanies: string[] = [];
   const skippedCompanies: string[] = [];
   const pendingEmailPushBatches: PendingEmailPushBatch[] = [];
-  const emailSearchPromises: Promise<void>[] = [];
   let totalRows = 0;
   let skippedMissingWebsiteAndApolloAccountIdCount = 0;
   let apolloProcessedCompanyCount = 0;
@@ -383,7 +311,6 @@ export async function runResearchPipeline(
     setJobMessage(jobId, "Starting engineer and SRE pre-filter...");
 
     const lemlistEnabled = getEnvBoolean("LEMLIST_PUSH_ENABLED", true);
-    const lemlistBulkFindEmailEnabled = getEnvBoolean("LEMLIST_BULK_FIND_EMAIL_ENABLED", true);
     const progressTotalRows = Math.min(
       await countProcessableCompanies({
         csvBuffer,
@@ -449,13 +376,21 @@ export async function runResearchPipeline(
       };
 
       logPipelineStage("SEARCH_CURRENT_SRE", "Searching current SRE candidates for pre-filter.", companyContext);
-      const currentSreProspects = dedupeProspectsById(
-        await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES, linkedinApolloPeopleFilters(peopleSearchFilters))
-      );
+      const trustCurrentSrePrefilter = canTrustSrePrefilter(company);
+      const currentSreProspects = trustCurrentSrePrefilter
+        ? dedupeProspectsById(
+            await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES, linkedinApolloPeopleFilters(peopleSearchFilters))
+          )
+        : [];
       const rawSreCount = currentSreProspects.length;
-      logCurrentSrePrefilterResults(row.companyName, currentSreProspects, MAX_RESULTS);
+      if (trustCurrentSrePrefilter) {
+        logCurrentSrePrefilterResults(row.companyName, currentSreProspects, MAX_RESULTS);
+      } else {
+        console.error("");
+        console.error(`SRE pre-filter skipped for ${row.companyName}: missing company domain makes Apollo org-id-only search unreliable`);
+      }
       logPipelineStage("SEARCH_CURRENT_SRE_DONE", `Current SRE candidates found. count=${rawSreCount}`, companyContext);
-      if (rawSreCount > MAX_SRE_COUNT) {
+      if (trustCurrentSrePrefilter && rawSreCount > MAX_SRE_COUNT) {
         const rejectionNote = `${row.companyName} got rejected because it has ${rawSreCount} number of SREs`;
         logPipelineStage("REJECT_SRE_MAX", `Company rejected by SRE maximum. count=${rawSreCount}`, companyContext);
         rejectedCompanies.push(rejectionNote);
@@ -803,9 +738,6 @@ export async function runResearchPipeline(
               candidates: waterfallResult.candidates,
             };
             pendingEmailPushBatches.push(emailBatch);
-            if (lemlistBulkFindEmailEnabled) {
-              emailSearchPromises.push(findEmailsForBatch(emailBatch, jobId, logPipelineStage, companyContext));
-            }
             logPipelineStage(
               "QUEUE_EMAIL_BATCH",
               `Email batch queued. candidates=${waterfallResult.candidates.length}`,
@@ -881,42 +813,6 @@ export async function runResearchPipeline(
           notes: "",
         });
       }
-    }
-
-    if (lemlistEnabled && lemlistBulkFindEmailEnabled && emailSearchPromises.length > 0) {
-      setJobMessage(
-        jobId,
-        `Looking up missing work emails for selected contacts (0/${emailSearchPromises.length} companies complete).`
-      );
-      let completedEmailLookups = 0;
-      const trackedEmailSearchPromises = emailSearchPromises.map((promise) =>
-        promise.then(
-          (value) => {
-            completedEmailLookups += 1;
-            setJobMessage(
-              jobId,
-              `Looking up missing work emails for selected contacts (${completedEmailLookups}/${emailSearchPromises.length} companies complete).`
-            );
-            return value;
-          },
-          (error) => {
-            completedEmailLookups += 1;
-            setJobMessage(
-              jobId,
-              `Looking up missing work emails for selected contacts (${completedEmailLookups}/${emailSearchPromises.length} companies complete).`
-            );
-            throw error;
-          }
-        )
-      );
-      const results = await Promise.allSettled(trackedEmailSearchPromises);
-      for (const result of results) {
-        if (result.status === "rejected") {
-          const message = result.reason instanceof Error ? result.reason.message : "Unknown error";
-          addJobWarning(jobId, `Email search failed for a company: ${message}`);
-        }
-      }
-      setJobMessage(jobId, "Email lookup finished. Preparing email campaign push.");
     }
 
     if (lemlistEnabled && pendingEmailPushBatches.length > 0) {

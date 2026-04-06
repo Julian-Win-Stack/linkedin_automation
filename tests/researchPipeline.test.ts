@@ -15,8 +15,6 @@ const filterPoolByStageMock = vi.fn();
 const filterOpenToWorkFromCacheMock = vi.fn();
 const splitByTenureMock = vi.fn();
 const filterByKeywordsInApifyDataMock = vi.fn();
-const findEmailsInBulkMock = vi.fn();
-const enrichMissingEmailsWithLemlistMock = vi.fn();
 const selectTopSreForLemlistMock = vi.fn();
 const fillToMinimumWithBackfillMock = vi.fn();
 const selectKeywordMatchedByTenureMock = vi.fn();
@@ -56,14 +54,6 @@ vi.mock("../src/services/apifyClient", () => ({
   filterOpenToWorkFromCache: (...args: unknown[]) => filterOpenToWorkFromCacheMock(...args),
   splitByTenure: (...args: unknown[]) => splitByTenureMock(...args),
   filterByKeywordsInApifyData: (...args: unknown[]) => filterByKeywordsInApifyDataMock(...args),
-}));
-
-vi.mock("../src/services/apifyBulkEmailFinder", () => ({
-  findEmailsInBulk: (...args: unknown[]) => findEmailsInBulkMock(...args),
-}));
-
-vi.mock("../src/services/lemlistBulkEmailEnrichment", () => ({
-  enrichMissingEmailsWithLemlist: (...args: unknown[]) => enrichMissingEmailsWithLemlistMock(...args),
 }));
 
 vi.mock("../src/services/sreSelection", () => ({
@@ -159,8 +149,6 @@ describe("runResearchPipeline orchestration", () => {
     filterOpenToWorkFromCacheMock.mockReset();
     splitByTenureMock.mockReset();
     filterByKeywordsInApifyDataMock.mockReset();
-    findEmailsInBulkMock.mockReset();
-    enrichMissingEmailsWithLemlistMock.mockReset();
     selectTopSreForLemlistMock.mockReset();
     fillToMinimumWithBackfillMock.mockReset();
     selectKeywordMatchedByTenureMock.mockReset();
@@ -203,13 +191,6 @@ describe("runResearchPipeline orchestration", () => {
     }));
     splitByTenureMock.mockImplementation((employees: EnrichedEmployee[]) => ({ eligible: employees, droppedByTenure: [] }));
     filterByKeywordsInApifyDataMock.mockReturnValue({ matched: [], unmatched: [] });
-    findEmailsInBulkMock.mockResolvedValue(new Map());
-    enrichMissingEmailsWithLemlistMock.mockResolvedValue({
-      attempted: 0,
-      accepted: 0,
-      recovered: 0,
-      notFound: 0,
-    });
     runEmailCandidateWaterfallMock.mockResolvedValue(emptyWaterfallResult());
     selectTopSreForLemlistMock.mockImplementation((employees: EnrichedEmployee[]) => employees.slice(0, 7));
     fillToMinimumWithBackfillMock.mockImplementation((selected: EnrichedEmployee[]) => selected);
@@ -236,7 +217,6 @@ describe("runResearchPipeline orchestration", () => {
     getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 0, emailCount: 0 });
     countProcessableCompaniesMock.mockResolvedValue(500);
     process.env.LEMLIST_PUSH_ENABLED = "true";
-    process.env.LEMLIST_BULK_FIND_EMAIL_ENABLED = "true";
   });
 
   it("uses company pool and pushes linkedin candidates", async () => {
@@ -359,6 +339,40 @@ describe("runResearchPipeline orchestration", () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it("does not reject a domainless company from Apollo SRE pre-filter count", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const jobId = createJob();
+    await runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian",
+      Date.now()
+    );
+
+    expect(searchPeopleMock).not.toHaveBeenCalled();
+    expect(researchCompanyMock).toHaveBeenCalledTimes(1);
+    const loggedOutput = consoleErrorSpy.mock.calls.map(([message]) => String(message)).join("\n");
+    expect(loggedOutput).toContain(
+      "SRE pre-filter skipped for Acme: missing company domain makes Apollo org-id-only search unreliable"
+    );
+
+    consoleErrorSpy.mockRestore();
+  });
+
   it("runs email waterfall from local pool", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
@@ -393,12 +407,12 @@ describe("runResearchPipeline orchestration", () => {
     );
   });
 
-  it("uses apify bulk email finder before lemlist fallback", async () => {
+  it("pushes email campaign from waterfall candidates without searching for missing emails", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
     );
     const candidates: TaggedEmailCandidate[] = [
-      { employee: makeEmployee("missing-1", "SRE", 8, "https://linkedin.com/in/missing-1"), campaignBucket: "sre" },
+      { employee: { ...makeEmployee("email-1", "SRE", 8), email: "has@example.com" }, campaignBucket: "sre" },
     ];
     runEmailCandidateWaterfallMock.mockResolvedValueOnce({
       candidates,
@@ -406,9 +420,6 @@ describe("runResearchPipeline orchestration", () => {
       warnings: [],
       normalEngineerApifyWarnings: [],
     });
-    findEmailsInBulkMock.mockResolvedValueOnce(
-      new Map([["linkedin.com/in/missing-1", "found@example.com"]])
-    );
 
     const jobId = createJob();
     await runResearchPipeline(
@@ -428,46 +439,8 @@ describe("runResearchPipeline orchestration", () => {
       Date.now()
     );
 
-    expect(findEmailsInBulkMock).toHaveBeenCalledTimes(1);
-    expect(enrichMissingEmailsWithLemlistMock).not.toHaveBeenCalled();
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("falls back to lemlist enrichment when apify finder misses", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    const candidates: TaggedEmailCandidate[] = [
-      { employee: makeEmployee("missing-2", "SRE", 8, "https://linkedin.com/in/missing-2"), campaignBucket: "sre" },
-    ];
-    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
-      candidates,
-      filteredOutCandidates: [],
-      warnings: [],
-      normalEngineerApifyWarnings: [],
-    });
-    findEmailsInBulkMock.mockResolvedValueOnce(new Map());
-
-    const jobId = createJob();
-    await runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    expect(findEmailsInBulkMock).toHaveBeenCalledTimes(1);
-    expect(enrichMissingEmailsWithLemlistMock).toHaveBeenCalledTimes(1);
+    expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[0][0]).toEqual(candidates);
   });
 
   it("skips company when weekly linkedin limit reached", async () => {
