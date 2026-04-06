@@ -504,16 +504,18 @@ async function clearFinishedQueueItems(): Promise<void> {
                 <p class="text-[11px] text-zinc-500">Created {{ new Date(item.createdAtMs).toLocaleString() }}</p>
               </div>
 
-              <p v-if="progressLabel(item)" class="mt-2 text-xs text-indigo-200">
-                {{ progressLabel(item) }}
-              </p>
+              <div v-if="progressLabel(item)" class="mt-2 flex items-center gap-2 text-xs text-indigo-200">
+                <p>{{ progressLabel(item) }}</p>
+                <span v-if="item.status === 'running'" class="relative inline-flex h-2.5 w-2.5" aria-label="Running">
+                  <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-300/80"></span>
+                  <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-300"></span>
+                </span>
+              </div>
               <p v-if="item.errorMessage" class="mt-2 text-xs text-rose-300">{{ item.errorMessage }}</p>
 
               <div v-if="item.summary" class="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-300">
                 <p>LinkedIn pushed: {{ item.summary.totalLinkedinCampaignSuccessful ?? 0 }}</p>
                 <p>Email pushed: {{ item.summary.totalEmailCampaignSuccessful ?? 0 }}</p>
-                <p>LinkedIn skipped: {{ item.summary.totalLinkedinCampaignSkipped ?? 0 }}</p>
-                <p>Email skipped: {{ item.summary.totalEmailCampaignSkipped ?? 0 }}</p>
                 <p>LinkedIn failed: {{ item.summary.totalLinkedinCampaignFailed ?? 0 }}</p>
                 <p>Email failed: {{ item.summary.totalEmailCampaignFailed ?? 0 }}</p>
               </div>

@@ -861,25 +861,57 @@ export async function runResearchPipeline(
     }
 
     if (lemlistEnabled && lemlistBulkFindEmailEnabled && emailSearchPromises.length > 0) {
-      const results = await Promise.allSettled(emailSearchPromises);
+      setJobMessage(
+        jobId,
+        `Looking up missing work emails for selected contacts (0/${emailSearchPromises.length} companies complete).`
+      );
+      let completedEmailLookups = 0;
+      const trackedEmailSearchPromises = emailSearchPromises.map((promise) =>
+        promise.then(
+          (value) => {
+            completedEmailLookups += 1;
+            setJobMessage(
+              jobId,
+              `Looking up missing work emails for selected contacts (${completedEmailLookups}/${emailSearchPromises.length} companies complete).`
+            );
+            return value;
+          },
+          (error) => {
+            completedEmailLookups += 1;
+            setJobMessage(
+              jobId,
+              `Looking up missing work emails for selected contacts (${completedEmailLookups}/${emailSearchPromises.length} companies complete).`
+            );
+            throw error;
+          }
+        )
+      );
+      const results = await Promise.allSettled(trackedEmailSearchPromises);
       for (const result of results) {
         if (result.status === "rejected") {
           const message = result.reason instanceof Error ? result.reason.message : "Unknown error";
           addJobWarning(jobId, `Email search failed for a company: ${message}`);
         }
       }
+      setJobMessage(jobId, "Email lookup finished. Preparing email campaign push.");
     }
 
     if (lemlistEnabled && pendingEmailPushBatches.length > 0) {
+      setJobMessage(jobId, `Pushing selected contacts to email campaigns (0/${pendingEmailPushBatches.length} companies).`);
       logPipelineStage(
         "EMAIL_PUSH_STAGE_START",
         `Email campaign push stage started. companies=${pendingEmailPushBatches.length}`
       );
-      for (const batch of pendingEmailPushBatches) {
+      for (let emailBatchIndex = 0; emailBatchIndex < pendingEmailPushBatches.length; emailBatchIndex += 1) {
+        const batch = pendingEmailPushBatches[emailBatchIndex];
         if (isCancelled(jobId)) {
           return;
         }
 
+        setJobMessage(
+          jobId,
+          `Pushing selected contacts to email campaigns (${emailBatchIndex + 1}/${pendingEmailPushBatches.length} companies).`
+        );
         const emailPushMeta = await pushPeopleToLemlistEmailCampaign(
           batch.candidates,
           batch.companyName,
@@ -916,6 +948,7 @@ export async function runResearchPipeline(
       }
     }
 
+    setJobMessage(jobId, "Finalizing results and syncing company updates.");
     setRejectedCompanies(jobId, rejectedCompanies, REJECTED_REASON);
     setSkippedCompanies(jobId, skippedCompanies);
 
@@ -997,6 +1030,7 @@ export async function runResearchPipeline(
 
     const csvString = await rowsToCsvString(combinedOutputRows);
     const csvBase64 = Buffer.from(csvString, "utf8").toString("base64");
+    setJobMessage(jobId, "Completed. CSV and PDF are ready to download.");
     markJobDone(jobId, csvBase64);
     logPipelineStage(
       "JOB_DONE",
