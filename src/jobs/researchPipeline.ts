@@ -63,8 +63,6 @@ const MAX_SRE_COUNT = 15;
 const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
 const WEEKLY_LINKEDIN_PUSH_LIMIT = 100;
 const LINKEDIN_LEADERSHIP_TITLE_REGEX = /\b(director|svp|vp|head|chief)\b/i;
-const PIPELINE_TIMING_COLOR = "\x1b[36m";
-const ANSI_RESET = "\x1b[0m";
 
 const SRE_WORK_KEYWORDS: string[] = [
   "on-call",
@@ -291,25 +289,13 @@ function createPipelineStepLogger(jobId: string): (
   message: string,
   companyContext?: { index: number; total: number; companyName: string }
 )=> void {
-  const startedAt = Date.now();
-  let lastStepAt = startedAt;
-
+  void jobId;
   return (
-    step: string,
-    message: string,
-    companyContext?: { index: number; total: number; companyName: string }
+    _step: string,
+    _message: string,
+    _companyContext?: { index: number; total: number; companyName: string }
   ): void => {
-    const now = Date.now();
-    const deltaSeconds = ((now - lastStepAt) / 1000).toFixed(2);
-    const totalSeconds = ((now - startedAt) / 1000).toFixed(2);
-    lastStepAt = now;
-    const companyTag = companyContext
-      ? `[COMPANY:${companyContext.index + 1}/${companyContext.total}:${companyContext.companyName}]`
-      : "";
-    process.stderr.write(
-      `${PIPELINE_TIMING_COLOR}[Pipeline][JOB:${jobId}][STEP:${step}]` +
-      `[+${deltaSeconds}s][total:${totalSeconds}s]${companyTag} ${message}${ANSI_RESET}\n`
-    );
+    // Intentionally muted to remove verbose pipeline stage logs.
   };
 }
 

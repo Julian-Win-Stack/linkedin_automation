@@ -382,7 +382,7 @@ router.get("/queue/:queueItemId/csv", (req, res) => {
   }
   const csv = Buffer.from(item.csvOutputBase64, "base64");
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", 'attachment; filename="companies.csv"');
+  res.setHeader("Content-Disposition", 'attachment; filename="research-results.csv"');
   return res.status(200).send(csv);
 });
 

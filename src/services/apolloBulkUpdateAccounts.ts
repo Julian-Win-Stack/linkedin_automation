@@ -1,7 +1,5 @@
 import {
   apolloPost,
-  fetchApolloAccountCustomFieldNameToIdMap,
-  fetchApolloAccountStageNameToIdMap,
 } from "./apolloClient";
 import { OutputRow } from "./observability/csvWriter";
 
@@ -10,22 +8,34 @@ const APOLLO_BULK_UPDATE_MAX_PER_REQUEST = 1000;
 const APOLLO_ERROR_COLOR = "\x1b[31m";
 const APOLLO_WARNING_COLOR = "\x1b[33m";
 const ANSI_RESET = "\x1b[0m";
+const HARDCODED_CUSTOM_FIELD_IDS: Partial<Record<keyof OutputRow, string>> = {
+  observability_tool_research: "6980e9f46ff5a0002169a12a",
+  sre_count: "6967fde7e9b8720011d25737",
+  notes: "696fe565def36a00193ece7e",
+};
+const HARDCODED_STAGE_IDS = new Map<string, string>([
+  ["Prospecting", "68cc9bfa8d565f0021b01746"],
+  ["ChasingPOC", "6971e93a8f17d1001569a9bb"],
+  ["Connected", "69b9aba7bf59020015c614fd"],
+  ["Pending Warm Intro", "697ff0833a1eb5002124920a"],
+  ["Lead", "68cc9bfa8d565f0021b01748"],
+  ["Interest", "697ff09c7203e20021841515"],
+  ["NotActionableNow", "68cc9bfa8d565f0021b01749"],
+  ["Current Client", "68cc9bfa8d565f0021b01747"],
+  ["KeepWarm", "697ff0c840ed7d0011df04bc"],
+  ["Do Not Prospect", "68cc9bfa8d565f0021b0174a"],
+  ["Competitor's Client", "691e23559a765d0015803b24"],
+]);
 
 const COLUMN_KEY_TO_HEADER: Partial<Record<keyof OutputRow, string>> = {
   company_name: "Company Name",
   company_domain: "Website",
   company_linkedin_url: "Company Linkedin Url",
   apollo_account_id: "Apollo Account Id",
-  observability_tool_research: "observability_tool",
+  observability_tool_research: "Observability",
   stage: "Stage",
   sre_count: "Number of SREs",
   notes: "Notes",
-};
-
-const COLUMN_TO_APOLLO_FIELD_CANDIDATES: Partial<Record<keyof OutputRow, string[]>> = {
-  observability_tool_research: ["observability_tool", "observability_tool_research", "Observability Tool"],
-  sre_count: ["Number of SREs", "sre_count", "number_of_sres"],
-  notes: ["Notes", "notes"],
 };
 
 const EXCLUDED_HEADERS = new Set<string>([
@@ -75,35 +85,25 @@ function normalizeMappingToken(value: string): string {
   return value.toLowerCase().replace(/[_\s]+/g, "");
 }
 
-function buildNormalizedFieldNameToId(fieldNameToId: Map<string, string>): Map<string, string> {
-  const normalizedToFieldId = new Map<string, string>();
-  for (const [fieldName, fieldId] of fieldNameToId.entries()) {
-    const normalizedFieldName = normalizeMappingToken(fieldName);
-    if (normalizedFieldName.length === 0) {
-      continue;
-    }
-    if (!normalizedToFieldId.has(normalizedFieldName)) {
-      normalizedToFieldId.set(normalizedFieldName, fieldId);
-    }
-  }
-  return normalizedToFieldId;
-}
-
 function looksLikeApolloId(value: string): boolean {
   return /^[a-f0-9]{24}$/i.test(value);
 }
 
 function buildAccountAttributesPayload(
   rows: OutputRow[],
-  fieldNameToId: Map<string, string>,
   stageNameToId: Map<string, string>
 ): BuildPayloadResult {
   const unmappedHeadersSet = new Set<string>();
   const accountIdToAttributes = new Map<string, ApolloBulkUpdateAccountAttribute>();
   const dedupedAccountIdsInOrder: string[] = [];
   const duplicateAccountIds = new Set<string>();
-  const normalizedFieldNameToId = buildNormalizedFieldNameToId(fieldNameToId);
-  const normalizedStageNameToId = buildNormalizedFieldNameToId(stageNameToId);
+  const normalizedStageNameToId = new Map<string, string>();
+  for (const [stageName, stageId] of stageNameToId.entries()) {
+    const normalized = normalizeMappingToken(stageName);
+    if (normalized.length > 0 && !normalizedStageNameToId.has(normalized)) {
+      normalizedStageNameToId.set(normalized, stageId);
+    }
+  }
   let skippedMissingAccountIdCount = 0;
   let skippedNoMappableFieldsCount = 0;
 
@@ -140,10 +140,7 @@ function buildAccountAttributesPayload(
         continue;
       }
 
-      const candidateFieldNames = COLUMN_TO_APOLLO_FIELD_CANDIDATES[columnKey] ?? [header];
-      const fieldId = candidateFieldNames
-        .map((candidate) => normalizedFieldNameToId.get(normalizeMappingToken(candidate)))
-        .find((candidateId): candidateId is string => Boolean(candidateId));
+      const fieldId = HARDCODED_CUSTOM_FIELD_IDS[columnKey];
       if (!fieldId) {
         unmappedHeadersSet.add(header);
         continue;
@@ -223,11 +220,7 @@ async function sendBatchWithSingleRetry(
 
 export async function syncApolloAccountsFromOutputRows(rows: OutputRow[]): Promise<ApolloBulkUpdateSyncResult> {
   const warnings: string[] = [];
-  const [fieldNameToId, stageNameToId] = await Promise.all([
-    fetchApolloAccountCustomFieldNameToIdMap(),
-    fetchApolloAccountStageNameToIdMap(),
-  ]);
-  const payloadResult = buildAccountAttributesPayload(rows, fieldNameToId, stageNameToId);
+  const payloadResult = buildAccountAttributesPayload(rows, HARDCODED_STAGE_IDS);
 
   for (const header of payloadResult.unmappedHeaders) {
     warnings.push(

@@ -53,8 +53,10 @@ const LIGHT_LINE = "─".repeat(LINE_WIDTH);
 const LEADERSHIP_TITLE_KEYWORDS = ["vp", "manager", "director", "head", "chief", "principal"];
 const LINKEDIN_LEADERSHIP_TITLE_KEYWORDS = ["director", "vp", "svp", "head", "chief"];
 const NORMAL_ENGINEER_STAGE_LABEL = "Normal Engineer Search";
+const ENG_LEADER_STAGE_LABEL = "Eng Leader Search";
 const SPLIT_LEADERSHIP_BUCKET: EmailCampaignBucket = "engLead";
 const MIN_SRE_COUNT_FOR_EMAIL_SRE_STAGES = 8;
+const MIN_LIST_COUNT_FOR_ENG_LEADER_STAGE = 5;
 
 const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
   {
@@ -590,6 +592,14 @@ export async function runEmailCandidateWaterfall(
       printStageHeader(stageIndex);
       printStageSkip(`List A already full (${listA.length}/${MAX_PER_COMPANY})`);
       break;
+    }
+
+    if (stageLabel === ENG_LEADER_STAGE_LABEL && listA.length < MIN_LIST_COUNT_FOR_ENG_LEADER_STAGE) {
+      printStageHeader(stageIndex);
+      printStageSkip(
+        `requires at least ${MIN_LIST_COUNT_FOR_ENG_LEADER_STAGE} candidates before Eng Leader Search (current: ${listA.length})`
+      );
+      continue;
     }
 
     printStageHeader(stageIndex);

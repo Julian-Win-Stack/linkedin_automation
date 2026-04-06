@@ -69,7 +69,7 @@ describe("runEmailCandidateWaterfall", () => {
     );
 
     expect(result.candidates).toEqual([]);
-    expect(filterPoolByStageMock).toHaveBeenCalledTimes(7);
+    expect(filterPoolByStageMock).toHaveBeenCalledTimes(6);
   });
 
   it("skips first two SRE stages when pre-filter SRE count is below 8", async () => {
@@ -81,7 +81,7 @@ describe("runEmailCandidateWaterfall", () => {
       { rawSreCount: 7 }
     );
 
-    expect(filterPoolByStageMock).toHaveBeenCalledTimes(5);
+    expect(filterPoolByStageMock).toHaveBeenCalledTimes(4);
     const firstCallSearchParams = filterPoolByStageMock.mock.calls[0][2];
     expect(firstCallSearchParams).toMatchObject({
       currentTitles: ["Infrastructure"],
@@ -192,10 +192,10 @@ describe("runEmailCandidateWaterfall", () => {
     expect(result.candidates[1].employee.id).toBe("past-1");
   });
 
-  it("drops people with tenure below minimum for SRE stages (2 months)", async () => {
+  it("drops people with tenure below minimum for SRE stages (3 months)", async () => {
     const pool = [
-      makeEmployee("short-1", "SRE", 1),
-      makeEmployee("ok-1", "SRE", 2),
+      makeEmployee("short-1", "SRE", 2),
+      makeEmployee("ok-1", "SRE", 3),
     ];
     filterPoolByStageMock.mockImplementationOnce(() => pool).mockImplementation(() => []);
 
@@ -474,10 +474,10 @@ describe("runEmailCandidateWaterfall", () => {
     expect(devopsCall[2].notTitles).toContain("trainee");
   });
 
-  it("enforces 11-month tenure minimum for infrastructure stage", async () => {
+  it("enforces 12-month tenure minimum for infrastructure stage", async () => {
     const pool = [
-      makeEmployee("infra-short", "Infrastructure", 10),
-      makeEmployee("infra-ok", "Infrastructure", 11),
+      makeEmployee("infra-short", "Infrastructure", 11),
+      makeEmployee("infra-ok", "Infrastructure", 12),
     ];
     filterPoolByStageMock
       .mockImplementationOnce(() => [])
@@ -497,10 +497,15 @@ describe("runEmailCandidateWaterfall", () => {
   });
 
   it("does not re-add leadership candidates in final Eng Leader stage", async () => {
+    const seed1 = makeEmployee("seed-1", "SRE", 20);
+    const seed2 = makeEmployee("seed-2", "SRE", 19);
+    const seed3 = makeEmployee("seed-3", "SRE", 18);
+    const seed4 = makeEmployee("seed-4", "SRE", 17);
+    const seed5 = makeEmployee("seed-5", "SRE", 16);
     const dup = makeEmployee("dup-leader", "Head of Infrastructure", 20);
     const final = makeEmployee("final-leader", "VP of Engineering", 24);
     filterPoolByStageMock
-      .mockImplementationOnce(() => [])
+      .mockImplementationOnce(() => [seed1, seed2, seed3, seed4, seed5, dup])
       .mockImplementationOnce(() => [])
       .mockImplementationOnce(() => [dup])
       .mockImplementationOnce(() => [])
@@ -511,7 +516,7 @@ describe("runEmailCandidateWaterfall", () => {
     const result = await runEmailCandidateWaterfall(
       COMPANY,
       new Set(),
-      [dup, final],
+      [seed1, seed2, seed3, seed4, seed5, dup, final],
       APIFY_CACHE
     );
 
@@ -521,6 +526,34 @@ describe("runEmailCandidateWaterfall", () => {
     expect(result.candidates.find((candidate) => candidate.employee.id === "final-leader")?.campaignBucket).toBe(
       "engLead"
     );
+  });
+
+  it("skips final Eng Leader stage when list has fewer than 5 candidates", async () => {
+    const base1 = makeEmployee("base-1", "SRE", 20);
+    const base2 = makeEmployee("base-2", "SRE", 19);
+    const base3 = makeEmployee("base-3", "SRE", 18);
+    const base4 = makeEmployee("base-4", "SRE", 17);
+    const finalLeader = makeEmployee("final-leader", "VP of Engineering", 24);
+
+    filterPoolByStageMock
+      .mockImplementationOnce(() => [base1, base2, base3, base4])
+      .mockImplementationOnce(() => [])
+      .mockImplementationOnce(() => [])
+      .mockImplementationOnce(() => [])
+      .mockImplementationOnce(() => [])
+      .mockImplementationOnce(() => [])
+      .mockImplementationOnce(() => [finalLeader]);
+
+    const result = await runEmailCandidateWaterfall(
+      COMPANY,
+      new Set(),
+      [base1, base2, base3, base4, finalLeader],
+      APIFY_CACHE
+    );
+
+    const ids = result.candidates.map((candidate) => candidate.employee.id);
+    expect(ids).toEqual(["base-1", "base-2", "base-3", "base-4"]);
+    expect(ids).not.toContain("final-leader");
   });
 
   it("collects normal engineer Apify warning candidates without filtering them out", async () => {
