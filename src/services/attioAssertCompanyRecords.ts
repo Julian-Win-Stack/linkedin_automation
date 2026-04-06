@@ -50,9 +50,13 @@ const COLUMN_TO_ATTIO_SLUG_CANDIDATES: Record<keyof OutputRow, string[]> = {
   company_linkedin_url: ["company_linkedin_url", "linkedin_url", "linkedin", "company_linkedin"],
   apollo_account_id: [],
   observability_tool_research: ["observability_tool_research", "observability_tool"],
-  stage: ["stage"],
-  sre_count: ["sre_count"],
-  notes: ["notes"],
+  // This workspace stores pipeline stages in "status_5". Do not write these
+  // values into the narrower "stage" attribute.
+  stage: ["status_5"],
+  // Live Attio workspace metadata shows this field is stored as "number_of_sres".
+  sre_count: ["number_of_sres"],
+  // Live Attio workspace metadata shows the Notes field uses this slug.
+  notes: ["current_workflow"],
 };
 
 function toDisplayValue(value: unknown): string | undefined {
@@ -172,9 +176,6 @@ function buildAssertTasks(rows: OutputRow[], availableSlugs: Set<string>): Build
 
       if (isDomainsSlug(matchedSlug)) {
         values[matchedSlug] = [normalizedDomain];
-      } else if (columnKey === "sre_count") {
-        const numericValue = Number(displayValue);
-        values[matchedSlug] = Number.isFinite(numericValue) ? numericValue : displayValue;
       } else {
         values[matchedSlug] = displayValue;
       }

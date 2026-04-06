@@ -284,6 +284,23 @@ function logPipelineInfo(_line: string): void {
   // Intentionally muted to reduce noisy normal-color logs.
 }
 
+function logCurrentSrePrefilterResults(companyName: string, prospects: Prospect[], maxResults: number): void {
+  const cappedSuffix = prospects.length >= maxResults ? ` (returned cap of ${maxResults})` : "";
+  console.error("");
+  console.error(`SRE pre-filter results for ${companyName}: ${prospects.length}${cappedSuffix}`);
+
+  if (prospects.length === 0) {
+    console.error("  (no SREs returned)");
+    return;
+  }
+
+  for (const [index, prospect] of prospects.entries()) {
+    const name = prospect.name.trim() || "Unknown";
+    const title = prospect.title.trim() || "Unknown title";
+    console.error(`  ${index + 1}. ${name} | ${title} | ${prospect.id}`);
+  }
+}
+
 function createPipelineStepLogger(jobId: string): (
   step: string,
   message: string,
@@ -436,6 +453,7 @@ export async function runResearchPipeline(
         await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES, linkedinApolloPeopleFilters(peopleSearchFilters))
       );
       const rawSreCount = currentSreProspects.length;
+      logCurrentSrePrefilterResults(row.companyName, currentSreProspects, MAX_RESULTS);
       logPipelineStage("SEARCH_CURRENT_SRE_DONE", `Current SRE candidates found. count=${rawSreCount}`, companyContext);
       if (rawSreCount > MAX_SRE_COUNT) {
         const rejectionNote = `${row.companyName} got rejected because it has ${rawSreCount} number of SREs`;

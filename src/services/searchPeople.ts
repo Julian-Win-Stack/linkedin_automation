@@ -63,7 +63,7 @@ function toPeopleSearchQueryParams(
 
   const apolloOrganizationId = filters.apolloOrganizationId?.trim();
   if (apolloOrganizationId) {
-    params["q_organization_ids[]"] = [apolloOrganizationId];
+    params["organization_ids[]"] = [apolloOrganizationId];
   }
 
   const notTitles = [...new Set((filters.notTitles ?? []).map((t) => t.trim()).filter(Boolean))];
@@ -221,7 +221,7 @@ export async function searchEmailCandidatePeople(
 
     const apolloOrganizationId = filters.apolloOrganizationId?.trim();
     if (apolloOrganizationId) {
-      params["q_organization_ids[]"] = [apolloOrganizationId];
+      params["organization_ids[]"] = [apolloOrganizationId];
     }
 
     const response = await apolloPostWithQuery<PeopleSearchResponse>(

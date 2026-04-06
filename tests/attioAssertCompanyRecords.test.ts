@@ -33,9 +33,10 @@ describe("syncAttioCompaniesFromOutputRows", () => {
         { api_slug: "name" },
         { api_slug: "domains" },
         { api_slug: "observability_tool_research" },
+        { api_slug: "status_5" },
         { api_slug: "stage" },
-        { api_slug: "sre_count" },
-        { api_slug: "notes" },
+        { api_slug: "number_of_sres" },
+        { api_slug: "current_workflow" },
         { api_slug: "company_linkedin_url" },
       ],
     });
@@ -56,10 +57,13 @@ describe("syncAttioCompaniesFromOutputRows", () => {
       domains: ["acme.com"],
       company_linkedin_url: "https://linkedin.com/company/acme",
       observability_tool_research: "Datadog",
-      stage: "ChasingPOC",
-      sre_count: 3,
-      notes: "important",
+      status_5: "ChasingPOC",
+      number_of_sres: "3",
+      current_workflow: "important",
     });
+    expect(body.data.values.stage).toBeUndefined();
+    expect(body.data.values.sre_count).toBeUndefined();
+    expect(body.data.values.notes).toBeUndefined();
     expect(body.data.values.apollo_account_id).toBeUndefined();
   });
 
@@ -71,7 +75,8 @@ describe("syncAttioCompaniesFromOutputRows", () => {
 
     expect(attioPutMock).toHaveBeenCalledTimes(1);
     const body = attioPutMock.mock.calls[0]?.[1] as { data: { values: Record<string, unknown> } };
-    expect(body.data.values.notes).toBe("new");
+    expect(body.data.values.current_workflow).toBe("new");
+    expect(body.data.values.notes).toBeUndefined();
   });
 
   it("skips rows with missing domain", async () => {
@@ -110,9 +115,9 @@ describe("syncAttioCompaniesFromOutputRows", () => {
         { api_slug: "Domains" },
         { api_slug: "Company Linkedin Url" },
         { api_slug: "Observability Tool Research" },
-        { api_slug: "Stage" },
-        { api_slug: "SRE Count" },
-        { api_slug: "notes" },
+        { api_slug: "Status 5" },
+        { api_slug: "Number Of SREs" },
+        { api_slug: "Current Workflow" },
       ],
     });
 
@@ -125,10 +130,13 @@ describe("syncAttioCompaniesFromOutputRows", () => {
       Domains: ["acme.com"],
       "Company Linkedin Url": "https://linkedin.com/company/acme",
       "Observability Tool Research": "Datadog",
-      Stage: "ChasingPOC",
-      "SRE Count": 3,
-      notes: "important",
+      "Status 5": "ChasingPOC",
+      "Number Of SREs": "3",
+      "Current Workflow": "important",
     });
+    expect(body.data.values.Stage).toBeUndefined();
+    expect(body.data.values["SRE Count"]).toBeUndefined();
+    expect(body.data.values.notes).toBeUndefined();
   });
 
   it("captures per-domain warnings when assert fails for some rows", async () => {

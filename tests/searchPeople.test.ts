@@ -80,7 +80,7 @@ describe("searchPeople", () => {
     expect(result[0].title).toBe("Backend Engineer");
   });
 
-  it("includes q_organization_ids[] when apollo organization id is provided", async () => {
+  it("includes organization_ids[] when apollo organization id is provided", async () => {
     apolloPostWithQueryMock.mockResolvedValue({
       people: [{ id: "person-1", name: "A Person", title: "SRE" }],
       pagination: { page: 1, total_pages: 1 },
@@ -93,7 +93,7 @@ describe("searchPeople", () => {
       per_page: 100,
       include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_123"],
+      "organization_ids[]": ["org_123"],
       "person_titles[]": ["SRE"],
     });
   });
@@ -114,7 +114,7 @@ describe("searchPeople", () => {
       per_page: 100,
       include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_123"],
+      "organization_ids[]": ["org_123"],
       "person_titles[]": ["SRE"],
       "person_not_titles[]": ["contract"],
     });
@@ -129,7 +129,7 @@ describe("searchPeople", () => {
     await searchPeople(domainlessCompany, 10, ["SRE"], { apolloOrganizationId: "org_123" });
     const requestQuery = apolloPostWithQueryMock.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(requestQuery["q_organization_domains_list[]"]).toBeUndefined();
-    expect(requestQuery["q_organization_ids[]"]).toEqual(["org_123"]);
+    expect(requestQuery["organization_ids[]"]).toEqual(["org_123"]);
   });
 
   it("queries targeted past SRE helper with person_past_titles[]", async () => {
@@ -156,7 +156,7 @@ describe("searchPeople", () => {
     });
   });
 
-  it("includes q_organization_ids[] for past SRE helper when provided", async () => {
+  it("includes organization_ids[] for past SRE helper when provided", async () => {
     apolloPostWithQueryMock.mockResolvedValueOnce({
       people: [{ id: "past-1", name: "Past One", title: "Principal Engineer" }],
       pagination: { page: 1, total_pages: 1 },
@@ -169,7 +169,7 @@ describe("searchPeople", () => {
       per_page: 100,
       include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_456"],
+      "organization_ids[]": ["org_456"],
       "person_past_titles[]": [
         "SRE",
         "Site Reliability",
@@ -198,7 +198,7 @@ describe("searchPeople", () => {
     });
   });
 
-  it("includes q_organization_ids[] for platform helper when provided", async () => {
+  it("includes organization_ids[] for platform helper when provided", async () => {
     apolloPostWithQueryMock.mockResolvedValueOnce({
       people: [{ id: "platform-1", name: "Platform One", title: "Platform Engineer" }],
       pagination: { page: 1, total_pages: 1 },
@@ -211,7 +211,7 @@ describe("searchPeople", () => {
       per_page: 100,
       include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_789"],
+      "organization_ids[]": ["org_789"],
       "person_titles[]": ["platform engineer"],
     });
   });
@@ -275,7 +275,7 @@ describe("searchPeople", () => {
     });
   });
 
-  it("includes q_organization_ids[] for email candidate search when provided", async () => {
+  it("includes organization_ids[] for email candidate search when provided", async () => {
     apolloPostWithQueryMock.mockResolvedValueOnce({
       people: [{ id: "eng-1", name: "Eng One", title: "Infrastructure" }],
       pagination: { page: 1, total_pages: 1 },
@@ -293,7 +293,7 @@ describe("searchPeople", () => {
       per_page: 100,
       include_similar_titles: false,
       "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_123"],
+      "organization_ids[]": ["org_123"],
       "person_titles[]": ["Infrastructure"],
     });
   });

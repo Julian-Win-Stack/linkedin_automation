@@ -256,6 +256,47 @@ describe("runResearchPipeline orchestration", () => {
     expect(tagged.length).toBeGreaterThan(0);
   });
 
+  it("logs returned SRE pre-filter people to the terminal stream", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    searchPeopleMock.mockResolvedValueOnce([
+      { id: "sre-1", name: "Alice", title: "SRE" },
+      { id: "sre-2", name: "Bob", title: "Site Reliability Engineer" },
+      ...Array.from({ length: 28 }, (_, index) => ({
+        id: `sre-extra-${index + 1}`,
+        name: `Extra ${index + 1}`,
+        title: "SRE",
+      })),
+    ]);
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const jobId = createJob();
+    await runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian",
+      Date.now()
+    );
+
+    const loggedOutput = consoleErrorSpy.mock.calls.map(([message]) => String(message)).join("\n");
+    expect(loggedOutput).toContain("SRE pre-filter results for Acme: 30 (returned cap of 30)");
+    expect(loggedOutput).toContain("1. Alice | SRE | sre-1");
+    expect(loggedOutput).toContain("2. Bob | Site Reliability Engineer | sre-2");
+
+    consoleErrorSpy.mockRestore();
+  });
+
   it("runs email waterfall from local pool", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
