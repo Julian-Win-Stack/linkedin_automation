@@ -50,7 +50,6 @@ const SRE_PERSON_TITLES = [
   "Site Reliability Engineer",
   "Site Reliability Engineering",
   "Head of Reliability",
-  "observability",
 ];
 const MAX_RESULTS = 30;
 /** Current-title exclusions for LinkedIn Apollo searches (SRE, past SRE, platform backfill). */

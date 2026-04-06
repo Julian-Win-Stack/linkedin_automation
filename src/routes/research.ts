@@ -367,7 +367,7 @@ router.get("/pdf/:jobId", (req, res) => {
   const doc = generateCampaignPdf(job.campaignPushData);
 
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", 'attachment; filename="campaign-push-report.pdf"');
+  res.setHeader("Content-Disposition", 'attachment; filename="people.pdf"');
   doc.pipe(res);
   doc.end();
 });
@@ -382,7 +382,7 @@ router.get("/queue/:queueItemId/csv", (req, res) => {
   }
   const csv = Buffer.from(item.csvOutputBase64, "base64");
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", 'attachment; filename="research-results.csv"');
+  res.setHeader("Content-Disposition", 'attachment; filename="companies.csv"');
   return res.status(200).send(csv);
 });
 
@@ -396,7 +396,7 @@ router.get("/queue/:queueItemId/pdf", (req, res) => {
   }
   const doc = generateCampaignPdf(item.campaignPushData);
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="${toQueueLabel(item.queueOrder)}.pdf"`);
+  res.setHeader("Content-Disposition", 'attachment; filename="people.pdf"');
   doc.pipe(res);
   doc.end();
 });
