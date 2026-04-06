@@ -49,10 +49,13 @@ export interface JobSummary {
   totalSreFound: number;
   totalLinkedinCampaignSuccessful: number;
   totalLinkedinCampaignFailed: number;
+  totalLinkedinCampaignSkipped: number;
   totalLemlistSuccessful: number;
   totalLemlistFailed: number;
+  totalLemlistSkipped: number;
   totalEmailCampaignSuccessful: number;
   totalEmailCampaignFailed: number;
+  totalEmailCampaignSkipped: number;
   weeklyLimitSkippedCompanyCount: number;
 }
 

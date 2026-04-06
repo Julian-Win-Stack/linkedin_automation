@@ -71,6 +71,7 @@ export interface ApifyExperienceEntry {
   description?: string;
   employmentType?: string;
   position?: string;
+  startDate?: { text?: string; month?: string; year?: number } | null;
   endDate?: { text?: string } | null;
   skills?: string[];
 }

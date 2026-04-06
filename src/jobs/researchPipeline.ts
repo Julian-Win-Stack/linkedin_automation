@@ -182,6 +182,10 @@ function isLinkedinLeadershipTitle(title: string | null | undefined): boolean {
   return LINKEDIN_LEADERSHIP_TITLE_REGEX.test(title);
 }
 
+function toLinkedinPoolBucket(employee: EnrichedEmployee): LinkedinPoolBucket {
+  return isLinkedinLeadershipTitle(employee.currentTitle) ? "engLead" : "sre";
+}
+
 function dedupeEmployeesByKey(employees: EnrichedEmployee[]): EnrichedEmployee[] {
   const seen = new Set<string>();
   const deduped: EnrichedEmployee[] = [];
@@ -260,10 +264,13 @@ export async function runResearchPipeline(
   let totalSreFound = 0;
   let totalLinkedinCampaignSuccessful = 0;
   let totalLinkedinCampaignFailed = 0;
+  let totalLinkedinCampaignSkipped = 0;
   let totalLemlistSuccessful = 0;
   let totalLemlistFailed = 0;
+  let totalLemlistSkipped = 0;
   let totalEmailCampaignSuccessful = 0;
   let totalEmailCampaignFailed = 0;
+  let totalEmailCampaignSkipped = 0;
   let eligibleCompanyCount = 0;
   let weeklyLimitSkippedCompanyCount = 0;
   const weeklyCounts = getWeeklySuccessCounts({ selectedUser, weekStartMs });
@@ -452,7 +459,7 @@ export async function runResearchPipeline(
         linkedinCandidates.push(
           ...selectedCurrentSre.map((employee) => ({
             employee,
-            linkedinBucket: isLinkedinLeadershipTitle(employee.currentTitle) ? "engLead" : "sre",
+            linkedinBucket: toLinkedinPoolBucket(employee),
           }))
         );
 
@@ -502,7 +509,7 @@ export async function runResearchPipeline(
             linkedinCandidates.push(
               ...forLinkedin.map((employee) => ({
                 employee,
-                linkedinBucket: isLinkedinLeadershipTitle(employee.currentTitle) ? "engLead" : "sre",
+                linkedinBucket: toLinkedinPoolBucket(employee),
               }))
             );
             keywordMatchedEmailRecycled = forEmailRecycling;
@@ -618,15 +625,20 @@ export async function runResearchPipeline(
           }
           lemlistSuccessful = lemlistMeta.successful;
           lemlistFailed = lemlistMeta.failed;
+          const lemlistSkipped = lemlistMeta.outcomes.filter((outcome) => outcome.status === "skipped").length;
           sessionLinkedinSuccessfulCount += lemlistSuccessful;
           totalLinkedinCampaignSuccessful += lemlistSuccessful;
           totalLinkedinCampaignFailed += lemlistFailed;
+          totalLinkedinCampaignSkipped += lemlistSkipped;
           totalLemlistSuccessful += lemlistSuccessful;
           totalLemlistFailed += lemlistFailed;
-          logPipelineInfo(`  ▸ LinkedIn push done — ${lemlistSuccessful} successful, ${lemlistFailed} failed\n`);
+          totalLemlistSkipped += lemlistSkipped;
+          logPipelineInfo(
+            `  ▸ LinkedIn push done — ${lemlistSuccessful} successful, ${lemlistFailed} failed, ${lemlistSkipped} skipped\n`
+          );
           logPipelineStage(
             "PUSH_LINKEDIN_DONE",
-            `LinkedIn push complete. successful=${lemlistSuccessful} failed=${lemlistFailed}`,
+            `LinkedIn push complete. successful=${lemlistSuccessful} failed=${lemlistFailed} skipped=${lemlistSkipped}`,
             companyContext
           );
         }
@@ -840,11 +852,14 @@ export async function runResearchPipeline(
         }
         totalLemlistSuccessful += emailPushMeta.successful;
         totalLemlistFailed += emailPushMeta.failed;
+        const emailSkipped = emailPushMeta.outcomes.filter((outcome) => outcome.status === "skipped").length;
+        totalLemlistSkipped += emailSkipped;
         totalEmailCampaignSuccessful += emailPushMeta.successful;
         totalEmailCampaignFailed += emailPushMeta.failed;
+        totalEmailCampaignSkipped += emailSkipped;
         logPipelineStage(
           "EMAIL_PUSH_COMPANY_DONE",
-          `Email push complete. successful=${emailPushMeta.successful} failed=${emailPushMeta.failed}`,
+          `Email push complete. successful=${emailPushMeta.successful} failed=${emailPushMeta.failed} skipped=${emailSkipped}`,
           {
             index: pendingEmailPushBatches.indexOf(batch),
             total: pendingEmailPushBatches.length,
@@ -866,10 +881,13 @@ export async function runResearchPipeline(
       totalSreFound,
       totalLinkedinCampaignSuccessful,
       totalLinkedinCampaignFailed,
+      totalLinkedinCampaignSkipped,
       totalLemlistSuccessful,
       totalLemlistFailed,
+      totalLemlistSkipped,
       totalEmailCampaignSuccessful,
       totalEmailCampaignFailed,
+      totalEmailCampaignSkipped,
       weeklyLimitSkippedCompanyCount,
     };
     setJobSummary(jobId, summary);
@@ -935,7 +953,7 @@ export async function runResearchPipeline(
     markJobDone(jobId, csvBase64);
     logPipelineStage(
       "JOB_DONE",
-      `Job done: processed=${apolloProcessedCompanyCount} linkedin_success=${totalLinkedinCampaignSuccessful} lemlist_success=${totalLemlistSuccessful} lemlist_failed=${totalLemlistFailed}`
+      `Job done: processed=${apolloProcessedCompanyCount} linkedin_success=${totalLinkedinCampaignSuccessful} linkedin_skipped=${totalLinkedinCampaignSkipped} lemlist_success=${totalLemlistSuccessful} lemlist_failed=${totalLemlistFailed} lemlist_skipped=${totalLemlistSkipped}`
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected job failure";
