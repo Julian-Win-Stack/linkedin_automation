@@ -124,12 +124,6 @@ function toFriendlyStageMessage(message: string): string {
   if (lowered.includes("apollo stage")) {
     return "Finding and selecting the best contacts.";
   }
-  if (lowered.includes("missing email search update")) {
-    return "Looking up missing work emails.";
-  }
-  if (lowered.includes("missing") && lowered.includes("email")) {
-    return "Looking up missing work emails.";
-  }
   return message;
 }
 

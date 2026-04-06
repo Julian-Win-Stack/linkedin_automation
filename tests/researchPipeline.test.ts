@@ -373,6 +373,85 @@ describe("runResearchPipeline orchestration", () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it("rejects a domainless company when Apify SRE count exceeds maximum", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    const sreEmployees = Array.from({ length: 16 }, (_, index) =>
+      makeEmployee(`sre-${index + 1}`, "SRE", 12)
+    );
+    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
+      employees: sreEmployees,
+      apifyCache: new Map(),
+      profileCount: 16,
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian",
+      Date.now()
+    );
+
+    expect(searchPeopleMock).not.toHaveBeenCalled();
+    expect(pushPeopleToLemlistCampaignMock).not.toHaveBeenCalled();
+    const job = getJob(jobId);
+    expect(job?.rejectedCompanies).toEqual(
+      expect.arrayContaining([expect.stringContaining("Acme")])
+    );
+    const csvArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
+    const acmeRow = csvArg?.find((row) => row.company_name === "Acme");
+    expect(acmeRow?.sre_count).toBe(16);
+  });
+
+  it("writes Apify-derived SRE count to output row for domainless company that passes", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([{ companyName: "Acme", companyDomain: "", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
+    );
+    const sreEmployees = Array.from({ length: 5 }, (_, index) =>
+      makeEmployee(`sre-${index + 1}`, "SRE", 12)
+    );
+    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
+      employees: sreEmployees,
+      apifyCache: new Map(),
+      profileCount: 5,
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian",
+      Date.now()
+    );
+
+    expect(searchPeopleMock).not.toHaveBeenCalled();
+    const csvArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
+    const acmeRow = csvArg?.find((row) => row.company_name === "Acme");
+    expect(acmeRow?.sre_count).toBe(5);
+  });
+
   it("runs email waterfall from local pool", async () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
@@ -441,6 +520,109 @@ describe("runResearchPipeline orchestration", () => {
 
     expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
     expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[0][0]).toEqual(candidates);
+  });
+
+  it("pushes each company's email candidates before processing the next company", async () => {
+    readCompaniesMock.mockReturnValueOnce(
+      asyncCompanyRows([
+        { companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 },
+        { companyName: "Beta", companyDomain: "beta.com", companyLinkedinUrl: "", apolloAccountId: "org_2", rowNumber: 3 },
+      ])
+    );
+
+    const acmeCandidates: TaggedEmailCandidate[] = [
+      { employee: { ...makeEmployee("email-1", "SRE", 8), email: "acme@example.com" }, campaignBucket: "sre" },
+    ];
+    const betaCandidates: TaggedEmailCandidate[] = [
+      { employee: { ...makeEmployee("email-2", "SRE", 8), email: "beta@example.com" }, campaignBucket: "sre" },
+    ];
+    getCompanyMock
+      .mockResolvedValueOnce({ companyName: "Acme", domain: "acme.com" })
+      .mockResolvedValueOnce({ companyName: "Beta", domain: "beta.com" });
+
+    let allowFirstEmailPushToFinish: (() => void) | null = null;
+    pushPeopleToLemlistEmailCampaignMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          allowFirstEmailPushToFinish = () =>
+            resolve({
+              attempted: acmeCandidates.length,
+              successful: 1,
+              failed: 0,
+              successItems: ["Person email-1"],
+              failedItems: [],
+              outcomes: [
+                {
+                  key: "email-1",
+                  name: "Person email-1",
+                  title: "SRE",
+                  linkedinUrl: "https://linkedin.com/in/email-1",
+                  status: "succeed",
+                },
+              ],
+            });
+        })
+    );
+    pushPeopleToLemlistEmailCampaignMock.mockResolvedValueOnce({
+      attempted: betaCandidates.length,
+      successful: 1,
+      failed: 0,
+      successItems: ["Person email-2"],
+      failedItems: [],
+      outcomes: [
+        {
+          key: "email-2",
+          name: "Person email-2",
+          title: "SRE",
+          linkedinUrl: "https://linkedin.com/in/email-2",
+          status: "succeed",
+        },
+      ],
+    });
+    runEmailCandidateWaterfallMock
+      .mockResolvedValueOnce({
+        candidates: acmeCandidates,
+        filteredOutCandidates: [],
+        warnings: [],
+        normalEngineerApifyWarnings: [],
+      })
+      .mockResolvedValueOnce({
+        candidates: betaCandidates,
+        filteredOutCandidates: [],
+        warnings: [],
+        normalEngineerApifyWarnings: [],
+      });
+
+    const jobId = createJob();
+    const runPromise = runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        azureOpenAiApiKey: "k",
+        azureOpenAiBaseUrl: "u",
+        searchApiKey: "s",
+        model: "m",
+        maxCompletionTokens: 1000,
+        nameColumn: "Company Name",
+        domainColumn: "Website",
+        apolloAccountIdColumn: "Apollo Account Id",
+      },
+      "julian",
+      Date.now()
+    );
+
+    await waitForCondition(() => {
+      expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
+    });
+    expect(researchCompanyMock).toHaveBeenCalledTimes(1);
+
+    allowFirstEmailPushToFinish?.();
+    await runPromise;
+
+    expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(2);
+    expect(researchCompanyMock).toHaveBeenCalledTimes(2);
+    expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[0][1]).toBe("Acme");
+    expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[1][1]).toBe("Beta");
   });
 
   it("skips company when weekly linkedin limit reached", async () => {

@@ -5,10 +5,10 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend": "tsx watch src/server.ts",
+    "dev:backend": "node --max-old-space-size=4096 ./node_modules/tsx/dist/cli.mjs watch src/server.ts",
     "dev:frontend": "npm run dev --prefix frontend",
     "build": "npm ci --include=dev --prefix frontend && tsc -p tsconfig.json && npm run build --prefix frontend",
-    "start": "node dist/server.js",
+    "start": "node --max-old-space-size=4096 dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint . --ext .ts",

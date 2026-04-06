@@ -271,7 +271,6 @@ export async function runResearchPipeline(
   const rejectedOutputRows: RejectedOutputRow[] = [];
   const rejectedCompanies: string[] = [];
   const skippedCompanies: string[] = [];
-  const pendingEmailPushBatches: PendingEmailPushBatch[] = [];
   let totalRows = 0;
   let skippedMissingWebsiteAndApolloAccountIdCount = 0;
   let apolloProcessedCompanyCount = 0;
@@ -382,7 +381,7 @@ export async function runResearchPipeline(
             await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES, linkedinApolloPeopleFilters(peopleSearchFilters))
           )
         : [];
-      const rawSreCount = currentSreProspects.length;
+      let rawSreCount = currentSreProspects.length;
       if (trustCurrentSrePrefilter) {
         logCurrentSrePrefilterResults(row.companyName, currentSreProspects, MAX_RESULTS);
       } else {
@@ -483,6 +482,31 @@ export async function runResearchPipeline(
               (employee.headline ?? "").toLowerCase().includes(keyword.toLowerCase())
           )
         );
+        if (!trustCurrentSrePrefilter) {
+          rawSreCount = currentSrePool.length;
+          console.error("");
+          console.error(`SRE count from Apify for ${row.companyName}: ${rawSreCount}`);
+          for (const [index, employee] of currentSrePool.entries()) {
+            console.error(`  ${index + 1}. ${employee.name} | ${employee.currentTitle}`);
+          }
+          logPipelineStage("SEARCH_CURRENT_SRE_DONE", `Apify SRE count derived. count=${rawSreCount}`, companyContext);
+          if (rawSreCount > MAX_SRE_COUNT) {
+            const rejectionNote = `${row.companyName} got rejected because it has ${rawSreCount} number of SREs`;
+            logPipelineStage("REJECT_SRE_MAX", `Company rejected by SRE maximum (Apify count). count=${rawSreCount}`, companyContext);
+            rejectedCompanies.push(rejectionNote);
+            rejectedOutputRows.push({
+              company_name: row.companyName,
+              company_domain: row.companyDomain,
+              company_linkedin_url: row.companyLinkedinUrl,
+              apollo_account_id: row.apolloAccountId ?? "",
+              observability_tool_research: "",
+              sre_count: rawSreCount,
+              status: "NotActionableNow",
+              notes: rejectionNote,
+            });
+            continue;
+          }
+        }
         const { eligible: tenureEligibleSre } = splitByTenure(currentSrePool, 3);
         const currentSreFiltered = filterOpenToWorkFromCache(tenureEligibleSre, apifyCache, {
           companyName: row.companyName,
@@ -732,15 +756,38 @@ export async function runResearchPipeline(
           }
 
           if (waterfallResult.candidates.length > 0) {
-            const emailBatch: PendingEmailPushBatch = {
-              companyName: company.companyName,
-              companyDomain: company.domain,
-              candidates: waterfallResult.candidates,
-            };
-            pendingEmailPushBatches.push(emailBatch);
             logPipelineStage(
-              "QUEUE_EMAIL_BATCH",
-              `Email batch queued. candidates=${waterfallResult.candidates.length}`,
+              "PUSH_EMAIL_START",
+              `Pushing email campaigns. candidates=${waterfallResult.candidates.length}`,
+              companyContext
+            );
+            const emailPushMeta = await pushPeopleToLemlistEmailCampaign(
+              waterfallResult.candidates,
+              company.companyName,
+              company.domain,
+              selectedUser
+            );
+            const emailOutcomeByKey = toOutcomeMap(emailPushMeta.outcomes);
+            for (const { employee, campaignBucket } of waterfallResult.candidates) {
+              const entry = toCampaignPushEntry(employee, emailOutcomeByKey, company.companyName);
+              if (campaignBucket === "sre") {
+                campaignPushData.emailSre.push(entry);
+              } else if (campaignBucket === "engLead") {
+                campaignPushData.emailEngLead.push(entry);
+              } else {
+                campaignPushData.emailEng.push(entry);
+              }
+            }
+            totalLemlistSuccessful += emailPushMeta.successful;
+            totalLemlistFailed += emailPushMeta.failed;
+            const emailSkipped = emailPushMeta.outcomes.filter((outcome) => outcome.status === "skipped").length;
+            totalLemlistSkipped += emailSkipped;
+            totalEmailCampaignSuccessful += emailPushMeta.successful;
+            totalEmailCampaignFailed += emailPushMeta.failed;
+            totalEmailCampaignSkipped += emailSkipped;
+            logPipelineStage(
+              "PUSH_EMAIL_DONE",
+              `Email push complete. successful=${emailPushMeta.successful} failed=${emailPushMeta.failed} skipped=${emailSkipped}`,
               companyContext
             );
           }
@@ -812,58 +859,6 @@ export async function runResearchPipeline(
           sre_count: 0,
           notes: "",
         });
-      }
-    }
-
-    if (lemlistEnabled && pendingEmailPushBatches.length > 0) {
-      setJobMessage(jobId, `Pushing selected contacts to email campaigns (0/${pendingEmailPushBatches.length} companies).`);
-      logPipelineStage(
-        "EMAIL_PUSH_STAGE_START",
-        `Email campaign push stage started. companies=${pendingEmailPushBatches.length}`
-      );
-      for (let emailBatchIndex = 0; emailBatchIndex < pendingEmailPushBatches.length; emailBatchIndex += 1) {
-        const batch = pendingEmailPushBatches[emailBatchIndex];
-        if (isCancelled(jobId)) {
-          return;
-        }
-
-        setJobMessage(
-          jobId,
-          `Pushing selected contacts to email campaigns (${emailBatchIndex + 1}/${pendingEmailPushBatches.length} companies).`
-        );
-        const emailPushMeta = await pushPeopleToLemlistEmailCampaign(
-          batch.candidates,
-          batch.companyName,
-          batch.companyDomain,
-          selectedUser
-        );
-        const emailOutcomeByKey = toOutcomeMap(emailPushMeta.outcomes);
-        for (const { employee, campaignBucket } of batch.candidates) {
-          const entry = toCampaignPushEntry(employee, emailOutcomeByKey, batch.companyName);
-          if (campaignBucket === "sre") {
-            campaignPushData.emailSre.push(entry);
-          } else if (campaignBucket === "engLead") {
-            campaignPushData.emailEngLead.push(entry);
-          } else {
-            campaignPushData.emailEng.push(entry);
-          }
-        }
-        totalLemlistSuccessful += emailPushMeta.successful;
-        totalLemlistFailed += emailPushMeta.failed;
-        const emailSkipped = emailPushMeta.outcomes.filter((outcome) => outcome.status === "skipped").length;
-        totalLemlistSkipped += emailSkipped;
-        totalEmailCampaignSuccessful += emailPushMeta.successful;
-        totalEmailCampaignFailed += emailPushMeta.failed;
-        totalEmailCampaignSkipped += emailSkipped;
-        logPipelineStage(
-          "EMAIL_PUSH_COMPANY_DONE",
-          `Email push complete. successful=${emailPushMeta.successful} failed=${emailPushMeta.failed} skipped=${emailSkipped}`,
-          {
-            index: pendingEmailPushBatches.indexOf(batch),
-            total: pendingEmailPushBatches.length,
-            companyName: batch.companyName,
-          }
-        );
       }
     }
 
