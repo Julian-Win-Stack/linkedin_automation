@@ -816,17 +816,19 @@ export async function runResearchPipeline(
         let lemlistSuccessful = 0;
         let lemlistFailed = 0;
         if (lemlistEnabled && selectedForLemlist.length > 0) {
-          const taggedForLemlist: TaggedLinkedinCandidate[] = selectedForLemlist.map((emp) => {
-            const fromPrePlatformPhase = prePlatformKeys === null || prePlatformKeys.has(toEmployeeKey(emp));
-            const isLeadershipTitle = isLinkedinLeadershipTitle(emp.currentTitle);
-            const linkedinBucket = fromPrePlatformPhase
-              ? (isLeadershipTitle ? "engLead" as const : "sre" as const)
-              : (isLeadershipTitle ? "engLead" as const : "eng" as const);
-            return {
-              employee: emp,
-              linkedinBucket,
-            };
-          });
+          const taggedForLemlist: TaggedLinkedinCandidate[] = selectedForLemlist
+            .filter((emp) => !EMAIL_TITLE_REJECT_REGEX.test(emp.currentTitle))
+            .map((emp) => {
+              const fromPrePlatformPhase = prePlatformKeys === null || prePlatformKeys.has(toEmployeeKey(emp));
+              const isLeadershipTitle = isLinkedinLeadershipTitle(emp.currentTitle);
+              const linkedinBucket = fromPrePlatformPhase
+                ? (isLeadershipTitle ? "engLead" as const : "sre" as const)
+                : (isLeadershipTitle ? "engLead" as const : "eng" as const);
+              return {
+                employee: emp,
+                linkedinBucket,
+              };
+            });
           {
             const sreForLinkedin = taggedForLemlist.filter((c) => c.linkedinBucket === "sre");
             const divider = "─".repeat(70);
