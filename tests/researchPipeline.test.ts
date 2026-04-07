@@ -10,7 +10,6 @@ const researchCompanyMock = vi.fn();
 const getCompanyMock = vi.fn();
 const searchPeopleMock = vi.fn();
 const scrapeCompanyEmployeesMock = vi.fn();
-const scrapePastSreEmployeesMock = vi.fn();
 const filterPoolByStageMock = vi.fn();
 const filterOpenToWorkFromCacheMock = vi.fn();
 const splitByTenureMock = vi.fn();
@@ -47,8 +46,8 @@ vi.mock("../src/services/searchPeople", () => ({
 
 vi.mock("../src/services/apifyCompanyEmployees", () => ({
   scrapeCompanyEmployees: (...args: unknown[]) => scrapeCompanyEmployeesMock(...args),
-  scrapePastSreEmployees: (...args: unknown[]) => scrapePastSreEmployeesMock(...args),
   filterPoolByStage: (...args: unknown[]) => filterPoolByStageMock(...args),
+  filterByPastExperienceKeywords: (pool: EnrichedEmployee[]) => pool,
 }));
 
 vi.mock("../src/services/apifyClient", () => ({
@@ -149,7 +148,6 @@ describe("runResearchPipeline orchestration", () => {
     getCompanyMock.mockReset();
     searchPeopleMock.mockReset();
     scrapeCompanyEmployeesMock.mockReset();
-    scrapePastSreEmployeesMock.mockReset();
     filterPoolByStageMock.mockReset();
     filterOpenToWorkFromCacheMock.mockReset();
     splitByTenureMock.mockReset();
@@ -188,7 +186,6 @@ describe("runResearchPipeline orchestration", () => {
     researchCompanyMock.mockResolvedValue("Not found");
     getCompanyMock.mockResolvedValue({ companyName: "Acme", domain: "acme.com" });
     scrapeCompanyEmployeesMock.mockResolvedValue({ employees: [], apifyCache: new Map(), profileCount: 0 });
-    scrapePastSreEmployeesMock.mockResolvedValue({ employees: [], apifyCache: new Map(), profileCount: 0 });
     filterPoolByStageMock.mockImplementation((pool: EnrichedEmployee[]) => pool);
     filterOpenToWorkFromCacheMock.mockImplementation((employees: EnrichedEmployee[]) => ({
       kept: employees,
@@ -257,52 +254,9 @@ describe("runResearchPipeline orchestration", () => {
     );
 
     expect(scrapeCompanyEmployeesMock).toHaveBeenCalledTimes(1);
-    expect(scrapePastSreEmployeesMock).toHaveBeenCalledTimes(1);
     expect(pushPeopleToLemlistCampaignMock).toHaveBeenCalledTimes(1);
     const tagged = pushPeopleToLemlistCampaignMock.mock.calls[0][0] as Array<{ linkedinBucket: string }>;
     expect(tagged.length).toBeGreaterThan(0);
-  });
-
-  it("starts past SRE scrape before the main Apify pool resolves", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    let resolvePool: ((value: { employees: EnrichedEmployee[]; apifyCache: Map<string, unknown>; profileCount: number }) => void) | null = null;
-    const poolPromise = new Promise<{ employees: EnrichedEmployee[]; apifyCache: Map<string, unknown>; profileCount: number }>((resolve) => {
-      resolvePool = resolve;
-    });
-    scrapeCompanyEmployeesMock.mockImplementationOnce(() => poolPromise);
-    scrapePastSreEmployeesMock.mockResolvedValueOnce({
-      employees: [makeEmployee("past-1", "Platform Engineer")],
-      apifyCache: new Map(),
-      profileCount: 1,
-    });
-
-    const jobId = createJob();
-    const runPromise = runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    await waitForCondition(() => {
-      expect(scrapeCompanyEmployeesMock).toHaveBeenCalledTimes(1);
-      expect(scrapePastSreEmployeesMock).toHaveBeenCalledTimes(1);
-    });
-
-    resolvePool?.({ employees: [], apifyCache: new Map(), profileCount: 0 });
-    await runPromise;
   });
 
   it("logs returned SRE pre-filter people to the terminal stream", async () => {

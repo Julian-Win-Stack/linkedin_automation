@@ -389,7 +389,7 @@ async function callCompanyEmployeesActor(
   return runCompanyEmployeesActor({
     profileScraperMode: "Full ($8 per 1k)",
     companyBatchMode: "all_at_once",
-    maxItems: input.maxItemsPerCompany ?? 100,
+    maxItems: input.maxItemsPerCompany ?? 30,
     companies,
     jobTitles: JOB_TITLES,
     pastJobTitles: ["SRE", "Site Reliability"],
@@ -399,52 +399,6 @@ async function callCompanyEmployeesActor(
   }, apiKey);
 }
 
-async function callPastSreActor(
-  input: CompanyEmployeesInput,
-  apiKey: string
-): Promise<CompanyEmployeesProfile[]> {
-  const companies = buildCompaniesList(input);
-  return runCompanyEmployeesActor(
-    {
-      companies,
-      excludeCurrentJobTitles: ["SRE", "Site Reliability Engineer", "on-call", "incident"],
-      excludeFunctionIds: [
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "9",
-        "10",
-        "11",
-        "12",
-        "13",
-        "14",
-        "15",
-        "16",
-        "17",
-        "18",
-        "19",
-        "20",
-        "21",
-        "22",
-        "23",
-        "25",
-        "24",
-        "26",
-      ],
-      excludeSeniorityLevelIds: ["100", "110", "310", "320"],
-      functionIds: ["8"],
-      pastJobTitles: ["SRE", "Site Reliability Engineer", "incident", "on-call"],
-      profileScraperMode: "Full ($8 per 1k)",
-      recentlyChangedJobs: false,
-      yearsAtCurrentCompanyIds: ["2", "3", "4", "5"],
-    },
-    apiKey
-  );
-}
 
 function mapProfilesToCompanyEmployees(
   profiles: CompanyEmployeesProfile[],
@@ -481,10 +435,12 @@ export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Prom
   return mapProfilesToCompanyEmployees(profiles, input);
 }
 
-export async function scrapePastSreEmployees(input: CompanyEmployeesInput): Promise<CompanyEmployeesResult> {
-  const apiKey = getRequiredEnv("APIFY_API_KEY");
-  const profiles = await callPastSreActor(input, apiKey);
-  return mapProfilesToCompanyEmployees(profiles, input);
+export function filterByPastExperienceKeywords(
+  pool: EnrichedEmployee[],
+  cache: ApifyOpenToWorkCache,
+  keywords: string[]
+): EnrichedEmployee[] {
+  return pool.filter((employee) => hasPastTitleInCache(employee, cache, keywords));
 }
 
 function containsAnyKeyword(text: string, keywords: string[]): boolean {

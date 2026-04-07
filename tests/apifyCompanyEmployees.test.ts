@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   computeTenureFromExperience,
+  filterByPastExperienceKeywords,
   filterPoolByStage,
   mapProfileToEnrichedEmployee,
   scrapeCompanyEmployees,
-  scrapePastSreEmployees,
 } from "../src/services/apifyCompanyEmployees";
 import { ApifyOpenToWorkCache, EnrichedEmployee } from "../src/types/prospect";
 
@@ -174,7 +174,7 @@ describe("apifyCompanyEmployees", () => {
     const result = await scrapeCompanyEmployees({
       companyName: "Acme",
       companyDomain: "acme.com",
-      maxItemsPerCompany: 100,
+      maxItemsPerCompany: 30,
     });
 
     expect(result.profileCount).toBe(1);
@@ -185,57 +185,63 @@ describe("apifyCompanyEmployees", () => {
     expect(requestBody.jobTitles).toBeDefined();
     expect(requestBody.pastJobTitles).toEqual(["SRE", "Site Reliability"]);
     expect(requestBody.companyBatchMode).toBe("all_at_once");
-    expect(requestBody.maxItems).toBe(100);
+    expect(requestBody.maxItems).toBe(30);
   });
 
-  it("scrapes past SRE employees with dedicated payload", async () => {
-    const mockFetch = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
-        {
-          id: "past-1",
-          firstName: "Past",
-          lastName: "Sre",
-          linkedinUrl: "https://linkedin.com/in/past-1",
-          openToWork: false,
-          experience: [
-            {
-              companyName: "Acme",
-              position: "Platform Engineer",
-              startDate: { month: "Jan", year: 2022 },
-              endDate: { text: "Present", month: "Apr", year: 2024 },
-            },
-          ],
-        },
-      ],
+  it("filterByPastExperienceKeywords returns employees with matching past experience positions", () => {
+    const pool: EnrichedEmployee[] = [
+      makeEmployee("1", "Platform Engineer", "https://linkedin.com/in/1"),
+      makeEmployee("2", "DevOps", "https://linkedin.com/in/2"),
+      makeEmployee("3", "Backend Engineer", "https://linkedin.com/in/3"),
+    ];
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/1", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [{ position: "Site Reliability Engineer" }, { position: "Platform Engineer" }],
     });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const result = await scrapePastSreEmployees({
-      companyName: "Acme",
-      companyDomain: "acme.com",
-      companyLinkedinUrl: "http://www.linkedin.com/company/acme",
-      maxItemsPerCompany: 100,
+    cache.set("linkedin.com/in/2", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [{ position: "DevOps Engineer" }],
+    });
+    cache.set("linkedin.com/in/3", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [{ position: "SRE Lead" }, { position: "Backend Engineer" }],
     });
 
-    expect(result.profileCount).toBe(1);
-    expect(result.employees).toHaveLength(1);
-    expect(result.apifyCache.get("linkedin.com/in/past-1")).toBeDefined();
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(requestBody.jobTitles).toBeUndefined();
-    expect(requestBody.excludeCurrentJobTitles).toEqual([
-      "SRE",
-      "Site Reliability Engineer",
-      "on-call",
-      "incident",
-    ]);
-    expect(requestBody.pastJobTitles).toEqual(["SRE", "Site Reliability Engineer", "incident", "on-call"]);
-    expect(requestBody.yearsAtCurrentCompanyIds).toEqual(["2", "3", "4", "5"]);
-    expect(requestBody.recentlyChangedJobs).toBe(false);
-    expect(requestBody.companyBatchMode).toBeUndefined();
-    expect(requestBody.maxItems).toBeUndefined();
-    expect(requestBody.companies).toEqual(["https://www.linkedin.com/company/acme"]);
-    expect(requestBody.excludeFunctionIds?.slice(-3)).toEqual(["25", "24", "26"]);
+    const result = filterByPastExperienceKeywords(pool, cache, ["SRE", "Site Reliability"]);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((e) => e.id)).toContain("1");
+    expect(result.map((e) => e.id)).toContain("3");
+  });
+
+  it("filterByPastExperienceKeywords excludes employees with no cache entry", () => {
+    const pool: EnrichedEmployee[] = [
+      makeEmployee("1", "Platform Engineer", "https://linkedin.com/in/1"),
+    ];
+    const cache: ApifyOpenToWorkCache = new Map();
+
+    const result = filterByPastExperienceKeywords(pool, cache, ["SRE", "Site Reliability"]);
+
+    expect(result).toHaveLength(0);
+  });
+
+  it("filterByPastExperienceKeywords matches case-insensitively", () => {
+    const pool: EnrichedEmployee[] = [
+      makeEmployee("1", "Platform Engineer", "https://linkedin.com/in/1"),
+    ];
+    const cache: ApifyOpenToWorkCache = new Map();
+    cache.set("linkedin.com/in/1", {
+      openToWork: false,
+      profileSkills: [],
+      experience: [{ position: "senior sre | Infrastructure | On-call" }],
+    });
+
+    const result = filterByPastExperienceKeywords(pool, cache, ["SRE", "Site Reliability"]);
+
+    expect(result).toHaveLength(1);
   });
 });

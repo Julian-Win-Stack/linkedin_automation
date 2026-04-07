@@ -39,7 +39,7 @@ import { filterOpenToWorkFromCache, splitByTenure, filterByKeywordsInApifyData }
 import { syncApolloAccountsFromOutputRows } from "../services/apolloBulkUpdateAccounts";
 import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompanyRecords";
 import { getWeeklySuccessCounts, saveWeeklySuccessForJob } from "../services/weeklySuccessStore";
-import { scrapeCompanyEmployees, scrapePastSreEmployees, filterPoolByStage } from "../services/apifyCompanyEmployees";
+import { scrapeCompanyEmployees, filterPoolByStage, filterByPastExperienceKeywords } from "../services/apifyCompanyEmployees";
 import { findEmailsInBulk } from "../services/apifyBulkEmailFinder";
 
 const MAX_ROWS = 500;
@@ -59,6 +59,7 @@ function linkedinApolloPeopleFilters(filters: PeopleSearchFilters): PeopleSearch
 }
 const REJECTED_REASON = "rejected because they were using other observability tools";
 const MAX_SRE_COUNT = 15;
+const PAST_SRE_EXPERIENCE_KEYWORDS = ["SRE", "Site Reliability"];
 const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
 const WEEKLY_LINKEDIN_PUSH_LIMIT = 100;
 const LINKEDIN_LEADERSHIP_TITLE_REGEX = /\b(director|svp|vp|head|chief)\b/i;
@@ -597,36 +598,17 @@ export async function runResearchPipeline(
       try {
         logPipelineInfo(`\n${"═".repeat(78)}\n  APIFY COMPANY POOL — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
         logPipelineStage("APIFY_COMPANY_POOL_START", "Fetching company-wide engineering pool from Apify.", companyContext);
-        const [poolResult, pastSreResult] = await Promise.all([
-          scrapeCompanyEmployees({
-            companyName: company.companyName,
-            companyDomain: company.domain,
-            companyLinkedinUrl: row.companyLinkedinUrl,
-            maxItemsPerCompany: 100,
-          }),
-          scrapePastSreEmployees({
-            companyName: company.companyName,
-            companyDomain: company.domain,
-            companyLinkedinUrl: row.companyLinkedinUrl,
-            maxItemsPerCompany: 100,
-          }),
-        ]);
+        const poolResult = await scrapeCompanyEmployees({
+          companyName: company.companyName,
+          companyDomain: company.domain,
+          companyLinkedinUrl: row.companyLinkedinUrl,
+          maxItemsPerCompany: 30,
+        });
         const apifyCache = poolResult.apifyCache;
-        for (const [key, value] of pastSreResult.apifyCache) {
-          if (!apifyCache.has(key)) {
-            apifyCache.set(key, value);
-          }
-        }
         const profilePool = dedupeEmployeesByKey(poolResult.employees);
-        const pastSrePool = dedupeEmployeesByKey(pastSreResult.employees);
         logPipelineStage(
           "APIFY_COMPANY_POOL_DONE",
           `Company pool loaded. profiles=${poolResult.profileCount} mapped=${profilePool.length}`,
-          companyContext
-        );
-        logPipelineStage(
-          "APIFY_PAST_SRE_POOL_DONE",
-          `Past SRE pool loaded. profiles=${pastSreResult.profileCount} mapped=${pastSrePool.length}`,
           companyContext
         );
 
@@ -670,6 +652,14 @@ export async function runResearchPipeline(
         } else {
           exportedSreCount = Math.max(apolloSreCount, linkedinCurrentSreCount);
         }
+        const currentSreKeys = new Set(currentSrePool.map(toEmployeeKey));
+        const nonSrePool = profilePool.filter((emp) => !currentSreKeys.has(toEmployeeKey(emp)));
+        const pastSrePool = filterByPastExperienceKeywords(nonSrePool, apifyCache, PAST_SRE_EXPERIENCE_KEYWORDS);
+        logPipelineStage(
+          "PAST_SRE_POOL_DERIVED",
+          `Past SRE pool derived locally. count=${pastSrePool.length}`,
+          companyContext
+        );
         const { eligible: tenureEligibleSre } = splitByTenure(currentSrePool, 3);
         const currentSreFiltered = filterOpenToWorkFromCache(tenureEligibleSre, apifyCache, {
           companyName: row.companyName,
