@@ -22,14 +22,7 @@ const JOB_TITLES = [
   "Principal engineer",
   "Lead Software Engineer",
   "Tech Lead",
-  "Head of Engineering",
-  "Director of Engineering",
-  "Engineering Manager",
   "Platform Engineer",
-  "Platform",
-  "on-call",
-  "incident",
-  "VP of Engineering",
 ];
 
 const EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "110", "310", "320"];
