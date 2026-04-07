@@ -183,7 +183,7 @@ describe("apifyCompanyEmployees", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
     expect(requestBody.jobTitles).toBeDefined();
-    expect(requestBody.pastJobTitles).toBeUndefined();
+    expect(requestBody.pastJobTitles).toEqual(["SRE", "Site Reliability"]);
     expect(requestBody.companyBatchMode).toBe("all_at_once");
     expect(requestBody.maxItems).toBe(100);
   });

@@ -15,7 +15,7 @@ const RETRY_DELAYS_MS = [3000, 6000];
 
 const JOB_TITLES = [
   "SRE",
-  "Site Reliability Engineer",
+  "Site Reliability",
   "Infrastructure",
   "DevOps",
   "Staff Engineer",
@@ -392,6 +392,7 @@ async function callCompanyEmployeesActor(
     maxItems: input.maxItemsPerCompany ?? 100,
     companies,
     jobTitles: JOB_TITLES,
+    pastJobTitles: ["SRE", "Site Reliability"],
     functionIds: ["8"],
     excludeSeniorityLevelIds: EXCLUDE_SENIORITY_LEVEL_IDS,
     excludeFunctionIds: EXCLUDE_FUNCTION_IDS,
