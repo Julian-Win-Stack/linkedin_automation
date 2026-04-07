@@ -40,7 +40,7 @@ import { syncApolloAccountsFromOutputRows } from "../services/apolloBulkUpdateAc
 import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompanyRecords";
 import { getWeeklySuccessCounts, saveWeeklySuccessForJob } from "../services/weeklySuccessStore";
 import { scrapeCompanyEmployees, filterPoolByStage, filterByPastExperienceKeywords } from "../services/apifyCompanyEmployees";
-import { findEmailsInBulk } from "../services/apifyBulkEmailFinder";
+import { findEmailsInBulk } from "../services/apolloBulkEmailEnrichment";
 
 const MAX_ROWS = 500;
 const SRE_PERSON_TITLES = [
@@ -288,16 +288,20 @@ async function findEmailsForBatch(
   jobId: string,
   companyContext: { index: number; total: number; companyName: string }
 ): Promise<void> {
-  const linkedinUrls = batch.candidates
-    .map(({ employee }) => employee.linkedinUrl?.trim() ?? "")
-    .filter((url) => url.length > 0);
+  const enrichmentInput = batch.candidates
+    .filter(({ employee }) => (employee.linkedinUrl?.trim() ?? "").length > 0)
+    .map(({ employee }) => ({
+      name: employee.name,
+      domain: batch.companyDomain,
+      linkedinUrl: employee.linkedinUrl!.trim(),
+    }));
 
-  if (linkedinUrls.length === 0) {
+  if (enrichmentInput.length === 0) {
     return;
   }
 
   try {
-    const emailsByLinkedin = await findEmailsInBulk(linkedinUrls);
+    const emailsByLinkedin = await findEmailsInBulk(enrichmentInput);
     for (const candidate of batch.candidates) {
       const linkedinUrl = candidate.employee.linkedinUrl?.trim() ?? "";
       if (!linkedinUrl || (candidate.employee.email && candidate.employee.email.trim().length > 0)) {
@@ -309,8 +313,8 @@ async function findEmailsForBatch(
       }
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown Apify bulk email finder error";
-    addJobWarning(jobId, `Apify bulk email finder failed for ${batch.companyName}: ${message}`);
+    const message = error instanceof Error ? error.message : "Unknown Apollo bulk email enrichment error";
+    addJobWarning(jobId, `Apollo bulk email enrichment failed for ${batch.companyName}: ${message}`);
   }
 }
 

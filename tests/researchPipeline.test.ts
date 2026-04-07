@@ -56,7 +56,7 @@ vi.mock("../src/services/apifyClient", () => ({
   filterByKeywordsInApifyData: (...args: unknown[]) => filterByKeywordsInApifyDataMock(...args),
 }));
 
-vi.mock("../src/services/apifyBulkEmailFinder", () => ({
+vi.mock("../src/services/apolloBulkEmailEnrichment", () => ({
   findEmailsInBulk: (...args: unknown[]) => findEmailsInBulkMock(...args),
 }));
 
