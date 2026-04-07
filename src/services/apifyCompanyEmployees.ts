@@ -463,6 +463,9 @@ function hasPastTitleInCache(
     return false;
   }
   return cached.experience.some((entry) => {
+    if (isCurrentRole(entry)) {
+      return false;
+    }
     const position = entry.position?.trim() ?? "";
     if (!position) {
       return false;
