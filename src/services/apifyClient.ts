@@ -18,6 +18,7 @@ const ANSI_RESET = "\x1b[0m";
 
 const FRONTEND_REGEX = /\b(front[\s-]?end|android|ios|ai|ml|machine[\s-]?learning)\b/i;
 const FRONTEND_OVERRIDE_REGEX = /\b(back[\s-]?end|full[\s-]?stack|end[\s-]?to[\s-]?end)\b/i;
+const TITLE_REJECT_REGEX = /\b(data|front[\s-]?end)\b/i;
 
 function print(line: string): void {
   void line;
@@ -649,9 +650,13 @@ export function filterFrontendEngineers(
     }
 
     const desc = matchedEntry.description ?? "";
-    if (FRONTEND_REGEX.test(desc) && !FRONTEND_OVERRIDE_REGEX.test(desc)) {
+    const rejectedByTitle = TITLE_REJECT_REGEX.test(emp.currentTitle);
+    const rejectedByDesc = FRONTEND_REGEX.test(desc) && !FRONTEND_OVERRIDE_REGEX.test(desc);
+
+    if (rejectedByTitle || rejectedByDesc) {
       rejectedFrontend.push(emp);
-      rows.push({ name: emp.name, companyMatch: matchedEntry.companyName ?? "—", result: "REJECTED (frontend)" });
+      const reason = rejectedByTitle ? "REJECTED (title)" : "REJECTED (frontend)";
+      rows.push({ name: emp.name, companyMatch: matchedEntry.companyName ?? "—", result: reason });
     } else {
       kept.push(emp);
       rows.push({ name: emp.name, companyMatch: matchedEntry.companyName ?? "—", result: "KEPT" });
