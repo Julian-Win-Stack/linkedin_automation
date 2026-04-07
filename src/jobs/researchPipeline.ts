@@ -63,6 +63,8 @@ const PAST_SRE_EXPERIENCE_KEYWORDS = ["SRE", "Site Reliability"];
 const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
 const WEEKLY_LINKEDIN_PUSH_LIMIT = 100;
 const LINKEDIN_LEADERSHIP_TITLE_REGEX = /\b(director|svp|vp|head|chief)\b/i;
+const EMAIL_TITLE_REJECT_REGEX = /\b(data|front[\s-]?end)\b/i;
+const ENG_LEAD_EMAIL_TITLE_REGEX = /\b(vice\s+principal|vp|director|chief|head)\b/i;
 
 const SRE_WORK_KEYWORDS: string[] = [
   "Oncall",
@@ -825,6 +827,42 @@ export async function runResearchPipeline(
               linkedinBucket,
             };
           });
+          {
+            const sreForLinkedin = taggedForLemlist.filter((c) => c.linkedinBucket === "sre");
+            const divider = "─".repeat(70);
+            console.error("");
+            console.error("╔" + "═".repeat(70) + "╗");
+            console.error(`║  LINKEDIN SRE CANDIDATES — ${row.companyName} (${sreForLinkedin.length} candidate${sreForLinkedin.length === 1 ? "" : "s"})`.padEnd(71) + "║");
+            console.error("╚" + "═".repeat(70) + "╝");
+            for (const [i, { employee }] of sreForLinkedin.entries()) {
+              const cached = employee.linkedinUrl
+                ? apifyCache.get(normalizeLinkedinUrlForLookup(employee.linkedinUrl))
+                : null;
+              const currentExp = cached?.experience.find((e) => !e.endDate || e.endDate.text?.trim().toLowerCase() === "present")
+                ?? cached?.experience[0]
+                ?? null;
+              const desc = currentExp?.description?.trim() || "—";
+              const expSkills = currentExp?.skills?.length ? currentExp.skills.join(", ") : null;
+              const profileSkills = cached?.profileSkills?.length
+                ? cached.profileSkills.map((s: { name: string }) => s.name).join(", ")
+                : null;
+              const skills = expSkills ?? profileSkills ?? "—";
+              console.error("");
+              console.error(`  ${i + 1}. ${employee.name}`);
+              console.error(`     Title  : ${employee.currentTitle}`);
+              console.error(`     Desc   : ${desc}`);
+              console.error(`     Skills : ${skills}`);
+              if (i < sreForLinkedin.length - 1) {
+                console.error("");
+                console.error(`  ${divider}`);
+              }
+            }
+            if (sreForLinkedin.length === 0) {
+              console.error("  (no SRE candidates)");
+            }
+            console.error("");
+          }
+
           logPipelineInfo(`  ▸ Pushing ${taggedForLemlist.length} candidates to LinkedIn campaign...\n`);
           logPipelineStage(
             "PUSH_LINKEDIN_START",
@@ -905,11 +943,19 @@ export async function runResearchPipeline(
             );
           }
 
-          if (waterfallResult.candidates.length > 0) {
+          const emailCandidates = waterfallResult.candidates.filter(
+            ({ employee, campaignBucket }) => {
+              if (EMAIL_TITLE_REJECT_REGEX.test(employee.currentTitle)) return false;
+              if (campaignBucket === "engLead" && !ENG_LEAD_EMAIL_TITLE_REGEX.test(employee.currentTitle)) return false;
+              return true;
+            }
+          );
+
+          if (emailCandidates.length > 0) {
             const emailBatch: PendingEmailPushBatch = {
               companyName: company.companyName,
               companyDomain: company.domain,
-              candidates: waterfallResult.candidates,
+              candidates: emailCandidates,
             };
             emailCompanyTasks.push(
               enrichAndPushEmailBatch(
