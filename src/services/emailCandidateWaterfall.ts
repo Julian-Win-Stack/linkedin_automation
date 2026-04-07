@@ -1,6 +1,6 @@
 import { ResolvedCompany } from "./getCompany";
 import { EnrichedEmployee, ApifyOpenToWorkCache } from "../types/prospect";
-import { filterOpenToWorkFromCache, splitByTenure, filterFrontendEngineers } from "./apifyClient";
+import { filterOpenToWorkFromCache, filterFrontendEngineers } from "./apifyClient";
 import { filterPoolByStage } from "./apifyCompanyEmployees";
 
 export type EmailCampaignBucket = "sre" | "eng" | "engLead";
@@ -10,7 +10,6 @@ export interface EmailSearchStageConfig {
   pastTitles?: string[];
   notTitles?: string[];
   notPastTitles?: string[];
-  minTenureMonths: number;
   campaignBucket: EmailCampaignBucket;
   splitLeadership?: boolean;
   leadershipBucket?: EmailCampaignBucket;
@@ -69,7 +68,6 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "observability",
     ],
     notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
-    minTenureMonths: 3,
     campaignBucket: "sre",
     splitLeadership: true,
     leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
@@ -85,7 +83,6 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "observability",
     ],
     notTitles: ["contract", "contractor", "freelance", "freelancer", "junior", "jr"],
-    minTenureMonths: 3,
     campaignBucket: "sre",
     splitLeadership: true,
     leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
@@ -155,7 +152,6 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "information technology",
       "solution",
     ],
-    minTenureMonths: 12,
     campaignBucket: "eng",
     splitLeadership: true,
     leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
@@ -217,7 +213,6 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "machine learning",
       "ml",
     ],
-    minTenureMonths: 12,
     campaignBucket: "eng",
     splitLeadership: true,
     leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
@@ -272,7 +267,6 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "IOS",
       "solution",
     ],
-    minTenureMonths: 12,
     campaignBucket: "eng",
     splitLeadership: true,
     leadershipBucket: SPLIT_LEADERSHIP_BUCKET,
@@ -312,7 +306,6 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "hardware",
       "solution",
     ],
-    minTenureMonths: 12,
     campaignBucket: "eng",
   },
   {
@@ -388,7 +381,6 @@ const EMAIL_CANDIDATE_STAGES: EmailSearchStageConfig[] = [
       "jr",
       "solution",
     ],
-    minTenureMonths: 12,
     campaignBucket: "engLead",
   },
 ];
@@ -434,22 +426,16 @@ function hasEmployeeIdentifier(set: Set<string>, employee: EnrichedEmployee): bo
 
 function rankAndSelectCandidates(
   enriched: EnrichedEmployee[],
-  minTenureMonths: number,
   slotsAvailable: number
-): { selected: EnrichedEmployee[]; qualifiedCount: number; nullTenureCount: number; belowMinCount: number; fillerCount: number } {
+): { selected: EnrichedEmployee[]; qualifiedCount: number; nullTenureCount: number; fillerCount: number } {
   const qualified: EnrichedEmployee[] = [];
   const nullTenure: EnrichedEmployee[] = [];
-  let belowMinCount = 0;
 
   for (const employee of enriched) {
     if (employee.tenure === null) {
       nullTenure.push(employee);
-      continue;
-    }
-    if (employee.tenure >= minTenureMonths) {
-      qualified.push(employee);
     } else {
-      belowMinCount += 1;
+      qualified.push(employee);
     }
   }
 
@@ -478,7 +464,6 @@ function rankAndSelectCandidates(
     selected,
     qualifiedCount: qualified.length,
     nullTenureCount: nullTenure.length,
-    belowMinCount,
     fillerCount: selected.length - qualifiedSelected,
   };
 }
@@ -610,7 +595,6 @@ export async function runEmailCandidateWaterfall(
     print(`    Titles (current) : ${currentTitlesStr}`);
     print(`    Titles (past)    : ${pastTitlesStr}`);
     print(`    Titles (exclude) : ${notTitlesStr}`);
-    print(`    Min tenure       : ${stage.minTenureMonths} months`);
     print(`    Campaign bucket  : ${stage.campaignBucket}`);
     print("");
 
@@ -640,22 +624,12 @@ export async function runEmailCandidateWaterfall(
       continue;
     }
 
-    const { eligible: tenureEligible, droppedByTenure } = splitByTenure(deduped, stage.minTenureMonths);
-    if (droppedByTenure.length > 0) {
-      print(`    Pre-tenure   ${String(deduped.length).padStart(3)} → ${tenureEligible.length}  (dropped ${droppedByTenure.length} below ${stage.minTenureMonths}mo)`);
-    }
-
-    if (tenureEligible.length === 0) {
-      printStageSkip("all candidates dropped by tenure filter");
-      continue;
-    }
-
     const isNormalEngineerStage = STAGE_LABELS[stageIndex] === NORMAL_ENGINEER_STAGE_LABEL;
     const {
       kept: apifyFiltered,
       warnings: apifyWarnings,
       filteredOut: apifyFilteredOut,
-    } = filterOpenToWorkFromCache(tenureEligible, apifyCache, {
+    } = filterOpenToWorkFromCache(deduped, apifyCache, {
       companyName: company.companyName,
       companyDomain: company.domain,
     });
@@ -701,9 +675,9 @@ export async function runEmailCandidateWaterfall(
         stage.leadershipTitleKeywords
       );
       const icSlots = MAX_PER_COMPANY - listA.length;
-      const icResult = rankAndSelectCandidates(icCandidates, stage.minTenureMonths, icSlots);
+      const icResult = rankAndSelectCandidates(icCandidates, icSlots);
       print(
-        `    IC Tenure    ${icResult.qualifiedCount} qualified · ${icResult.nullTenureCount} null (filler) · ${icResult.belowMinCount} below min (dropped)`
+        `    IC Tenure    ${icResult.qualifiedCount} qualified · ${icResult.nullTenureCount} null (filler)`
       );
       print(
         `    IC Selection ${icSlots} slots → ${icResult.selected.length} picked (${icResult.selected.length - icResult.fillerCount} qualified + ${icResult.fillerCount} fillers)`
@@ -718,11 +692,10 @@ export async function runEmailCandidateWaterfall(
       if (leadershipSlots > 0 && stage.leadershipBucket) {
         const leadershipResult = rankAndSelectCandidates(
           leadershipCandidates,
-          stage.minTenureMonths,
           leadershipSlots
         );
         print(
-          `    Lead Tenure  ${leadershipResult.qualifiedCount} qualified · ${leadershipResult.nullTenureCount} null (filler) · ${leadershipResult.belowMinCount} below min (dropped)`
+          `    Lead Tenure  ${leadershipResult.qualifiedCount} qualified · ${leadershipResult.nullTenureCount} null (filler)`
         );
         print(
           `    Lead Select  ${leadershipSlots} slots → ${leadershipResult.selected.length} picked (${leadershipResult.selected.length - leadershipResult.fillerCount} qualified + ${leadershipResult.fillerCount} fillers)`
@@ -735,9 +708,9 @@ export async function runEmailCandidateWaterfall(
       }
     } else {
       const slotsAvailable = MAX_PER_COMPANY - listA.length;
-      const result = rankAndSelectCandidates(candidatesForRanking, stage.minTenureMonths, slotsAvailable);
+      const result = rankAndSelectCandidates(candidatesForRanking, slotsAvailable);
       print(
-        `    Tenure       ${result.qualifiedCount} qualified · ${result.nullTenureCount} null (filler) · ${result.belowMinCount} below min (dropped)`
+        `    Tenure       ${result.qualifiedCount} qualified · ${result.nullTenureCount} null (filler)`
       );
       print(
         `    Selection    ${slotsAvailable} slots → ${result.selected.length} picked (${result.selected.length - result.fillerCount} qualified + ${result.fillerCount} fillers)`

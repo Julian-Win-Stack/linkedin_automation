@@ -13,19 +13,20 @@ const RUN_TIMEOUT_SECONDS = 180;
 const MAX_RETRIES = 2;
 const RETRY_DELAYS_MS = [3000, 6000];
 
-const JOB_TITLES = [
-  "SRE",
-  "Site Reliability",
-  "Infrastructure",
-  "DevOps",
-  "Staff Engineer",
-  "Principal engineer",
-  "Lead Software Engineer",
-  "Tech Lead",
-  "Platform Engineer",
-];
+// Call 1 — SRE-focused
+const CALL1_JOB_TITLES = ["SRE", "Site Reliability", "platform engineer"];
+const CALL1_PAST_JOB_TITLES = ["SRE", "Site Reliability"];
+const CALL1_SENIORITY_LEVEL_IDS = ["110", "120", "130", "200", "210", "220"];
+const CALL1_EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "310", "320"];
 
-const EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "110", "310", "320"];
+// Call 2 — DevOps/Infra-focused (fallback when call 1 returns < 10 results)
+const CALL2_JOB_TITLES = ["Devops", "Infrastructure Engineer", "Staff engineer", "Principal engineer", "Software engineering lead"];
+const CALL2_SENIORITY_LEVEL_IDS = ["110", "120", "130", "200", "210"];
+const CALL2_EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "310", "320", "110", "220", "300"];
+const CALL2_EXCLUDE_CURRENT_JOB_TITLES = ["SRE", "Site Reliability", "Platform engineer"];
+const CALL2_EXCLUDE_PAST_JOB_TITLES = ["SRE", "Site Reliability"];
+const CALL2_YEARS_AT_CURRENT_COMPANY_IDS = ["2", "3", "4", "5"];
+const MIN_CALL1_RESULTS_TO_SKIP_CALL2 = 10;
 const EXCLUDE_FUNCTION_IDS = [
   "1",
   "2",
@@ -381,24 +382,50 @@ async function runCompanyEmployeesActor(
   return [];
 }
 
-async function callCompanyEmployeesActor(
-  input: CompanyEmployeesInput,
-  apiKey: string
-): Promise<CompanyEmployeesProfile[]> {
+export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Promise<CompanyEmployeesResult> {
+  const apiKey = getRequiredEnv("APIFY_API_KEY");
   const companies = buildCompaniesList(input);
-  return runCompanyEmployeesActor({
+  const maxItems = input.maxItemsPerCompany ?? 30;
+
+  // Call 1: SRE-focused
+  const call1Profiles = await runCompanyEmployeesActor({
     profileScraperMode: "Full ($8 per 1k)",
     companyBatchMode: "all_at_once",
-    maxItems: input.maxItemsPerCompany ?? 30,
+    maxItems,
     companies,
-    jobTitles: JOB_TITLES,
-    pastJobTitles: ["SRE", "Site Reliability"],
+    jobTitles: CALL1_JOB_TITLES,
+    pastJobTitles: CALL1_PAST_JOB_TITLES,
     functionIds: ["8"],
-    excludeSeniorityLevelIds: EXCLUDE_SENIORITY_LEVEL_IDS,
+    seniorityLevelIds: CALL1_SENIORITY_LEVEL_IDS,
+    excludeSeniorityLevelIds: CALL1_EXCLUDE_SENIORITY_LEVEL_IDS,
     excludeFunctionIds: EXCLUDE_FUNCTION_IDS,
+    recentlyChangedJobs: false,
   }, apiKey);
-}
 
+  let allProfiles = call1Profiles;
+
+  // Call 2: only when call 1 returned fewer than 10 results
+  if (call1Profiles.length < MIN_CALL1_RESULTS_TO_SKIP_CALL2) {
+    const call2Profiles = await runCompanyEmployeesActor({
+      profileScraperMode: "Full ($8 per 1k)",
+      companyBatchMode: "all_at_once",
+      maxItems,
+      companies,
+      jobTitles: CALL2_JOB_TITLES,
+      functionIds: ["8"],
+      seniorityLevelIds: CALL2_SENIORITY_LEVEL_IDS,
+      excludeSeniorityLevelIds: CALL2_EXCLUDE_SENIORITY_LEVEL_IDS,
+      excludeCurrentJobTitles: CALL2_EXCLUDE_CURRENT_JOB_TITLES,
+      excludePastJobTitles: CALL2_EXCLUDE_PAST_JOB_TITLES,
+      yearsAtCurrentCompanyIds: CALL2_YEARS_AT_CURRENT_COMPANY_IDS,
+      excludeFunctionIds: EXCLUDE_FUNCTION_IDS,
+      recentlyChangedJobs: false,
+    }, apiKey);
+    allProfiles = [...call1Profiles, ...call2Profiles];
+  }
+
+  return mapProfilesToCompanyEmployees(allProfiles, input);
+}
 
 function mapProfilesToCompanyEmployees(
   profiles: CompanyEmployeesProfile[],
@@ -427,12 +454,6 @@ function mapProfilesToCompanyEmployees(
     apifyCache,
     profileCount: profiles.length,
   };
-}
-
-export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Promise<CompanyEmployeesResult> {
-  const apiKey = getRequiredEnv("APIFY_API_KEY");
-  const profiles = await callCompanyEmployeesActor(input, apiKey);
-  return mapProfilesToCompanyEmployees(profiles, input);
 }
 
 export function filterByPastExperienceKeywords(

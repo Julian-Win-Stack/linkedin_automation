@@ -217,23 +217,6 @@ function printApifyTable(
   print("");
 }
 
-export function splitByTenure(
-  employees: EnrichedEmployee[],
-  minTenureMonths: number
-): { eligible: EnrichedEmployee[]; droppedByTenure: EnrichedEmployee[] } {
-  const eligible: EnrichedEmployee[] = [];
-  const droppedByTenure: EnrichedEmployee[] = [];
-
-  for (const emp of employees) {
-    if (emp.tenure !== null && emp.tenure < minTenureMonths) {
-      droppedByTenure.push(emp);
-    } else {
-      eligible.push(emp);
-    }
-  }
-
-  return { eligible, droppedByTenure };
-}
 
 export interface ApifyFilterResult {
   kept: EnrichedEmployee[];

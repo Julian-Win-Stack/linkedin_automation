@@ -2,13 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runEmailCandidateWaterfall } from "../src/services/emailCandidateWaterfall";
 import { EnrichedEmployee } from "../src/types/prospect";
 const filterOpenToWorkFromCacheMock = vi.fn();
-const splitByTenureMock = vi.fn();
 const filterFrontendEngineersMock = vi.fn();
 const filterPoolByStageMock = vi.fn();
 
 vi.mock("../src/services/apifyClient", () => ({
   filterOpenToWorkFromCache: (...args: unknown[]) => filterOpenToWorkFromCacheMock(...args),
-  splitByTenure: (...args: unknown[]) => splitByTenureMock(...args),
   filterFrontendEngineers: (...args: unknown[]) => filterFrontendEngineersMock(...args),
 }));
 
@@ -41,19 +39,12 @@ function makeEmployee(
 describe("runEmailCandidateWaterfall", () => {
   beforeEach(() => {
     filterOpenToWorkFromCacheMock.mockReset();
-    splitByTenureMock.mockReset();
     filterFrontendEngineersMock.mockReset();
     filterPoolByStageMock.mockReset();
     filterPoolByStageMock.mockImplementation((pool: EnrichedEmployee[]) => pool);
     filterOpenToWorkFromCacheMock.mockImplementation(
       (employees: EnrichedEmployee[]) => ({ kept: employees, warnings: [], filteredOut: [] })
     );
-    splitByTenureMock.mockImplementation((employees: EnrichedEmployee[], minTenureMonths: number) => ({
-      eligible: employees.filter((employee) => employee.tenure === null || employee.tenure >= minTenureMonths),
-      droppedByTenure: employees.filter(
-        (employee) => employee.tenure !== null && employee.tenure < minTenureMonths
-      ),
-    }));
     filterFrontendEngineersMock.mockImplementation((employees: EnrichedEmployee[]) => ({
       kept: employees,
       rejectedFrontend: [],
@@ -191,25 +182,6 @@ describe("runEmailCandidateWaterfall", () => {
     expect(result.candidates).toHaveLength(2);
     expect(result.candidates[0].employee.id).toBe("shared-1");
     expect(result.candidates[1].employee.id).toBe("past-1");
-  });
-
-  it("drops people with tenure below minimum for SRE stages (3 months)", async () => {
-    const pool = [
-      makeEmployee("short-1", "SRE", 2),
-      makeEmployee("ok-1", "SRE", 3),
-    ];
-    filterPoolByStageMock.mockImplementationOnce(() => pool).mockImplementation(() => []);
-
-    const result = await runEmailCandidateWaterfall(
-      COMPANY,
-      new Set(),
-      pool,
-      APIFY_CACHE
-    );
-
-    const stage1Candidates = result.candidates.filter((c) => c.employee.id === "ok-1");
-    expect(stage1Candidates).toHaveLength(1);
-    expect(result.candidates.find((c) => c.employee.id === "short-1")).toBeUndefined();
   });
 
   it("uses null tenure people as fillers when not enough qualified", async () => {
@@ -473,28 +445,6 @@ describe("runEmailCandidateWaterfall", () => {
     expect(devopsCall[2].notTitles).toContain("business");
     expect(devopsCall[2].notTitles).toContain("sales");
     expect(devopsCall[2].notTitles).toContain("trainee");
-  });
-
-  it("enforces 12-month tenure minimum for infrastructure stage", async () => {
-    const pool = [
-      makeEmployee("infra-short", "Infrastructure", 11),
-      makeEmployee("infra-ok", "Infrastructure", 12),
-    ];
-    filterPoolByStageMock
-      .mockImplementationOnce(() => [])
-      .mockImplementationOnce(() => [])
-      .mockImplementationOnce(() => pool)
-      .mockImplementation(() => []);
-
-    const result = await runEmailCandidateWaterfall(
-      COMPANY,
-      new Set(),
-      pool,
-      APIFY_CACHE
-    );
-
-    expect(result.candidates).toHaveLength(1);
-    expect(result.candidates[0].employee.id).toBe("infra-ok");
   });
 
   it("does not re-add leadership candidates in final Eng Leader stage", async () => {

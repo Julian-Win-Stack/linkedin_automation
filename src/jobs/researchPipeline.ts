@@ -35,7 +35,7 @@ import {
 import { EnrichedEmployee, ApifyOpenToWorkCache, LemlistPushOutcome, Prospect } from "../types/prospect";
 import { SelectedUser } from "../shared/selectedUser";
 import { runEmailCandidateWaterfall, TaggedEmailCandidate, LINKEDIN_KEYWORD_STAGE_INFRA, LINKEDIN_KEYWORD_STAGE_DEVOPS, LINKEDIN_KEYWORD_STAGE_NORMAL_ENG } from "../services/emailCandidateWaterfall";
-import { filterOpenToWorkFromCache, splitByTenure, filterByKeywordsInApifyData } from "../services/apifyClient";
+import { filterOpenToWorkFromCache, filterByKeywordsInApifyData } from "../services/apifyClient";
 import { syncApolloAccountsFromOutputRows } from "../services/apolloBulkUpdateAccounts";
 import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompanyRecords";
 import { getWeeklySuccessCounts, saveWeeklySuccessForJob } from "../services/weeklySuccessStore";
@@ -684,8 +684,7 @@ export async function runResearchPipeline(
           `Past SRE pool derived locally. count=${pastSrePool.length}`,
           companyContext
         );
-        const { eligible: tenureEligibleSre } = splitByTenure(currentSrePool, 3);
-        const currentSreFiltered = filterOpenToWorkFromCache(tenureEligibleSre, apifyCache, {
+        const currentSreFiltered = filterOpenToWorkFromCache(currentSrePool, apifyCache, {
           companyName: row.companyName,
           companyDomain: row.companyDomain,
         });
@@ -719,8 +718,7 @@ export async function runResearchPipeline(
               notTitles: stageConfig.notTitles,
               notPastTitles: stageConfig.notPastTitles,
             }).filter((employee) => !alreadyLinkedinKeys.has(toEmployeeKey(employee)));
-            const { eligible: tenureEligible } = splitByTenure(stagePool, 3);
-            const stageFiltered = filterOpenToWorkFromCache(tenureEligible, apifyCache, {
+            const stageFiltered = filterOpenToWorkFromCache(stagePool, apifyCache, {
               companyName: row.companyName,
               companyDomain: row.companyDomain,
             });
@@ -762,8 +760,7 @@ export async function runResearchPipeline(
         let selectedForLemlist = dedupeEmployeesByKey(linkedinCandidates.map((candidate) => candidate.employee));
         if (selectedForLemlist.length < 7) {
           logPipelineStage("BACKFILL_PHASE_1_START", "Backfill phase 1 (past SRE) started.", companyContext);
-          const { eligible: tenureEligiblePastSre } = splitByTenure(pastSrePool, 3);
-          const pastSreFiltered = filterOpenToWorkFromCache(tenureEligiblePastSre, apifyCache, {
+          const pastSreFiltered = filterOpenToWorkFromCache(pastSrePool, apifyCache, {
             companyName: row.companyName,
             companyDomain: row.companyDomain,
           });
@@ -788,8 +785,7 @@ export async function runResearchPipeline(
             const platformPool = filterPoolByStage(profilePool, apifyCache, {
               currentTitles: ["platform engineer"],
             });
-            const { eligible: tenureEligiblePlatform } = splitByTenure(platformPool, 12);
-            const platformFiltered = filterOpenToWorkFromCache(tenureEligiblePlatform, apifyCache, {
+            const platformFiltered = filterOpenToWorkFromCache(platformPool, apifyCache, {
               companyName: row.companyName,
               companyDomain: row.companyDomain,
             });

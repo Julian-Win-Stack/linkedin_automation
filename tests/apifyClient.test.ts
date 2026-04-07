@@ -8,7 +8,6 @@ vi.mock("../src/config/env", () => ({
 }));
 
 import {
-  splitByTenure,
   filterFrontendEngineers,
   filterByKeywordsInApifyData,
   scrapeAndFilterOpenToWork,
@@ -31,77 +30,6 @@ function makeEmployee(
   };
 }
 
-describe("splitByTenure", () => {
-  it("keeps employees with tenure above minimum", () => {
-    const employees = [
-      makeEmployee({ name: "Alice", tenure: 12 }),
-      makeEmployee({ name: "Bob", tenure: 6 }),
-    ];
-
-    const result = splitByTenure(employees, 6);
-
-    expect(result.eligible).toHaveLength(2);
-    expect(result.droppedByTenure).toHaveLength(0);
-  });
-
-  it("drops employees with tenure below minimum", () => {
-    const employees = [
-      makeEmployee({ name: "Alice", tenure: 5 }),
-      makeEmployee({ name: "Bob", tenure: 11 }),
-    ];
-
-    const result = splitByTenure(employees, 6);
-
-    expect(result.eligible).toHaveLength(1);
-    expect(result.eligible[0].name).toBe("Bob");
-    expect(result.droppedByTenure).toHaveLength(1);
-    expect(result.droppedByTenure[0].name).toBe("Alice");
-  });
-
-  it("keeps employees with null tenure (unknown is eligible)", () => {
-    const employees = [
-      makeEmployee({ name: "Alice", tenure: null }),
-      makeEmployee({ name: "Bob", tenure: 3 }),
-    ];
-
-    const result = splitByTenure(employees, 6);
-
-    expect(result.eligible).toHaveLength(1);
-    expect(result.eligible[0].name).toBe("Alice");
-    expect(result.droppedByTenure).toHaveLength(1);
-  });
-
-  it("returns all eligible when empty input", () => {
-    const result = splitByTenure([], 6);
-
-    expect(result.eligible).toHaveLength(0);
-    expect(result.droppedByTenure).toHaveLength(0);
-  });
-
-  it("uses exact boundary: tenure equal to minimum is eligible", () => {
-    const employees = [makeEmployee({ name: "Alice", tenure: 11 })];
-
-    const result = splitByTenure(employees, 11);
-
-    expect(result.eligible).toHaveLength(1);
-  });
-
-  it("uses exact boundary: tenure one below minimum is dropped", () => {
-    const employees = [makeEmployee({ name: "Alice", tenure: 10 })];
-
-    const result = splitByTenure(employees, 11);
-
-    expect(result.droppedByTenure).toHaveLength(1);
-  });
-
-  it("handles zero tenure", () => {
-    const employees = [makeEmployee({ name: "Alice", tenure: 0 })];
-
-    const result = splitByTenure(employees, 1);
-
-    expect(result.droppedByTenure).toHaveLength(1);
-  });
-});
 
 describe("filterFrontendEngineers", () => {
   it("keeps employees with no cached data", () => {

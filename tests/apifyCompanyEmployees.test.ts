@@ -135,7 +135,7 @@ describe("apifyCompanyEmployees", () => {
     cache.set("linkedin.com/in/2", {
       openToWork: false,
       profileSkills: [],
-      experience: [{ position: "Past SRE role" }],
+      experience: [{ position: "Past SRE role", endDate: { text: "Jan 2023" } }],
     });
 
     const result = filterPoolByStage(pool, cache, {
@@ -147,27 +147,30 @@ describe("apifyCompanyEmployees", () => {
     expect(result).toHaveLength(2);
   });
 
-  it("scrapes company employees and builds cache", async () => {
-    const mockFetch = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      json: async () => [
+  function makeProfile(id: string) {
+    return {
+      id,
+      firstName: "A",
+      lastName: "B",
+      linkedinUrl: `https://linkedin.com/in/${id}`,
+      openToWork: false,
+      skills: [{ name: "Kubernetes" }],
+      experience: [
         {
-          id: "emp-1",
-          firstName: "A",
-          lastName: "B",
-          linkedinUrl: "https://linkedin.com/in/emp-1",
-          openToWork: false,
-          skills: [{ name: "Kubernetes" }],
-          experience: [
-            {
-              companyName: "Acme",
-              position: "SRE",
-              startDate: { month: "Jan", year: 2022 },
-              endDate: { text: "Present", month: "Apr", year: 2024 },
-            },
-          ],
+          companyName: "Acme",
+          position: "SRE",
+          startDate: { month: "Jan", year: 2022 },
+          endDate: { text: "Present" },
         },
       ],
+    };
+  }
+
+  it("makes only the SRE call when it returns 10 or more results", async () => {
+    const profiles = Array.from({ length: 10 }, (_, i) => makeProfile(`emp-${i + 1}`));
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => profiles,
     });
     vi.stubGlobal("fetch", mockFetch);
 
@@ -177,15 +180,66 @@ describe("apifyCompanyEmployees", () => {
       maxItemsPerCompany: 30,
     });
 
-    expect(result.profileCount).toBe(1);
-    expect(result.employees).toHaveLength(1);
-    expect(result.apifyCache.get("linkedin.com/in/emp-1")).toBeDefined();
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(requestBody.jobTitles).toBeDefined();
-    expect(requestBody.pastJobTitles).toEqual(["SRE", "Site Reliability"]);
-    expect(requestBody.companyBatchMode).toBe("all_at_once");
-    expect(requestBody.maxItems).toBe(30);
+    expect(result.employees).toHaveLength(10);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    expect(body.jobTitles).toEqual(["SRE", "Site Reliability", "platform engineer"]);
+    expect(body.pastJobTitles).toEqual(["SRE", "Site Reliability"]);
+    expect(body.seniorityLevelIds).toEqual(["110", "120", "130", "200", "210", "220"]);
+    expect(body.companyBatchMode).toBe("all_at_once");
+    expect(body.maxItems).toBe(30);
+    expect(body.recentlyChangedJobs).toBe(false);
+  });
+
+  it("makes the second call when SRE call returns fewer than 10 results", async () => {
+    const call1Profiles = Array.from({ length: 5 }, (_, i) => makeProfile(`sre-${i + 1}`));
+    const call2Profiles = Array.from({ length: 3 }, (_, i) => makeProfile(`devops-${i + 1}`));
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => call1Profiles })
+      .mockResolvedValueOnce({ ok: true, json: async () => call2Profiles });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await scrapeCompanyEmployees({
+      companyName: "Acme",
+      companyDomain: "acme.com",
+      maxItemsPerCompany: 30,
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(result.employees).toHaveLength(8);
+    const body2 = JSON.parse(mockFetch.mock.calls[1][1].body as string);
+    expect(body2.jobTitles).toEqual(["Devops", "Infrastructure Engineer", "Staff engineer", "Principal engineer", "Software engineering lead"]);
+    expect(body2.excludeCurrentJobTitles).toEqual(["SRE", "Site Reliability", "Platform engineer"]);
+    expect(body2.yearsAtCurrentCompanyIds).toEqual(["2", "3", "4", "5"]);
+    expect(body2.recentlyChangedJobs).toBe(false);
+  });
+
+  it("does not make a second call when call 1 returns exactly 10 results (boundary)", async () => {
+    const profiles = Array.from({ length: 10 }, (_, i) => makeProfile(`emp-${i + 1}`));
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => profiles,
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    await scrapeCompanyEmployees({ companyName: "Acme", companyDomain: "acme.com" });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("deduplicates profiles that appear in both calls", async () => {
+    const sharedProfile = makeProfile("shared-1");
+    const uniqueProfile = makeProfile("unique-1");
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => [sharedProfile] })
+      .mockResolvedValueOnce({ ok: true, json: async () => [sharedProfile, uniqueProfile] });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await scrapeCompanyEmployees({ companyName: "Acme", companyDomain: "acme.com" });
+
+    expect(result.employees).toHaveLength(2);
+    expect(result.employees.map((e) => e.id)).toContain("shared-1");
+    expect(result.employees.map((e) => e.id)).toContain("unique-1");
   });
 
   it("filterByPastExperienceKeywords returns employees with matching past experience positions", () => {
@@ -198,17 +252,23 @@ describe("apifyCompanyEmployees", () => {
     cache.set("linkedin.com/in/1", {
       openToWork: false,
       profileSkills: [],
-      experience: [{ position: "Site Reliability Engineer" }, { position: "Platform Engineer" }],
+      experience: [
+        { position: "Site Reliability Engineer", endDate: { text: "Jan 2022" } },
+        { position: "Platform Engineer", endDate: { text: "Present" } },
+      ],
     });
     cache.set("linkedin.com/in/2", {
       openToWork: false,
       profileSkills: [],
-      experience: [{ position: "DevOps Engineer" }],
+      experience: [{ position: "DevOps Engineer", endDate: { text: "Mar 2023" } }],
     });
     cache.set("linkedin.com/in/3", {
       openToWork: false,
       profileSkills: [],
-      experience: [{ position: "SRE Lead" }, { position: "Backend Engineer" }],
+      experience: [
+        { position: "SRE Lead", endDate: { text: "Dec 2021" } },
+        { position: "Backend Engineer", endDate: { text: "Present" } },
+      ],
     });
 
     const result = filterByPastExperienceKeywords(pool, cache, ["SRE", "Site Reliability"]);
@@ -237,7 +297,7 @@ describe("apifyCompanyEmployees", () => {
     cache.set("linkedin.com/in/1", {
       openToWork: false,
       profileSkills: [],
-      experience: [{ position: "senior sre | Infrastructure | On-call" }],
+      experience: [{ position: "senior sre | Infrastructure | On-call", endDate: { text: "Jun 2022" } }],
     });
 
     const result = filterByPastExperienceKeywords(pool, cache, ["SRE", "Site Reliability"]);
