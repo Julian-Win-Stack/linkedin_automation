@@ -105,6 +105,32 @@ export function getWeeklySuccessCounts(input: {
   };
 }
 
+export function insertWeeklySuccessAdjustment(input: {
+  selectedUser: SelectedUser;
+  linkedinDelta: number;
+  emailDelta: number;
+  nowMs: number;
+}): void {
+  const instance = ensureDb();
+  const stmt = instance.prepare(`
+    INSERT INTO weekly_success_job (
+      job_id,
+      selected_user,
+      completed_at_ms,
+      linkedin_success_count,
+      email_success_count
+    )
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  stmt.run(
+    `manual-adj-${input.nowMs}-${Math.random().toString(36).slice(2, 8)}`,
+    input.selectedUser,
+    input.nowMs,
+    input.linkedinDelta,
+    input.emailDelta
+  );
+}
+
 export function __resetWeeklySuccessStoreForTests(): void {
   if (!db) {
     return;

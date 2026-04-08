@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import cors from "cors";
 import express from "express";
 import researchRouter from "./routes/research";
+import adminRouter from "./routes/admin";
 
 dotenv.config();
 const app = express();
@@ -12,6 +13,7 @@ const port = Number(process.env.PORT ?? "3000");
 app.use(cors());
 app.use(express.json());
 app.use(researchRouter);
+app.use(adminRouter);
 
 app.get("/health", (_req, res) => {
   res.status(200).json({ ok: true });
