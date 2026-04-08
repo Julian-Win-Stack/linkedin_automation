@@ -954,6 +954,170 @@ describe("runResearchPipeline orchestration", () => {
 
     const job = getJob(jobId);
     expect(job?.status).toBe("done");
-    expect(job?.warnings).toContain("Apollo bulk account sync failed: sync fail");
+    expect(job?.warnings.some((w) => w.includes("Apollo bulk account sync failed"))).toBe(true);
+  });
+});
+
+const defaultPipelineConfig = {
+  azureOpenAiApiKey: "k",
+  azureOpenAiBaseUrl: "u",
+  searchApiKey: "s",
+  model: "m",
+  maxCompletionTokens: 1000,
+  nameColumn: "Company Name",
+  domainColumn: "Website",
+  apolloAccountIdColumn: "Apollo Account Id",
+} as const;
+
+function makeCompanyRows(count: number) {
+  return Array.from({ length: count }, (_, i) => ({
+    companyName: `Company${i}`,
+    companyDomain: `company${i}.com`,
+    companyLinkedinUrl: "",
+    apolloAccountId: `org_${i}`,
+    rowNumber: i + 2,
+  }));
+}
+
+describe("50-company checkpoint flush", () => {
+  beforeEach(() => {
+    readCompaniesMock.mockReset();
+    countProcessableCompaniesMock.mockReset();
+    researchCompanyMock.mockReset();
+    getCompanyMock.mockReset();
+    searchPeopleMock.mockReset();
+    scrapeCompanyEmployeesMock.mockReset();
+    filterPoolByStageMock.mockReset();
+    filterOpenToWorkFromCacheMock.mockReset();
+    splitByTenureMock.mockReset();
+    filterByKeywordsInApifyDataMock.mockReset();
+    findEmailsInBulkMock.mockReset();
+    selectTopSreForLemlistMock.mockReset();
+    fillToMinimumWithBackfillMock.mockReset();
+    selectKeywordMatchedByTenureMock.mockReset();
+    pushPeopleToLemlistCampaignMock.mockReset();
+    pushPeopleToLemlistEmailCampaignMock.mockReset();
+    runEmailCandidateWaterfallMock.mockReset();
+    rowsToCsvStringMock.mockReset();
+    syncApolloAccountsFromOutputRowsMock.mockReset();
+    syncAttioCompaniesFromOutputRowsMock.mockReset();
+    saveWeeklySuccessForJobMock.mockReset();
+    getWeeklySuccessCountsMock.mockReset();
+
+    rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
+    pushPeopleToLemlistCampaignMock.mockResolvedValue({ attempted: 0, successful: 0, failed: 0, successItems: [], failedItems: [], outcomes: [] });
+    pushPeopleToLemlistEmailCampaignMock.mockResolvedValue({ attempted: 0, successful: 0, failed: 0, successItems: [], failedItems: [], outcomes: [] });
+    searchPeopleMock.mockResolvedValue([]);
+    researchCompanyMock.mockResolvedValue("Not found");
+    getCompanyMock.mockResolvedValue({ companyName: "Acme", domain: "acme.com" });
+    scrapeCompanyEmployeesMock.mockResolvedValue({ employees: [], apifyCache: new Map(), profileCount: 0 });
+    filterPoolByStageMock.mockImplementation((pool: EnrichedEmployee[]) => pool);
+    filterOpenToWorkFromCacheMock.mockImplementation((employees: EnrichedEmployee[]) => ({ kept: employees, warnings: [], filteredOut: [] }));
+    splitByTenureMock.mockImplementation((employees: EnrichedEmployee[]) => ({ eligible: employees, droppedByTenure: [] }));
+    filterByKeywordsInApifyDataMock.mockReturnValue({ matched: [], unmatched: [] });
+    findEmailsInBulkMock.mockResolvedValue(new Map());
+    runEmailCandidateWaterfallMock.mockResolvedValue(emptyWaterfallResult());
+    selectTopSreForLemlistMock.mockImplementation((employees: EnrichedEmployee[]) => employees.slice(0, 7));
+    fillToMinimumWithBackfillMock.mockImplementation((selected: EnrichedEmployee[]) => selected);
+    selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [], forEmailRecycling: [] });
+    syncApolloAccountsFromOutputRowsMock.mockResolvedValue({ attemptedRows: 0, dedupedAccounts: 0, updatedAccounts: 0, skippedMissingAccountIdCount: 0, skippedNoMappableFieldsCount: 0, duplicateAccountIdCount: 0, warnings: [] });
+    syncAttioCompaniesFromOutputRowsMock.mockResolvedValue({ attemptedRows: 0, dedupedDomains: 0, assertedCount: 0, failedCount: 0, skippedMissingDomainCount: 0, skippedNoMappableFieldsCount: 0, duplicateDomainCount: 0, warnings: [] });
+    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 0, emailCount: 0 });
+    countProcessableCompaniesMock.mockResolvedValue(500);
+    process.env.LEMLIST_PUSH_ENABLED = "true";
+  });
+
+  it("calls apollo/attio sync once per 50-company batch and once at end for 51 companies", async () => {
+    readCompaniesMock.mockReturnValueOnce(asyncCompanyRows(makeCompanyRows(51)));
+    countProcessableCompaniesMock.mockResolvedValue(51);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", defaultPipelineConfig, "julian", Date.now());
+
+    // Checkpoint fires at company 50, then again at end (1 remaining)
+    expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledTimes(2);
+    expect(syncAttioCompaniesFromOutputRowsMock).toHaveBeenCalledTimes(2);
+    expect(getJob(jobId)?.status).toBe("done");
+  });
+
+  it("calls apollo/attio sync only once for fewer than 50 companies", async () => {
+    readCompaniesMock.mockReturnValueOnce(asyncCompanyRows(makeCompanyRows(10)));
+    countProcessableCompaniesMock.mockResolvedValue(10);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", defaultPipelineConfig, "julian", Date.now());
+
+    // Only the final checkpoint fires
+    expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledTimes(1);
+    expect(syncAttioCompaniesFromOutputRowsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls saveWeeklySuccessForJob at each checkpoint with cumulative linkedin counts", async () => {
+    readCompaniesMock.mockReturnValueOnce(asyncCompanyRows(makeCompanyRows(51)));
+    countProcessableCompaniesMock.mockResolvedValue(51);
+
+    const employee = makeEmployee("sre-1");
+    scrapeCompanyEmployeesMock.mockResolvedValue({ employees: [employee], apifyCache: new Map(), profileCount: 1 });
+    selectTopSreForLemlistMock.mockImplementation((employees: EnrichedEmployee[]) => employees);
+    pushPeopleToLemlistCampaignMock.mockResolvedValue({
+      attempted: 1,
+      successful: 1,
+      failed: 0,
+      successItems: [employee],
+      failedItems: [],
+      outcomes: [{ linkedinUrl: employee.linkedinUrl, status: "succeed" }],
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", defaultPipelineConfig, "julian", Date.now());
+
+    expect(saveWeeklySuccessForJobMock).toHaveBeenCalledTimes(2);
+    // First checkpoint: 50 companies × 1 push each = 50
+    const firstCallArgs = saveWeeklySuccessForJobMock.mock.calls[0][0] as { linkedinSuccessCount: number };
+    expect(firstCallArgs.linkedinSuccessCount).toBe(50);
+    // Final checkpoint: 51 companies × 1 push each = 51
+    const secondCallArgs = saveWeeklySuccessForJobMock.mock.calls[1][0] as { linkedinSuccessCount: number };
+    expect(secondCallArgs.linkedinSuccessCount).toBe(51);
+  });
+
+  it("sets partial csv and campaignPushData on job state after first checkpoint", async () => {
+    readCompaniesMock.mockReturnValueOnce(asyncCompanyRows(makeCompanyRows(50)));
+    countProcessableCompaniesMock.mockResolvedValue(50);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", defaultPipelineConfig, "julian", Date.now());
+
+    const job = getJob(jobId);
+    expect(job?.partialCsvBase64).toBeDefined();
+    expect(typeof job?.partialCsvBase64).toBe("string");
+    expect(job?.partialCampaignPushData).toBeDefined();
+  });
+
+  it("weekly-limit skipped companies count toward the checkpoint threshold", async () => {
+    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 100, emailCount: 0 });
+    readCompaniesMock.mockReturnValueOnce(asyncCompanyRows(makeCompanyRows(50)));
+    countProcessableCompaniesMock.mockResolvedValue(50);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", defaultPipelineConfig, "julian", Date.now());
+
+    // All 50 companies are skipped (limit reached) but checkpoint still fires at 50 + final
+    expect(syncApolloAccountsFromOutputRowsMock).toHaveBeenCalledTimes(2);
+    expect(saveWeeklySuccessForJobMock).toHaveBeenCalledTimes(2);
+    expect(searchPeopleMock).not.toHaveBeenCalled();
+  });
+
+  it("each checkpoint only syncs the new rows since the last checkpoint", async () => {
+    readCompaniesMock.mockReturnValueOnce(asyncCompanyRows(makeCompanyRows(51)));
+    countProcessableCompaniesMock.mockResolvedValue(51);
+
+    const jobId = createJob();
+    await runResearchPipeline(jobId, "csv", defaultPipelineConfig, "julian", Date.now());
+
+    const firstSyncCall = syncApolloAccountsFromOutputRowsMock.mock.calls[0][0] as unknown[];
+    const secondSyncCall = syncApolloAccountsFromOutputRowsMock.mock.calls[1][0] as unknown[];
+    // First batch: companies 0–49 (50 rows), second batch: company 50 (1 row)
+    expect(firstSyncCall.length).toBe(50);
+    expect(secondSyncCall.length).toBe(1);
   });
 });

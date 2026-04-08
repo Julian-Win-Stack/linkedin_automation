@@ -69,4 +69,59 @@ describe("jobStore lifecycle", () => {
     expect(errorJob?.status).toBe("error");
     expect(errorJob?.error).toBe("failed");
   });
+
+  it("does not evict an actively updating job even after 60+ minutes from creation", async () => {
+    const { createJob, getJob, setJobMessage } = await loadJobStore();
+
+    const jobId = createJob(); // T=0, updatedAtMs=0
+    expect(getJob(jobId)).toBeDefined();
+
+    // Simulate the job being updated at 59 min (still alive)
+    vi.setSystemTime(new Date("2026-01-01T00:59:00.000Z"));
+    setJobMessage(jobId, "still running"); // updatedAtMs = 59 min
+
+    // Advance to 61 min from start, but only 2 min since last update
+    vi.setSystemTime(new Date("2026-01-01T01:01:00.000Z"));
+
+    // Trigger cleanup — job should NOT be evicted (only 2 min since last update)
+    const job = getJob(jobId);
+    expect(job).toBeDefined();
+    expect(job?.message).toBe("still running");
+  });
+
+  it("evicts a stale job that has not been updated for 60+ minutes", async () => {
+    const { createJob, getJob, setJobMessage } = await loadJobStore();
+
+    const jobId = createJob(); // T=0
+    setJobMessage(jobId, "started"); // updatedAtMs = T=0
+
+    // Advance 61 minutes — no updates since creation
+    vi.setSystemTime(new Date("2026-01-01T01:01:00.000Z"));
+
+    // Another job triggers cleanup
+    createJob();
+    expect(getJob(jobId)).toBeUndefined();
+  });
+
+  it("setJobPartialResults stores partial csv and campaignPushData on the job", async () => {
+    const { createJob, getJob, setJobPartialResults } = await loadJobStore();
+
+    const jobId = createJob();
+    const fakeCampaignPushData = {
+      linkedinSre: [],
+      linkedinEngLead: [],
+      linkedinEng: [],
+      emailSre: [],
+      emailEng: [],
+      emailEngLead: [],
+      filteredOutCandidates: [],
+      normalEngineerApifyWarnings: [],
+    };
+
+    setJobPartialResults(jobId, "partial_csv_base64", fakeCampaignPushData);
+
+    const job = getJob(jobId);
+    expect(job?.partialCsvBase64).toBe("partial_csv_base64");
+    expect(job?.partialCampaignPushData).toEqual(fakeCampaignPushData);
+  });
 });

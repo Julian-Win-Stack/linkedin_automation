@@ -74,6 +74,8 @@ export type JobState = {
   rejectedReason?: string;
   summary?: JobSummary;
   campaignPushData?: CampaignPushData;
+  partialCsvBase64?: string;
+  partialCampaignPushData?: CampaignPushData;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -90,7 +92,7 @@ function cleanup(nowMs: number): void {
   lastCleanupAtMs = nowMs;
 
   for (const [jobId, job] of jobs) {
-    if (nowMs - job.createdAtMs > MAX_JOB_AGE_MS) {
+    if (nowMs - job.updatedAtMs > MAX_JOB_AGE_MS) {
       jobs.delete(jobId);
     }
   }
@@ -205,6 +207,20 @@ export function setCampaignPushData(jobId: string, data: CampaignPushData): void
     return;
   }
   job.campaignPushData = data;
+  job.updatedAtMs = Date.now();
+}
+
+export function setJobPartialResults(
+  jobId: string,
+  csvBase64: string,
+  campaignPushData: CampaignPushData
+): void {
+  const job = jobs.get(jobId);
+  if (!job) {
+    return;
+  }
+  job.partialCsvBase64 = csvBase64;
+  job.partialCampaignPushData = campaignPushData;
   job.updatedAtMs = Date.now();
 }
 

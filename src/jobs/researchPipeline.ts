@@ -31,6 +31,7 @@ import {
   setJobSummary,
   setCampaignPushData,
   setRejectedCompanies,
+  setJobPartialResults,
 } from "./jobStore";
 import { EnrichedEmployee, ApifyOpenToWorkCache, LemlistPushOutcome, Prospect } from "../types/prospect";
 import { SelectedUser } from "../shared/selectedUser";
@@ -43,6 +44,7 @@ import { scrapeCompanyEmployees, filterPoolByStage, filterByPastExperienceKeywor
 import { findEmailsInBulk } from "../services/apolloBulkEmailEnrichment";
 
 const MAX_ROWS = 500;
+const CHECKPOINT_SIZE = 50;
 const SRE_PERSON_TITLES = [
   "SRE",
   "Site Reliability",
@@ -452,7 +454,10 @@ export async function runResearchPipeline(
   const rejectedOutputRows: RejectedOutputRow[] = [];
   const rejectedCompanies: string[] = [];
   const skippedCompanies: string[] = [];
-  const emailCompanyTasks: Promise<void>[] = [];
+  let batchEmailTasks: Promise<void>[] = [];
+  let companiesSinceLastCheckpoint = 0;
+  let lastCheckpointSyncableIndex = 0;
+  let lastCheckpointRejectedIndex = 0;
   let totalRows = 0;
   let skippedMissingWebsiteAndApolloAccountIdCount = 0;
   let apolloProcessedCompanyCount = 0;
@@ -482,6 +487,72 @@ export async function runResearchPipeline(
     filteredOutCandidates: [],
     normalEngineerApifyWarnings: [],
   };
+
+  async function flushCheckpoint(): Promise<void> {
+    if (batchEmailTasks.length > 0) {
+      await Promise.allSettled(batchEmailTasks);
+      batchEmailTasks = [];
+    }
+
+    const newSyncableRows = syncableOutputRows.slice(lastCheckpointSyncableIndex);
+    const newRejectedRows: OutputRow[] = rejectedOutputRows.slice(lastCheckpointRejectedIndex).map((row) => ({
+      company_name: row.company_name,
+      company_domain: row.company_domain,
+      company_linkedin_url: row.company_linkedin_url,
+      apollo_account_id: row.apollo_account_id,
+      observability_tool_research: row.observability_tool_research,
+      stage: row.status,
+      sre_count: row.sre_count,
+      notes: row.notes,
+    }));
+    lastCheckpointSyncableIndex = syncableOutputRows.length;
+    lastCheckpointRejectedIndex = rejectedOutputRows.length;
+
+    const [apolloOutcome, attioOutcome] = await Promise.allSettled([
+      syncApolloAccountsFromOutputRows([...newSyncableRows, ...newRejectedRows]),
+      syncAttioCompaniesFromOutputRows([...newSyncableRows, ...newRejectedRows]),
+    ]);
+    if (apolloOutcome.status === "rejected") {
+      const msg = apolloOutcome.reason instanceof Error ? apolloOutcome.reason.message : "Unknown";
+      addJobWarning(jobId, `Apollo bulk account sync failed (checkpoint): ${msg}`);
+    } else {
+      for (const w of apolloOutcome.value.warnings) {
+        addJobWarning(jobId, w);
+      }
+    }
+    if (attioOutcome.status === "rejected") {
+      const msg = attioOutcome.reason instanceof Error ? attioOutcome.reason.message : "Unknown";
+      addJobWarning(jobId, `Attio sync failed (checkpoint): ${msg}`);
+    } else {
+      for (const w of attioOutcome.value.warnings) {
+        addJobWarning(jobId, w);
+      }
+    }
+
+    saveWeeklySuccessForJob({
+      jobId,
+      selectedUser,
+      completedAtMs: Date.now(),
+      linkedinSuccessCount: totalLinkedinCampaignSuccessful,
+      emailSuccessCount: totalEmailCampaignSuccessful,
+    });
+
+    const allRejectedSoFar: OutputRow[] = rejectedOutputRows.map((row) => ({
+      company_name: row.company_name,
+      company_domain: row.company_domain,
+      company_linkedin_url: row.company_linkedin_url,
+      apollo_account_id: row.apollo_account_id,
+      observability_tool_research: row.observability_tool_research,
+      stage: row.status,
+      sre_count: row.sre_count,
+      notes: row.notes,
+    }));
+    const partialCsvString = await rowsToCsvString([...outputRows, ...allRejectedSoFar]);
+    const partialCsvBase64 = Buffer.from(partialCsvString, "utf8").toString("base64");
+    setJobPartialResults(jobId, partialCsvBase64, campaignPushData);
+
+    companiesSinceLastCheckpoint = 0;
+  }
 
   const _originalConsoleLog = console.log;
   try {
@@ -528,6 +599,8 @@ export async function runResearchPipeline(
       setJobMessage(jobId, `Engineer/SRE pre-filter row ${row.rowNumber}: ${row.companyName}`);
       const companyContext = { index: totalRows - 1, total: progressTotalRows, companyName: row.companyName };
 
+      let shouldBreakAfterCompany = false;
+
       if (weeklyCounts.linkedinCount + sessionLinkedinSuccessfulCount >= WEEKLY_LINKEDIN_PUSH_LIMIT) {
         weeklyLimitSkippedCompanyCount += 1;
         skippedCompanies.push(`${row.companyName} (weekly LinkedIn limit reached)`);
@@ -548,8 +621,7 @@ export async function runResearchPipeline(
           );
           weeklyLimitWarningAdded = true;
         }
-        continue;
-      }
+      } else {
 
       const company = await resolveCompanyForApolloInput(row);
       const peopleSearchFilters: PeopleSearchFilters = {
@@ -955,7 +1027,7 @@ export async function runResearchPipeline(
               companyDomain: company.domain,
               candidates: emailCandidates,
             };
-            emailCompanyTasks.push(
+            batchEmailTasks.push(
               enrichAndPushEmailBatch(
                 emailBatch,
                 jobId,
@@ -1018,7 +1090,7 @@ export async function runResearchPipeline(
             `LinkedIn weekly limit reached after company processing. remaining_companies_estimate=${estimatedRemainingCompanies}`,
             companyContext
           );
-          break;
+          shouldBreakAfterCompany = true;
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown pipeline error";
@@ -1045,11 +1117,20 @@ export async function runResearchPipeline(
           notes: "",
         });
       }
+
+      } // end else (not weekly-limit skipped)
+
+      companiesSinceLastCheckpoint += 1;
+      if (companiesSinceLastCheckpoint >= CHECKPOINT_SIZE) {
+        await flushCheckpoint();
+      }
+
+      if (shouldBreakAfterCompany) {
+        break;
+      }
     }
 
-    if (emailCompanyTasks.length > 0) {
-      await Promise.allSettled(emailCompanyTasks);
-    }
+    await flushCheckpoint();
 
     setJobMessage(jobId, "Finalizing results and syncing company updates.");
     setRejectedCompanies(jobId, rejectedCompanies, REJECTED_REASON);
@@ -1074,13 +1155,6 @@ export async function runResearchPipeline(
       weeklyLimitSkippedCompanyCount,
     };
     setJobSummary(jobId, summary);
-    saveWeeklySuccessForJob({
-      jobId,
-      selectedUser,
-      completedAtMs: Date.now(),
-      linkedinSuccessCount: totalLinkedinCampaignSuccessful,
-      emailSuccessCount: totalEmailCampaignSuccessful,
-    });
     setCampaignPushData(jobId, campaignPushData);
 
     const rejectedAsOutputRows: OutputRow[] = rejectedOutputRows.map((row) => ({
@@ -1097,39 +1171,6 @@ export async function runResearchPipeline(
       ...outputRows,
       ...rejectedAsOutputRows,
     ];
-    const syncRows: OutputRow[] = [
-      ...syncableOutputRows,
-      ...rejectedAsOutputRows,
-    ];
-
-    const [apolloSyncOutcome, attioSyncOutcome] = await Promise.allSettled([
-      syncApolloAccountsFromOutputRows(syncRows),
-      syncAttioCompaniesFromOutputRows(syncRows),
-    ]);
-
-    if (apolloSyncOutcome.status === "fulfilled") {
-      for (const warning of apolloSyncOutcome.value.warnings) {
-        addJobWarning(jobId, warning);
-      }
-    } else {
-      const message =
-        apolloSyncOutcome.reason instanceof Error
-          ? apolloSyncOutcome.reason.message
-          : "Unknown Apollo bulk account sync error";
-      addJobWarning(jobId, `Apollo bulk account sync failed: ${message}`);
-      logPipelineStage("APOLLO_BULK_ACCOUNT_SYNC_FAILED", `Apollo bulk account sync failed. error=${message}`);
-    }
-
-    if (attioSyncOutcome.status === "fulfilled") {
-      for (const warning of attioSyncOutcome.value.warnings) {
-        addJobWarning(jobId, warning);
-      }
-    } else {
-      const message =
-        attioSyncOutcome.reason instanceof Error ? attioSyncOutcome.reason.message : "Unknown Attio assert sync error";
-      addJobWarning(jobId, `Attio company sync failed: ${message}`);
-      logPipelineStage("ATTIO_COMPANY_SYNC_FAILED", `Attio company sync failed. error=${message}`);
-    }
 
     const csvString = await rowsToCsvString(combinedOutputRows);
     const csvBase64 = Buffer.from(csvString, "utf8").toString("base64");

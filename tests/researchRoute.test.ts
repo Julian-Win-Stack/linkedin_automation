@@ -13,6 +13,7 @@ import {
   setSkippedCompanies,
   setJobSummary,
   setRejectedCompanies,
+  setJobPartialResults,
 } from "../src/jobs/jobStore";
 
 const runResearchPipelineMock = vi.fn();
@@ -682,5 +683,105 @@ describe("research job routes", () => {
       .send({ selectedUser: "someoneelse" });
     expect(response.status).toBe(400);
     expect(response.body.error).toContain("selectedUser is required");
+  });
+
+  const fakeCampaignPushData = {
+    linkedinSre: [],
+    linkedinEngLead: [],
+    linkedinEng: [],
+    emailSre: [],
+    emailEng: [],
+    emailEngLead: [],
+    filteredOutCandidates: [],
+    normalEngineerApifyWarnings: [],
+  };
+
+  function makeRunningQueueItem(jobId: string) {
+    return {
+      queueItemId: "queue-1",
+      selectedUser: "julian",
+      queueOrder: 1,
+      status: "running" as const,
+      weekStartMs: 0,
+      csvInput: "Company Name,Website\nAcme,acme.com\n",
+      jobId,
+      csvOutputBase64: null,
+      summary: null,
+      warnings: [],
+      skippedCompanies: [],
+      rejectedCompanies: [],
+      rejectedReason: null,
+      errorMessage: null,
+      campaignPushData: null,
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      startedAtMs: 3,
+      completedAtMs: null,
+    };
+  }
+
+  it("reports hasCsv and hasPdf true for a running job with partial results", async () => {
+    const app = createTestApp();
+    const jobId = createJob();
+    setJobPartialResults(jobId, Buffer.from("partial csv").toString("base64"), fakeCampaignPushData);
+
+    listQueueItemsForUserMock.mockReturnValueOnce([makeRunningQueueItem(jobId)]);
+    toQueueLabelMock.mockReturnValueOnce("1st queue");
+
+    const response = await request(app).get("/queue").query({ selectedUser: "julian" });
+    expect(response.status).toBe(200);
+    expect(response.body.items[0].hasCsv).toBe(true);
+    expect(response.body.items[0].hasPdf).toBe(true);
+  });
+
+  it("reports hasCsv and hasPdf false for a running job with no partial results yet", async () => {
+    const app = createTestApp();
+    const jobId = createJob(); // no partial results set
+
+    listQueueItemsForUserMock.mockReturnValueOnce([makeRunningQueueItem(jobId)]);
+    toQueueLabelMock.mockReturnValueOnce("1st queue");
+
+    const response = await request(app).get("/queue").query({ selectedUser: "julian" });
+    expect(response.status).toBe(200);
+    expect(response.body.items[0].hasCsv).toBe(false);
+    expect(response.body.items[0].hasPdf).toBe(false);
+  });
+
+  it("serves partial csv from running job when queue item has no final csv", async () => {
+    const app = createTestApp();
+    const jobId = createJob();
+    const partialCsv = "company_name,company_domain\nAcme,acme.com\n";
+    setJobPartialResults(jobId, Buffer.from(partialCsv, "utf8").toString("base64"), fakeCampaignPushData);
+
+    getQueueItemByIdMock.mockReturnValueOnce(makeRunningQueueItem(jobId));
+
+    const response = await request(app).get("/queue/queue-1/csv");
+    expect(response.status).toBe(200);
+    expect(response.headers["content-disposition"]).toContain("research-results-partial.csv");
+    expect(response.text).toBe(partialCsv);
+  });
+
+  it("serves partial pdf from running job when queue item has no final pdf", async () => {
+    const app = createTestApp();
+    const jobId = createJob();
+    setJobPartialResults(jobId, "csv_base64", fakeCampaignPushData);
+
+    getQueueItemByIdMock.mockReturnValueOnce(makeRunningQueueItem(jobId));
+
+    const response = await request(app).get("/queue/queue-1/pdf");
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("application/pdf");
+    expect(response.headers["content-disposition"]).toContain("people-partial.pdf");
+  });
+
+  it("returns 400 for partial csv when running job has no partial results yet", async () => {
+    const app = createTestApp();
+    const jobId = createJob(); // no partial results
+
+    getQueueItemByIdMock.mockReturnValueOnce(makeRunningQueueItem(jobId));
+
+    const response = await request(app).get("/queue/queue-1/csv");
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("CSV is not available");
   });
 });

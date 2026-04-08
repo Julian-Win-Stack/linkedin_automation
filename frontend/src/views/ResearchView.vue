@@ -215,10 +215,7 @@ async function refreshQueueItems(): Promise<void> {
     }
     const payload = (await response.json()) as { items?: QueueItem[] };
     queueItems.value = payload.items ?? [];
-    const hasRecentlyFinished = queueItems.value.some((item) => item.status === "done");
-    if (hasRecentlyFinished) {
-      void refreshWeeklySuccessTotals();
-    }
+    void refreshWeeklySuccessTotals();
   } catch (fetchError) {
     error.value = fetchError instanceof Error ? fetchError.message : String(fetchError);
   }

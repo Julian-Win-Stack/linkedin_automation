@@ -241,8 +241,8 @@ router.get("/queue", (req, res) => {
       progressMessage: item.status === "running" ? (runningJob?.message ?? null) : null,
       currentRow: item.status === "running" ? (runningJob?.currentRow ?? null) : null,
       totalRows: item.status === "running" ? (runningJob?.totalRows ?? null) : null,
-      hasCsv: Boolean(item.csvOutputBase64),
-      hasPdf: Boolean(item.campaignPushData),
+      hasCsv: Boolean(item.csvOutputBase64) || Boolean(runningJob?.partialCsvBase64),
+      hasPdf: Boolean(item.campaignPushData) || Boolean(runningJob?.partialCampaignPushData),
     };
   });
   return res.status(200).json({ items });
@@ -441,13 +441,22 @@ router.get("/queue/:queueItemId/csv", (req, res) => {
   if (!item) {
     return res.status(404).json({ error: "Queue item not found" });
   }
-  if (!item.csvOutputBase64) {
-    return res.status(400).json({ error: "CSV is not available for this queue item." });
+  if (item.csvOutputBase64) {
+    const csv = Buffer.from(item.csvOutputBase64, "base64");
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="research-results.csv"');
+    return res.status(200).send(csv);
   }
-  const csv = Buffer.from(item.csvOutputBase64, "base64");
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", 'attachment; filename="research-results.csv"');
-  return res.status(200).send(csv);
+  if (item.jobId) {
+    const runningJob = getJob(item.jobId);
+    if (runningJob?.partialCsvBase64) {
+      const csv = Buffer.from(runningJob.partialCsvBase64, "base64");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="research-results-partial.csv"');
+      return res.status(200).send(csv);
+    }
+  }
+  return res.status(400).json({ error: "CSV is not available for this queue item." });
 });
 
 router.get("/queue/:queueItemId/pdf", (req, res) => {
@@ -455,14 +464,26 @@ router.get("/queue/:queueItemId/pdf", (req, res) => {
   if (!item) {
     return res.status(404).json({ error: "Queue item not found" });
   }
-  if (!item.campaignPushData) {
-    return res.status(400).json({ error: "PDF is not available for this queue item." });
+  if (item.campaignPushData) {
+    const doc = generateCampaignPdf(item.campaignPushData);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", 'attachment; filename="people.pdf"');
+    doc.pipe(res);
+    doc.end();
+    return;
   }
-  const doc = generateCampaignPdf(item.campaignPushData);
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", 'attachment; filename="people.pdf"');
-  doc.pipe(res);
-  doc.end();
+  if (item.jobId) {
+    const runningJob = getJob(item.jobId);
+    if (runningJob?.partialCampaignPushData) {
+      const doc = generateCampaignPdf(runningJob.partialCampaignPushData);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", 'attachment; filename="people-partial.pdf"');
+      doc.pipe(res);
+      doc.end();
+      return;
+    }
+  }
+  return res.status(400).json({ error: "PDF is not available for this queue item." });
 });
 
 export default router;
