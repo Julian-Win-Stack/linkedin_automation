@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Backend (Express + tsx watch)",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--max-old-space-size=4096", "./node_modules/tsx/dist/cli.mjs", "watch", "src/server.ts"],
+      "port": 3000
+    },
+    {
+      "name": "Frontend (Vite)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
+      "port": 5173
+    },
+    {
+      "name": "Full Stack (Backend + Frontend)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    }
+  ]
+}
