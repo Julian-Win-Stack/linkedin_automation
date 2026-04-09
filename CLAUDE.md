@@ -32,6 +32,11 @@ data/            — SQLite databases (gitignored)
 
 For full architecture details, see @docs/architecture.md
 
+## Documentation
+
+- **Always use context7** before building or modifying anything that involves a library, framework, or external API. Resolve the library ID first (`mcp__context7__resolve-library-id`), then fetch the relevant docs (`mcp__context7__query-docs`). This applies to Express, Vue, Vitest, Apify, Apollo, Attio, Lemlist, Azure OpenAI, SQLite, and any other dependency in this project.
+- Do not rely on training data for API shapes, SDK methods, or config options — fetch current docs via context7 every time.
+
 ## Critical Constraints
 
 - **Never commit `.env`** — contains all API keys and campaign IDs.
