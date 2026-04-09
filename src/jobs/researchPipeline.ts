@@ -554,10 +554,7 @@ export async function runResearchPipeline(
     companiesSinceLastCheckpoint = 0;
   }
 
-  const _originalConsoleLog = console.log;
   try {
-    console.log = () => {};
-
     setJobStatus(jobId, "processing");
     logPipelineStage("JOB_START", `Job started. selected_user=${selectedUser}`);
     setJobMessage(jobId, "Starting engineer and SRE pre-filter...");
@@ -1184,7 +1181,5 @@ export async function runResearchPipeline(
     const message = error instanceof Error ? error.message : "Unexpected job failure";
     markJobError(jobId, message);
     logPipelineStage("JOB_FAILED", `Job failed. error=${message}`);
-  } finally {
-    console.log = _originalConsoleLog;
   }
 }
