@@ -14,16 +14,16 @@ const MAX_RETRIES = 2;
 const RETRY_DELAYS_MS = [3000, 6000];
 
 // Call 1 — SRE-focused
-const CALL1_JOB_TITLES = ["SRE", "Site Reliability", "platform engineer"];
+const CALL1_JOB_TITLES = ["SRE", "Site Reliability", "platform engineer", "devops"];
 const CALL1_PAST_JOB_TITLES = ["SRE", "Site Reliability"];
 const CALL1_SENIORITY_LEVEL_IDS = ["110", "120", "130", "200", "210", "220"];
 const CALL1_EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "310", "320"];
 
 // Call 2 — DevOps/Infra-focused (fallback when call 1 returns < 10 results)
-const CALL2_JOB_TITLES = ["Devops", "Infrastructure Engineer", "Staff engineer", "Principal engineer", "Software engineering lead"];
+const CALL2_JOB_TITLES = ["Infrastructure Engineer", "Staff engineer", "Principal engineer", "Software engineering lead"];
 const CALL2_SENIORITY_LEVEL_IDS = ["110", "120", "130", "200", "210", "220"];
 const CALL2_EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "310", "320", "110", "300"];
-const CALL2_EXCLUDE_CURRENT_JOB_TITLES = ["SRE", "Site Reliability", "Platform engineer"];
+const CALL2_EXCLUDE_CURRENT_JOB_TITLES = ["SRE", "Site Reliability", "Platform engineer", "Devops"];
 const CALL2_EXCLUDE_PAST_JOB_TITLES = ["SRE", "Site Reliability"];
 const CALL2_YEARS_AT_CURRENT_COMPANY_IDS = ["2", "3", "4", "5"];
 const MIN_CALL1_RESULTS_TO_SKIP_CALL2 = 10;
@@ -428,14 +428,10 @@ export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Prom
   const call1Profiles = await runCompanyEmployeesActor({
     profileScraperMode: "Full ($8 per 1k)",
     companyBatchMode: "all_at_once",
-    maxItems,
+    maxItems: 200,
     companies,
     jobTitles: CALL1_JOB_TITLES,
     pastJobTitles: CALL1_PAST_JOB_TITLES,
-    functionIds: ["8"],
-    seniorityLevelIds: CALL1_SENIORITY_LEVEL_IDS,
-    excludeSeniorityLevelIds: CALL1_EXCLUDE_SENIORITY_LEVEL_IDS,
-    excludeFunctionIds: EXCLUDE_FUNCTION_IDS,
     recentlyChangedJobs: false,
   }, apiKey);
 
