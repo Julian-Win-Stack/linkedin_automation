@@ -678,30 +678,29 @@ export function filterByKeywordsInApifyData(
     const normalizedUrl = emp.linkedinUrl ? normalizeLinkedinUrl(emp.linkedinUrl) : null;
     const cached = normalizedUrl ? cache.get(normalizedUrl) : null;
 
-    if (!cached) {
-      unmatched.push(emp);
-      continue;
-    }
-
-    const matchedEntry = getMostRecentExperienceEntry(cached.experience);
-
     const textsToSearch: string[] = [];
 
-    if (matchedEntry) {
-      if (matchedEntry.description) {
-        textsToSearch.push(matchedEntry.description);
-      }
-      if (matchedEntry.skills) {
-        textsToSearch.push(...matchedEntry.skills);
-      }
+    if (emp.headline) {
+      textsToSearch.push(emp.headline);
     }
 
-    for (const skill of cached.profileSkills) {
-      textsToSearch.push(skill.name);
-    }
+    if (cached) {
+      for (const entry of cached.experience) {
+        if (entry.description) {
+          textsToSearch.push(entry.description);
+        }
+        if (entry.skills) {
+          textsToSearch.push(...entry.skills);
+        }
+      }
 
-    if (cached.about) {
-      textsToSearch.push(cached.about);
+      for (const skill of cached.profileSkills) {
+        textsToSearch.push(skill.name);
+      }
+
+      if (cached.about) {
+        textsToSearch.push(cached.about);
+      }
     }
 
     const combined = textsToSearch.join(" ").toLowerCase();

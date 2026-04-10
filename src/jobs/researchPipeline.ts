@@ -838,7 +838,7 @@ export async function runResearchPipeline(
             company.companyName,
             pastSreFiltered.filteredOut.map(({ reason }) => reason)
           );
-          selectedForLemlist = fillToMinimumWithBackfill(selectedCurrentSre, pastSreFiltered.kept, [], {
+          selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, pastSreFiltered.kept, [], {
             minimum: 7,
             max: 7,
           });

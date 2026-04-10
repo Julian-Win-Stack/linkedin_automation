@@ -366,7 +366,8 @@ async function runCompanyEmployeesActor(
         body: JSON.stringify(payload),
       });
       if (!response.ok) {
-        throw new Error(`Apify company employees actor returned HTTP ${response.status}`);
+        const body = await response.text();
+        throw new Error(`Apify company employees actor returned HTTP ${response.status}: ${body}`);
       }
       const data = (await response.json()) as unknown;
       if (!Array.isArray(data)) {
@@ -384,39 +385,23 @@ async function runCompanyEmployeesActor(
   return [];
 }
 
-function logApifyCallProfiles(
-  callLabel: string,
-  companyName: string,
-  profiles: CompanyEmployeesProfile[]
-): void {
-  const divider = "═".repeat(78);
-  const light = "─".repeat(78);
-  console.error(`\n${divider}`);
-  console.error(`  APIFY ${callLabel} — ${companyName} — ${profiles.length} result${profiles.length === 1 ? "" : "s"}`);
-  console.error(divider);
-  if (profiles.length === 0) {
-    console.error("  (no results)");
-    console.error(light);
-    return;
+const DEBUG_NAMES = ["Elie Yaacov", "Shay Fayer"];
+
+function logCall1RawProfiles(companyName: string, profiles: CompanyEmployeesProfile[]): void {
+  const targets = profiles.filter((p) => {
+    const name = [p.firstName?.trim(), p.lastName?.trim()].filter(Boolean).join(" ");
+    return DEBUG_NAMES.some((n) => name.toLowerCase() === n.toLowerCase());
+  });
+  if (targets.length === 0) return;
+  console.error(`\n${"═".repeat(78)}`);
+  console.error(`  APIFY CALL 1 RAW — ${companyName}`);
+  console.error(`${"═".repeat(78)}`);
+  for (const profile of targets) {
+    const name = [profile.firstName?.trim(), profile.lastName?.trim()].filter(Boolean).join(" ");
+    console.error(`\n--- ${name} ---`);
+    console.error(JSON.stringify(profile, null, 2));
   }
-  for (const [index, profile] of profiles.entries()) {
-    const name = [profile.firstName?.trim(), profile.lastName?.trim()].filter(Boolean).join(" ") || "—";
-    const headline = profile.headline?.trim() || "—";
-    const about = profile.about?.trim() || "—";
-    const experience = Array.isArray(profile.experience) ? profile.experience : [];
-    const currentRole = experience.find((e) => !e.endDate || (e.endDate as { text?: string }).text?.trim().toLowerCase() === "present" || (e.endDate as { text?: string }).text?.trim() === "");
-    const currentTitle = currentRole?.position?.trim() || "—";
-    const pastTitles = experience
-      .filter((e) => e !== currentRole && e.position?.trim())
-      .map((e) => e.position!.trim());
-    const pastStr = pastTitles.length > 0 ? pastTitles.join(" | ") : "—";
-    console.error(`\n  ${index + 1}. ${name}`);
-    console.error(`     Headline : ${headline}`);
-    console.error(`     About    : ${about.length > 200 ? about.slice(0, 197) + "…" : about}`);
-    console.error(`     Current  : ${currentTitle}`);
-    console.error(`     Past     : ${pastStr}`);
-  }
-  console.error(`\n${light}\n`);
+  console.error(`\n${"─".repeat(78)}\n`);
 }
 
 export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Promise<CompanyEmployeesResult> {
@@ -435,7 +420,7 @@ export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Prom
     recentlyChangedJobs: false,
   }, apiKey);
 
-  logApifyCallProfiles("CALL 1 (SRE-focused)", input.companyName, call1Profiles);
+  logCall1RawProfiles(input.companyName, call1Profiles);
 
   let allProfiles = call1Profiles;
 
@@ -456,7 +441,6 @@ export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Prom
       excludeFunctionIds: EXCLUDE_FUNCTION_IDS,
       recentlyChangedJobs: false,
     }, apiKey);
-    logApifyCallProfiles("CALL 2 (DevOps/Infra-focused)", input.companyName, call2Profiles);
     allProfiles = [...call1Profiles, ...call2Profiles];
   }
 
