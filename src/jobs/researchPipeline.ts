@@ -84,7 +84,6 @@ const SRE_WORK_KEYWORDS: string[] = [
   "availability improvement",
   "uptime improvement",
   "high availability systems",
-  "resiliency",
   "fault tolerance",
   "SLO",
   "SLI",
@@ -117,7 +116,6 @@ const SRE_WORK_KEYWORDS: string[] = [
   "capacity planning",
   "traffic spikes",
   "load handling",
-  "automation",
   "AI adoption",
   "Terraform",
 ];

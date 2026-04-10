@@ -385,25 +385,6 @@ async function runCompanyEmployeesActor(
   return [];
 }
 
-const DEBUG_NAMES = ["Elie Yaacov", "Shay Fayer"];
-
-function logCall1RawProfiles(companyName: string, profiles: CompanyEmployeesProfile[]): void {
-  const targets = profiles.filter((p) => {
-    const name = [p.firstName?.trim(), p.lastName?.trim()].filter(Boolean).join(" ");
-    return DEBUG_NAMES.some((n) => name.toLowerCase() === n.toLowerCase());
-  });
-  if (targets.length === 0) return;
-  console.error(`\n${"═".repeat(78)}`);
-  console.error(`  APIFY CALL 1 RAW — ${companyName}`);
-  console.error(`${"═".repeat(78)}`);
-  for (const profile of targets) {
-    const name = [profile.firstName?.trim(), profile.lastName?.trim()].filter(Boolean).join(" ");
-    console.error(`\n--- ${name} ---`);
-    console.error(JSON.stringify(profile, null, 2));
-  }
-  console.error(`\n${"─".repeat(78)}\n`);
-}
-
 export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Promise<CompanyEmployeesResult> {
   const apiKey = getRequiredEnv("APIFY_API_KEY");
   const companies = buildCompaniesList(input);
@@ -419,8 +400,6 @@ export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Prom
     pastJobTitles: CALL1_PAST_JOB_TITLES,
     recentlyChangedJobs: false,
   }, apiKey);
-
-  logCall1RawProfiles(input.companyName, call1Profiles);
 
   let allProfiles = call1Profiles;
 
