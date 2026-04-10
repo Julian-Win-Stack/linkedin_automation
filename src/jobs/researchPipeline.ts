@@ -119,6 +119,7 @@ const SRE_WORK_KEYWORDS: string[] = [
   "load handling",
   "automation",
   "AI adoption",
+  "Terraform",
 ];
 
 const LINKEDIN_KEYWORD_STAGES = [
