@@ -40,7 +40,7 @@ const error = ref<string | null>(null);
 const queueItems = ref<QueueItem[]>([]);
 const selectedUser = ref<SelectedUser | null>(null);
 const queuePollIntervalId = ref<number | null>(null);
-const weeklySuccessTotals = ref({ linkedin: 0, email: 0 });
+const weeklySuccessTotals = ref({ linkedin: 0, email: 0, companiesReachedOutTo: 0 });
 
 const canAddToQueue = computed(() => !isSubmitting.value && !!selectedFile.value && !!selectedUser.value);
 const selectedUserLabel = computed(() => {
@@ -182,7 +182,7 @@ function getCurrentWeekStartMsLocal(nowMs = Date.now()): number {
 
 async function refreshWeeklySuccessTotals(): Promise<void> {
   if (!selectedUser.value) {
-    weeklySuccessTotals.value = { linkedin: 0, email: 0 };
+    weeklySuccessTotals.value = { linkedin: 0, email: 0, companiesReachedOutTo: 0 };
     return;
   }
   try {
@@ -194,13 +194,18 @@ async function refreshWeeklySuccessTotals(): Promise<void> {
     if (!response.ok) {
       throw new Error(`Failed to fetch weekly counts (${response.status})`);
     }
-    const payload = (await response.json()) as { linkedinCount?: number; emailCount?: number };
+    const payload = (await response.json()) as {
+      linkedinCount?: number;
+      emailCount?: number;
+      companiesReachedOutToCount?: number;
+    };
     weeklySuccessTotals.value = {
       linkedin: Number(payload.linkedinCount ?? 0),
       email: Number(payload.emailCount ?? 0),
+      companiesReachedOutTo: Number(payload.companiesReachedOutToCount ?? 0),
     };
   } catch {
-    weeklySuccessTotals.value = { linkedin: 0, email: 0 };
+    weeklySuccessTotals.value = { linkedin: 0, email: 0, companiesReachedOutTo: 0 };
   }
 }
 
@@ -388,6 +393,7 @@ async function clearFinishedQueueItems(): Promise<void> {
       >
         <p class="font-medium">LinkedIn count: {{ weeklySuccessTotals.linkedin }}</p>
         <p class="mt-1 font-medium">Email count: {{ weeklySuccessTotals.email }}</p>
+        <p class="mt-1 font-medium">Companies reached out to: {{ weeklySuccessTotals.companiesReachedOutTo }}</p>
       </div>
       <button
         class="rounded-full border border-zinc-500/50 bg-[#0f1728]/90 px-2.5 py-1 text-[11px] font-medium tracking-wide text-zinc-300 transition hover:border-zinc-400/70 hover:bg-[#16233a]"

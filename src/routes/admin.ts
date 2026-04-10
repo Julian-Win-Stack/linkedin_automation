@@ -30,7 +30,13 @@ router.post("/admin/adjust-weekly-counts", (req, res) => {
     return res.status(401).json({ error: "Invalid admin key." });
   }
 
-  const { selectedUser: rawUser, targetLinkedinCount, targetEmailCount, weekStartMs: rawWeekStartMs } = req.body ?? {};
+  const {
+    selectedUser: rawUser,
+    targetLinkedinCount,
+    targetEmailCount,
+    targetCompaniesReachedOutToCount,
+    weekStartMs: rawWeekStartMs,
+  } = req.body ?? {};
 
   const normalizedUser = typeof rawUser === "string" ? rawUser.trim().toLowerCase() : "";
   if (!isSelectedUser(normalizedUser)) {
@@ -45,6 +51,16 @@ router.post("/admin/adjust-weekly-counts", (req, res) => {
     return res.status(400).json({ error: "targetEmailCount must be a non-negative integer." });
   }
 
+  if (
+    typeof targetCompaniesReachedOutToCount !== "number" ||
+    !Number.isInteger(targetCompaniesReachedOutToCount) ||
+    targetCompaniesReachedOutToCount < 0
+  ) {
+    return res
+      .status(400)
+      .json({ error: "targetCompaniesReachedOutToCount must be a non-negative integer." });
+  }
+
   const nowMs = Date.now();
   const weekStartMs =
     typeof rawWeekStartMs === "number" && Number.isFinite(rawWeekStartMs) && rawWeekStartMs >= 0
@@ -54,12 +70,15 @@ router.post("/admin/adjust-weekly-counts", (req, res) => {
   const current = getWeeklySuccessCounts({ selectedUser: normalizedUser, weekStartMs });
   const linkedinDelta = targetLinkedinCount - current.linkedinCount;
   const emailDelta = targetEmailCount - current.emailCount;
+  const companiesReachedOutToDelta =
+    targetCompaniesReachedOutToCount - current.companiesReachedOutToCount;
 
-  if (linkedinDelta !== 0 || emailDelta !== 0) {
+  if (linkedinDelta !== 0 || emailDelta !== 0 || companiesReachedOutToDelta !== 0) {
     insertWeeklySuccessAdjustment({
       selectedUser: normalizedUser,
       linkedinDelta,
       emailDelta,
+      companiesReachedOutToDelta,
       nowMs,
     });
   }
@@ -68,10 +87,13 @@ router.post("/admin/adjust-weekly-counts", (req, res) => {
     selectedUser: normalizedUser,
     previousLinkedinCount: current.linkedinCount,
     previousEmailCount: current.emailCount,
+    previousCompaniesReachedOutToCount: current.companiesReachedOutToCount,
     newLinkedinCount: targetLinkedinCount,
     newEmailCount: targetEmailCount,
+    newCompaniesReachedOutToCount: targetCompaniesReachedOutToCount,
     adjustedLinkedinBy: linkedinDelta,
     adjustedEmailBy: emailDelta,
+    adjustedCompaniesReachedOutToBy: companiesReachedOutToDelta,
   });
 });
 

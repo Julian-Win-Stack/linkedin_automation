@@ -31,6 +31,7 @@ describe("weeklySuccessStore", () => {
       completedAtMs: inWeek,
       linkedinSuccessCount: 3,
       emailSuccessCount: 4,
+      companiesReachedOutToCount: 6,
     });
     saveWeeklySuccessForJob({
       jobId: "job-2",
@@ -38,6 +39,7 @@ describe("weeklySuccessStore", () => {
       completedAtMs: inWeek,
       linkedinSuccessCount: 2,
       emailSuccessCount: 1,
+      companiesReachedOutToCount: 3,
     });
     saveWeeklySuccessForJob({
       jobId: "job-3",
@@ -45,6 +47,7 @@ describe("weeklySuccessStore", () => {
       completedAtMs: inWeek,
       linkedinSuccessCount: 10,
       emailSuccessCount: 10,
+      companiesReachedOutToCount: 20,
     });
     saveWeeklySuccessForJob({
       jobId: "job-4",
@@ -52,6 +55,7 @@ describe("weeklySuccessStore", () => {
       completedAtMs: outOfWeek,
       linkedinSuccessCount: 99,
       emailSuccessCount: 99,
+      companiesReachedOutToCount: 99,
     });
 
     const totals = getWeeklySuccessCounts({
@@ -61,6 +65,7 @@ describe("weeklySuccessStore", () => {
     expect(totals).toEqual({
       linkedinCount: 5,
       emailCount: 5,
+      companiesReachedOutToCount: 9,
     });
   });
 
@@ -75,6 +80,7 @@ describe("weeklySuccessStore", () => {
       completedAtMs: inWeek,
       linkedinSuccessCount: 1,
       emailSuccessCount: 1,
+      companiesReachedOutToCount: 1,
     });
     saveWeeklySuccessForJob({
       jobId: "job-dup",
@@ -82,6 +88,7 @@ describe("weeklySuccessStore", () => {
       completedAtMs: inWeek,
       linkedinSuccessCount: 7,
       emailSuccessCount: 9,
+      companiesReachedOutToCount: 12,
     });
 
     const totals = getWeeklySuccessCounts({
@@ -91,6 +98,7 @@ describe("weeklySuccessStore", () => {
     expect(totals).toEqual({
       linkedinCount: 7,
       emailCount: 9,
+      companiesReachedOutToCount: 12,
     });
   });
 });

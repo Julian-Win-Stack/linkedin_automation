@@ -471,6 +471,7 @@ export async function runResearchPipeline(
   let totalEmailCampaignSuccessful = 0;
   let totalEmailCampaignFailed = 0;
   let totalEmailCampaignSkipped = 0;
+  let totalCompaniesReachedOutTo = 0;
   let eligibleCompanyCount = 0;
   let weeklyLimitSkippedCompanyCount = 0;
   const weeklyCounts = getWeeklySuccessCounts({ selectedUser, weekStartMs });
@@ -535,6 +536,7 @@ export async function runResearchPipeline(
       completedAtMs: Date.now(),
       linkedinSuccessCount: totalLinkedinCampaignSuccessful,
       emailSuccessCount: totalEmailCampaignSuccessful,
+      companiesReachedOutToCount: totalCompaniesReachedOutTo,
     });
 
     const allRejectedSoFar: OutputRow[] = rejectedOutputRows.map((row) => ({
@@ -1070,6 +1072,7 @@ export async function runResearchPipeline(
           sre_count: exportedSreCount,
           notes: "",
         });
+        totalCompaniesReachedOutTo += 1;
         logPipelineStage("COMPANY_DONE", "Company processing complete.", companyContext);
 
         if (shouldStopAfterCurrentCompany) {
@@ -1113,6 +1116,7 @@ export async function runResearchPipeline(
           sre_count: 0,
           notes: "",
         });
+        totalCompaniesReachedOutTo += 1;
       }
 
       } // end else (not weekly-limit skipped)

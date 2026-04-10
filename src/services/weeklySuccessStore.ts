@@ -11,6 +11,7 @@ interface WeeklySuccessRow {
   completed_at_ms: number;
   linkedin_success_count: number;
   email_success_count: number;
+  companies_reached_out_to: number;
 }
 
 let db: Database.Database | null = null;
@@ -42,6 +43,13 @@ function ensureDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_weekly_success_user_time
       ON weekly_success_job(selected_user, completed_at_ms);
   `);
+  try {
+    instance.exec(
+      `ALTER TABLE weekly_success_job ADD COLUMN companies_reached_out_to INTEGER NOT NULL DEFAULT 0`
+    );
+  } catch {
+    // column already exists
+  }
   db = instance;
   return instance;
 }
@@ -52,6 +60,7 @@ export function saveWeeklySuccessForJob(input: {
   completedAtMs: number;
   linkedinSuccessCount: number;
   emailSuccessCount: number;
+  companiesReachedOutToCount: number;
 }): void {
   const instance = ensureDb();
   const stmt = instance.prepare(`
@@ -60,14 +69,16 @@ export function saveWeeklySuccessForJob(input: {
       selected_user,
       completed_at_ms,
       linkedin_success_count,
-      email_success_count
+      email_success_count,
+      companies_reached_out_to
     )
-    VALUES (?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(job_id) DO UPDATE SET
       selected_user = excluded.selected_user,
       completed_at_ms = excluded.completed_at_ms,
       linkedin_success_count = excluded.linkedin_success_count,
-      email_success_count = excluded.email_success_count
+      email_success_count = excluded.email_success_count,
+      companies_reached_out_to = excluded.companies_reached_out_to
   `);
 
   stmt.run(
@@ -75,23 +86,29 @@ export function saveWeeklySuccessForJob(input: {
     input.selectedUser,
     input.completedAtMs,
     input.linkedinSuccessCount,
-    input.emailSuccessCount
+    input.emailSuccessCount,
+    input.companiesReachedOutToCount
   );
 }
 
 export function getWeeklySuccessCounts(input: {
   selectedUser: SelectedUser;
   weekStartMs: number;
-}): { linkedinCount: number; emailCount: number } {
+}): { linkedinCount: number; emailCount: number; companiesReachedOutToCount: number } {
   const instance = ensureDb();
   const weekEndExclusiveMs = input.weekStartMs + 7 * 24 * 60 * 60 * 1000;
   const stmt = instance.prepare<
     [SelectedUser, number, number],
-    { linkedin_total: number | null; email_total: number | null }
+    {
+      linkedin_total: number | null;
+      email_total: number | null;
+      companies_reached_out_to_total: number | null;
+    }
   >(`
     SELECT
       SUM(linkedin_success_count) AS linkedin_total,
-      SUM(email_success_count) AS email_total
+      SUM(email_success_count) AS email_total,
+      SUM(companies_reached_out_to) AS companies_reached_out_to_total
     FROM weekly_success_job
     WHERE selected_user = ?
       AND completed_at_ms >= ?
@@ -102,6 +119,7 @@ export function getWeeklySuccessCounts(input: {
   return {
     linkedinCount: Number(row?.linkedin_total ?? 0),
     emailCount: Number(row?.email_total ?? 0),
+    companiesReachedOutToCount: Number(row?.companies_reached_out_to_total ?? 0),
   };
 }
 
@@ -109,6 +127,7 @@ export function insertWeeklySuccessAdjustment(input: {
   selectedUser: SelectedUser;
   linkedinDelta: number;
   emailDelta: number;
+  companiesReachedOutToDelta: number;
   nowMs: number;
 }): void {
   const instance = ensureDb();
@@ -118,16 +137,18 @@ export function insertWeeklySuccessAdjustment(input: {
       selected_user,
       completed_at_ms,
       linkedin_success_count,
-      email_success_count
+      email_success_count,
+      companies_reached_out_to
     )
-    VALUES (?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
   stmt.run(
     `manual-adj-${input.nowMs}-${Math.random().toString(36).slice(2, 8)}`,
     input.selectedUser,
     input.nowMs,
     input.linkedinDelta,
-    input.emailDelta
+    input.emailDelta,
+    input.companiesReachedOutToDelta
   );
 }
 

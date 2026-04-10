@@ -218,7 +218,7 @@ describe("runResearchPipeline orchestration", () => {
       duplicateDomainCount: 0,
       warnings: [],
     });
-    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 0, emailCount: 0 });
+    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 0, emailCount: 0, companiesReachedOutToCount: 0 });
     countProcessableCompaniesMock.mockResolvedValue(500);
     process.env.LEMLIST_PUSH_ENABLED = "true";
   });
@@ -690,7 +690,7 @@ describe("runResearchPipeline orchestration", () => {
   });
 
   it("waits for pending email task completion before finalizing after linkedin limit is reached", async () => {
-    getWeeklySuccessCountsMock.mockReturnValueOnce({ linkedinCount: 99, emailCount: 0 });
+    getWeeklySuccessCountsMock.mockReturnValueOnce({ linkedinCount: 99, emailCount: 0, companiesReachedOutToCount: 0 });
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([
         { companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 },
@@ -901,7 +901,7 @@ describe("runResearchPipeline orchestration", () => {
   });
 
   it("skips company when weekly linkedin limit reached", async () => {
-    getWeeklySuccessCountsMock.mockReturnValueOnce({ linkedinCount: 100, emailCount: 0 });
+    getWeeklySuccessCountsMock.mockReturnValueOnce({ linkedinCount: 100, emailCount: 0, companiesReachedOutToCount: 0 });
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
     );
@@ -1022,7 +1022,7 @@ describe("50-company checkpoint flush", () => {
     selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [], forEmailRecycling: [] });
     syncApolloAccountsFromOutputRowsMock.mockResolvedValue({ attemptedRows: 0, dedupedAccounts: 0, updatedAccounts: 0, skippedMissingAccountIdCount: 0, skippedNoMappableFieldsCount: 0, duplicateAccountIdCount: 0, warnings: [] });
     syncAttioCompaniesFromOutputRowsMock.mockResolvedValue({ attemptedRows: 0, dedupedDomains: 0, assertedCount: 0, failedCount: 0, skippedMissingDomainCount: 0, skippedNoMappableFieldsCount: 0, duplicateDomainCount: 0, warnings: [] });
-    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 0, emailCount: 0 });
+    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 0, emailCount: 0, companiesReachedOutToCount: 0 });
     countProcessableCompaniesMock.mockResolvedValue(500);
     process.env.LEMLIST_PUSH_ENABLED = "true";
   });
@@ -1094,7 +1094,7 @@ describe("50-company checkpoint flush", () => {
   });
 
   it("weekly-limit skipped companies count toward the checkpoint threshold", async () => {
-    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 100, emailCount: 0 });
+    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 100, emailCount: 0, companiesReachedOutToCount: 0 });
     readCompaniesMock.mockReturnValueOnce(asyncCompanyRows(makeCompanyRows(50)));
     countProcessableCompaniesMock.mockResolvedValue(50);
 

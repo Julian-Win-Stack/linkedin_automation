@@ -87,6 +87,7 @@ describe("research job routes", () => {
     getWeeklySuccessCountsMock.mockReturnValue({
       linkedinCount: 0,
       emailCount: 0,
+      companiesReachedOutToCount: 0,
     });
     enqueueQueueItemMock.mockReturnValue({
       queueItemId: "queue-1",
@@ -320,6 +321,7 @@ describe("research job routes", () => {
     getWeeklySuccessCountsMock.mockReturnValueOnce({
       linkedinCount: 7,
       emailCount: 9,
+      companiesReachedOutToCount: 11,
     });
     const weekStartMs = Date.now();
 
@@ -332,6 +334,7 @@ describe("research job routes", () => {
     expect(response.body).toEqual({
       linkedinCount: 7,
       emailCount: 9,
+      companiesReachedOutToCount: 11,
     });
     expect(getWeeklySuccessCountsMock).toHaveBeenCalledWith({
       selectedUser: "julian",
