@@ -21,8 +21,8 @@ const CALL1_EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "310", "320"];
 
 // Call 2 — DevOps/Infra-focused (fallback when call 1 returns < 10 results)
 const CALL2_JOB_TITLES = ["Devops", "Infrastructure Engineer", "Staff engineer", "Principal engineer", "Software engineering lead"];
-const CALL2_SENIORITY_LEVEL_IDS = ["110", "120", "130", "200", "210"];
-const CALL2_EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "310", "320", "110", "220", "300"];
+const CALL2_SENIORITY_LEVEL_IDS = ["110", "120", "130", "200", "210", "220"];
+const CALL2_EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "310", "320", "110", "300"];
 const CALL2_EXCLUDE_CURRENT_JOB_TITLES = ["SRE", "Site Reliability", "Platform engineer"];
 const CALL2_EXCLUDE_PAST_JOB_TITLES = ["SRE", "Site Reliability"];
 const CALL2_YEARS_AT_CURRENT_COMPANY_IDS = ["2", "3", "4", "5"];
@@ -83,6 +83,7 @@ interface CompanyEmployeesProfile {
   firstName?: string;
   lastName?: string;
   headline?: string;
+  about?: string;
   openToWork?: boolean;
   skills?: Array<{ name?: string }>;
   experience?: Array<{
@@ -332,6 +333,7 @@ function populateApifyCache(profile: CompanyEmployeesProfile, cache: ApifyOpenTo
     openToWork: profile.openToWork === true,
     experience,
     profileSkills: toProfileSkills(profile),
+    about: profile.about?.trim() || undefined,
     canonicalLinkedinUrl: linkedinUrl,
   };
   cache.set(normalized, cacheEntry);
@@ -382,6 +384,41 @@ async function runCompanyEmployeesActor(
   return [];
 }
 
+function logApifyCallProfiles(
+  callLabel: string,
+  companyName: string,
+  profiles: CompanyEmployeesProfile[]
+): void {
+  const divider = "═".repeat(78);
+  const light = "─".repeat(78);
+  console.error(`\n${divider}`);
+  console.error(`  APIFY ${callLabel} — ${companyName} — ${profiles.length} result${profiles.length === 1 ? "" : "s"}`);
+  console.error(divider);
+  if (profiles.length === 0) {
+    console.error("  (no results)");
+    console.error(light);
+    return;
+  }
+  for (const [index, profile] of profiles.entries()) {
+    const name = [profile.firstName?.trim(), profile.lastName?.trim()].filter(Boolean).join(" ") || "—";
+    const headline = profile.headline?.trim() || "—";
+    const about = profile.about?.trim() || "—";
+    const experience = Array.isArray(profile.experience) ? profile.experience : [];
+    const currentRole = experience.find((e) => !e.endDate || (e.endDate as { text?: string }).text?.trim().toLowerCase() === "present" || (e.endDate as { text?: string }).text?.trim() === "");
+    const currentTitle = currentRole?.position?.trim() || "—";
+    const pastTitles = experience
+      .filter((e) => e !== currentRole && e.position?.trim())
+      .map((e) => e.position!.trim());
+    const pastStr = pastTitles.length > 0 ? pastTitles.join(" | ") : "—";
+    console.error(`\n  ${index + 1}. ${name}`);
+    console.error(`     Headline : ${headline}`);
+    console.error(`     About    : ${about.length > 200 ? about.slice(0, 197) + "…" : about}`);
+    console.error(`     Current  : ${currentTitle}`);
+    console.error(`     Past     : ${pastStr}`);
+  }
+  console.error(`\n${light}\n`);
+}
+
 export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Promise<CompanyEmployeesResult> {
   const apiKey = getRequiredEnv("APIFY_API_KEY");
   const companies = buildCompaniesList(input);
@@ -402,6 +439,8 @@ export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Prom
     recentlyChangedJobs: false,
   }, apiKey);
 
+  logApifyCallProfiles("CALL 1 (SRE-focused)", input.companyName, call1Profiles);
+
   let allProfiles = call1Profiles;
 
   // Call 2: only when call 1 returned fewer than 10 results
@@ -421,6 +460,7 @@ export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Prom
       excludeFunctionIds: EXCLUDE_FUNCTION_IDS,
       recentlyChangedJobs: false,
     }, apiKey);
+    logApifyCallProfiles("CALL 2 (DevOps/Infra-focused)", input.companyName, call2Profiles);
     allProfiles = [...call1Profiles, ...call2Profiles];
   }
 

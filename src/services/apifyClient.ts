@@ -12,8 +12,6 @@ const OVERALL_TIMEOUT_MS = 180_000;
 const LINE_WIDTH = 78;
 const HEAVY_LINE = "═".repeat(LINE_WIDTH);
 const ANSI_ERROR_RED = "\x1b[31m";
-const ANSI_WARNING_YELLOW = "\x1b[33m";
-const ANSI_PURPLE = "\x1b[35m";
 const ANSI_RESET = "\x1b[0m";
 
 const FRONTEND_REGEX = /\b(front[\s-]?end|android|ios|ai|ml|machine[\s-]?learning)\b/i;
@@ -24,13 +22,6 @@ function print(line: string): void {
   void line;
 }
 
-function printWarning(line: string): void {
-  print(`${ANSI_WARNING_YELLOW}${line}${ANSI_RESET}`);
-}
-
-function printPurple(line: string): void {
-  print(`${ANSI_PURPLE}${line}${ANSI_RESET}`);
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -681,15 +672,6 @@ export function filterByKeywordsInApifyData(
     : (maybeKeywords ?? []);
   const matched: EnrichedEmployee[] = [];
   const unmatched: EnrichedEmployee[] = [];
-  const rows: { name: string; companyMatch: string; result: string }[] = [];
-  const checkedInputs: {
-    name: string;
-    linkedinUrl: string;
-    employmentType: string;
-    description: string;
-    experienceSkills: string;
-    profileSkills: string;
-  }[] = [];
   const lowerKeywords = keywords.map((k) => k.toLowerCase());
 
   for (const emp of employees) {
@@ -698,15 +680,6 @@ export function filterByKeywordsInApifyData(
 
     if (!cached) {
       unmatched.push(emp);
-      rows.push({ name: emp.name, companyMatch: "—", result: "UNMATCHED (no Apify data)" });
-      checkedInputs.push({
-        name: emp.name,
-        linkedinUrl: emp.linkedinUrl ?? "—",
-        employmentType: "—",
-        description: "—",
-        experienceSkills: "—",
-        profileSkills: "—",
-      });
       continue;
     }
 
@@ -727,59 +700,18 @@ export function filterByKeywordsInApifyData(
       textsToSearch.push(skill.name);
     }
 
-    const description = matchedEntry?.description?.trim() || "—";
-    const employmentType = matchedEntry?.employmentType?.trim() || "—";
-    const experienceSkills = matchedEntry?.skills?.length ? matchedEntry.skills.join(", ") : "—";
-    const profileSkills = cached.profileSkills.length
-      ? cached.profileSkills.map((skill) => skill.name).join(", ")
-      : "—";
-    checkedInputs.push({
-      name: emp.name,
-      linkedinUrl: emp.linkedinUrl ?? "—",
-      employmentType,
-      description,
-      experienceSkills,
-      profileSkills,
-    });
+    if (cached.about) {
+      textsToSearch.push(cached.about);
+    }
 
     const combined = textsToSearch.join(" ").toLowerCase();
     const hasKeyword = lowerKeywords.some((keyword) => combined.includes(keyword));
 
     if (hasKeyword) {
       matched.push(emp);
-      rows.push({ name: emp.name, companyMatch: matchedEntry?.companyName ?? "—", result: "MATCHED" });
     } else {
       unmatched.push(emp);
-      rows.push({ name: emp.name, companyMatch: matchedEntry?.companyName ?? "—", result: "UNMATCHED" });
     }
-  }
-
-  if (rows.length > 0) {
-    print("");
-    printWarning(`    APIFY INPUTS USED FOR SRE KEYWORD CHECK`);
-    printWarning(`    ${"Name".padEnd(22)}${"LinkedIn URL".padEnd(36)}Description / Skills`);
-    printWarning(`    ${"─".repeat(22)}${"─".repeat(36)}${"─".repeat(24)}`);
-    for (const input of checkedInputs) {
-      const name = input.name.length > 20 ? input.name.slice(0, 19) + "…" : input.name;
-      const url = input.linkedinUrl.length > 34 ? input.linkedinUrl.slice(0, 33) + "…" : input.linkedinUrl;
-      printWarning(`    ${name.padEnd(22)}${url.padEnd(36)}desc: ${input.description}`);
-      printPurple(`    ${" ".repeat(58)}employment type: ${input.employmentType}`);
-      printWarning(`    ${" ".repeat(58)}exp skills: ${input.experienceSkills}`);
-      printWarning(`    ${" ".repeat(58)}profile skills: ${input.profileSkills}`);
-      printWarning(`    ${" ".repeat(58)}${"─".repeat(20)}`);
-    }
-
-    print("");
-    print(`    SRE KEYWORD CHECK (LinkedIn Keyword Expansion)`);
-    print(`    ${"Name".padEnd(22)}${"Company Match".padEnd(24)}Result`);
-    print(`    ${"─".repeat(22)}${"─".repeat(24)}${"─".repeat(24)}`);
-    for (const row of rows) {
-      const name = row.name.length > 20 ? row.name.slice(0, 19) + "…" : row.name;
-      const match = row.companyMatch.length > 22 ? row.companyMatch.slice(0, 21) + "…" : row.companyMatch;
-      print(`    ${name.padEnd(22)}${match.padEnd(24)}${row.result}`);
-    }
-    print(`    Result: ${matched.length} matched · ${unmatched.length} unmatched`);
-    print("");
   }
 
   return { matched, unmatched };

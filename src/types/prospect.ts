@@ -85,6 +85,7 @@ export interface ApifyCacheEntry {
   openToWork: boolean;
   experience: ApifyExperienceEntry[];
   profileSkills: ApifyProfileSkill[];
+  about?: string;
   canonicalLinkedinUrl?: string;
 }
 
