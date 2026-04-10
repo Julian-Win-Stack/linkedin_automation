@@ -168,7 +168,7 @@ async function logoutSelectedUser(): Promise<void> {
   queueItems.value = [];
   selectedFile.value = null;
   error.value = null;
-  weeklySuccessTotals.value = { linkedin: 0, email: 0 };
+  weeklySuccessTotals.value = { linkedin: 0, email: 0, companiesReachedOutTo: 0 };
   clearQueuePolling();
 }
 
