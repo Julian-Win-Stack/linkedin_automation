@@ -183,11 +183,11 @@ describe("apifyCompanyEmployees", () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(result.employees).toHaveLength(10);
     const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(body.jobTitles).toEqual(["SRE", "Site Reliability", "platform engineer"]);
+    expect(body.jobTitles).toEqual(["SRE", "Site Reliability", "platform engineer", "devops"]);
     expect(body.pastJobTitles).toEqual(["SRE", "Site Reliability"]);
-    expect(body.seniorityLevelIds).toEqual(["110", "120", "130", "200", "210", "220"]);
+    expect(body.seniorityLevelIds).toBeUndefined();
     expect(body.companyBatchMode).toBe("all_at_once");
-    expect(body.maxItems).toBe(30);
+    expect(body.maxItems).toBe(200);
     expect(body.recentlyChangedJobs).toBe(false);
   });
 
@@ -208,8 +208,8 @@ describe("apifyCompanyEmployees", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(result.employees).toHaveLength(8);
     const body2 = JSON.parse(mockFetch.mock.calls[1][1].body as string);
-    expect(body2.jobTitles).toEqual(["Devops", "Infrastructure Engineer", "Staff engineer", "Principal engineer", "Software engineering lead"]);
-    expect(body2.excludeCurrentJobTitles).toEqual(["SRE", "Site Reliability", "Platform engineer"]);
+    expect(body2.jobTitles).toEqual(["Infrastructure Engineer", "Staff engineer", "Principal engineer", "Software engineering lead"]);
+    expect(body2.excludeCurrentJobTitles).toEqual(["SRE", "Site Reliability", "Platform engineer", "Devops"]);
     expect(body2.yearsAtCurrentCompanyIds).toEqual(["2", "3", "4", "5"]);
     expect(body2.recentlyChangedJobs).toBe(false);
   });

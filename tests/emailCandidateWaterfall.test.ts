@@ -64,7 +64,7 @@ describe("runEmailCandidateWaterfall", () => {
     expect(filterPoolByStageMock).toHaveBeenCalledTimes(6);
   });
 
-  it("skips first two SRE stages when pre-filter SRE count is below 8", async () => {
+  it("skips the SRE Search stage when pre-filter SRE count is below 8", async () => {
     await runEmailCandidateWaterfall(
       COMPANY,
       new Set(),
@@ -73,16 +73,17 @@ describe("runEmailCandidateWaterfall", () => {
       { rawSreCount: 7 }
     );
 
-    expect(filterPoolByStageMock).toHaveBeenCalledTimes(4);
+    // Stage 0 ("SRE Search") is skipped; the remaining running stages are
+    // Past SRE, Infrastructure, Platform, DevOps, Normal Engineer — five
+    // calls to filterPoolByStage. Eng Leader is also skipped because
+    // listA never reaches the minimum candidate count.
+    expect(filterPoolByStageMock).toHaveBeenCalledTimes(5);
     const firstCallSearchParams = filterPoolByStageMock.mock.calls[0][2];
     expect(firstCallSearchParams).toMatchObject({
-      currentTitles: ["Infrastructure"],
-      pastTitles: undefined,
+      currentTitles: undefined,
     });
-    expect(firstCallSearchParams.notTitles).toContain("automation");
-    expect(firstCallSearchParams.notTitles).toContain("business");
-    expect(firstCallSearchParams.notTitles).toContain("sales");
-    expect(firstCallSearchParams.notTitles).toContain("trainee");
+    expect(firstCallSearchParams.pastTitles).toContain("SRE");
+    expect(firstCallSearchParams.pastTitles).toContain("site reliability");
   });
 
   it("selects SRE candidates from stage 1 with sre bucket", async () => {

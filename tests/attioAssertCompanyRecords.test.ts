@@ -38,6 +38,7 @@ describe("syncAttioCompaniesFromOutputRows", () => {
         { api_slug: "number_of_sres" },
         { api_slug: "current_workflow" },
         { api_slug: "company_linkedin_url" },
+        { api_slug: "outreach_date" },
       ],
     });
     attioPutMock.mockResolvedValue({ data: {} });
@@ -137,6 +138,24 @@ describe("syncAttioCompaniesFromOutputRows", () => {
     expect(body.data.values.Stage).toBeUndefined();
     expect(body.data.values["SRE Count"]).toBeUndefined();
     expect(body.data.values.notes).toBeUndefined();
+  });
+
+  it("maps outreach_date onto the Attio outreach_date slug when the row carries it", async () => {
+    await syncAttioCompaniesFromOutputRows([
+      makeRow({ outreach_date: "Week of 2026-04-06" }),
+    ]);
+
+    expect(attioPutMock).toHaveBeenCalledTimes(1);
+    const body = attioPutMock.mock.calls[0]?.[1] as { data: { values: Record<string, unknown> } };
+    expect(body.data.values.outreach_date).toBe("Week of 2026-04-06");
+  });
+
+  it("omits outreach_date from the Attio payload when the row has no value", async () => {
+    await syncAttioCompaniesFromOutputRows([makeRow()]);
+
+    expect(attioPutMock).toHaveBeenCalledTimes(1);
+    const body = attioPutMock.mock.calls[0]?.[1] as { data: { values: Record<string, unknown> } };
+    expect(body.data.values.outreach_date).toBeUndefined();
   });
 
   it("captures per-domain warnings when assert fails for some rows", async () => {
