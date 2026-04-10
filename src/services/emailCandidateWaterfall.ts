@@ -545,7 +545,7 @@ export async function runEmailCandidateWaterfall(
   for (let stageIndex = 0; stageIndex < EMAIL_CANDIDATE_STAGES.length; stageIndex += 1) {
     const stage = EMAIL_CANDIDATE_STAGES[stageIndex];
     const stageLabel = STAGE_LABELS[stageIndex] ?? `Stage ${stageIndex + 1}`;
-    const isSreSearchStage = stageLabel === "SRE Search" || stageLabel === "Past SRE Search";
+    const isSreSearchStage = stageLabel === "SRE Search";
 
     if (stageIndex === 1 && recycledKeywordMatched.length > 0 && listA.length < MAX_PER_COMPANY) {
       print("");
