@@ -87,6 +87,7 @@ vi.mock("../src/services/observability/csvWriter", () => ({
 
 vi.mock("../src/services/apolloBulkUpdateAccounts", () => ({
   syncApolloAccountsFromOutputRows: (...args: unknown[]) => syncApolloAccountsFromOutputRowsMock(...args),
+  formatCurrentWeekLabel: () => "Week of 2026-04-06",
 }));
 
 vi.mock("../src/services/attioAssertCompanyRecords", () => ({

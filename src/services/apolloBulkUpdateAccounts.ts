@@ -13,6 +13,19 @@ const HARDCODED_CUSTOM_FIELD_IDS: Partial<Record<keyof OutputRow, string>> = {
   sre_count: "6967fde7e9b8720011d25737",
   notes: "696fe565def36a00193ece7e",
 };
+const CURRENT_WEEK_CUSTOM_FIELD_ID = "69af02b6aa89be0015250321";
+
+export function formatCurrentWeekLabel(nowMs: number = Date.now()): string {
+  const d = new Date(nowMs);
+  d.setHours(0, 0, 0, 0);
+  const dayOfWeek = d.getDay();
+  const daysSinceMonday = (dayOfWeek + 6) % 7;
+  d.setDate(d.getDate() - daysSinceMonday);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `Week of ${yyyy}-${mm}-${dd}`;
+}
 const HARDCODED_STAGE_IDS = new Map<string, string>([
   ["Prospecting", "68cc9bfa8d565f0021b01746"],
   ["ChasingPOC", "6971e93a8f17d1001569a9bb"],
@@ -91,7 +104,8 @@ function looksLikeApolloId(value: string): boolean {
 
 function buildAccountAttributesPayload(
   rows: OutputRow[],
-  stageNameToId: Map<string, string>
+  stageNameToId: Map<string, string>,
+  weekLabel: string = formatCurrentWeekLabel()
 ): BuildPayloadResult {
   const unmappedHeadersSet = new Set<string>();
   const accountIdToAttributes = new Map<string, ApolloBulkUpdateAccountAttribute>();
@@ -153,6 +167,8 @@ function buildAccountAttributesPayload(
       skippedNoMappableFieldsCount += 1;
       continue;
     }
+
+    typedCustomFields[CURRENT_WEEK_CUSTOM_FIELD_ID] = weekLabel;
 
     if (!accountIdToAttributes.has(accountId)) {
       dedupedAccountIdsInOrder.push(accountId);
@@ -276,4 +292,6 @@ export async function syncApolloAccountsFromOutputRows(rows: OutputRow[]): Promi
 export const __testOnly__ = {
   buildAccountAttributesPayload,
   chunkArray,
+  formatCurrentWeekLabel,
+  CURRENT_WEEK_CUSTOM_FIELD_ID,
 };

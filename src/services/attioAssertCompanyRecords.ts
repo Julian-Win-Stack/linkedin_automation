@@ -57,6 +57,7 @@ const COLUMN_TO_ATTIO_SLUG_CANDIDATES: Record<keyof OutputRow, string[]> = {
   sre_count: ["number_of_sres"],
   // Live Attio workspace metadata shows the Notes field uses this slug.
   notes: ["current_workflow"],
+  outreach_date: [],
 };
 
 function toDisplayValue(value: unknown): string | undefined {

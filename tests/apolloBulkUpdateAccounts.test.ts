@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { syncApolloAccountsFromOutputRows } from "../src/services/apolloBulkUpdateAccounts";
+import { syncApolloAccountsFromOutputRows, __testOnly__ } from "../src/services/apolloBulkUpdateAccounts";
 import { OutputRow } from "../src/services/observability/csvWriter";
+
+const { formatCurrentWeekLabel, CURRENT_WEEK_CUSTOM_FIELD_ID } = __testOnly__;
+const CURRENT_WEEK_LABEL = formatCurrentWeekLabel();
 
 const apolloPostMock = vi.fn();
 
@@ -43,6 +46,7 @@ describe("syncApolloAccountsFromOutputRows", () => {
               "6980e9f46ff5a0002169a12a": "Datadog",
               "6967fde7e9b8720011d25737": "4",
               "696fe565def36a00193ece7e": "ready",
+              [CURRENT_WEEK_CUSTOM_FIELD_ID]: CURRENT_WEEK_LABEL,
             },
           },
         ],
@@ -72,6 +76,7 @@ describe("syncApolloAccountsFromOutputRows", () => {
       "6980e9f46ff5a0002169a12a": "Datadog",
       "6967fde7e9b8720011d25737": "4",
       "696fe565def36a00193ece7e": "ready",
+      [CURRENT_WEEK_CUSTOM_FIELD_ID]: CURRENT_WEEK_LABEL,
     });
 
     consoleErrorSpy.mockRestore();
@@ -92,6 +97,7 @@ describe("syncApolloAccountsFromOutputRows", () => {
               "6980e9f46ff5a0002169a12a": "Datadog",
               "6967fde7e9b8720011d25737": "4",
               "696fe565def36a00193ece7e": "ready",
+              [CURRENT_WEEK_CUSTOM_FIELD_ID]: CURRENT_WEEK_LABEL,
             },
           },
         ],
@@ -108,6 +114,7 @@ describe("syncApolloAccountsFromOutputRows", () => {
       "6980e9f46ff5a0002169a12a": "Datadog",
       "6967fde7e9b8720011d25737": "4",
       "696fe565def36a00193ece7e": "ready",
+      [CURRENT_WEEK_CUSTOM_FIELD_ID]: CURRENT_WEEK_LABEL,
     });
   });
 
@@ -182,5 +189,47 @@ describe("syncApolloAccountsFromOutputRows", () => {
       "after 1 retry"
     );
     expect(apolloPostMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("stamps the current week on every synced account", async () => {
+    await syncApolloAccountsFromOutputRows([
+      makeRow({ apollo_account_id: "acc_1" }),
+      makeRow({ apollo_account_id: "acc_2", notes: "other" }),
+    ]);
+
+    const accounts = apolloPostMock.mock.calls[0]?.[1]?.account_attributes;
+    expect(accounts).toHaveLength(2);
+    for (const account of accounts) {
+      expect(account.typed_custom_fields[CURRENT_WEEK_CUSTOM_FIELD_ID]).toBe(CURRENT_WEEK_LABEL);
+    }
+  });
+});
+
+describe("formatCurrentWeekLabel", () => {
+  it("returns the Monday of the same week for weekdays Mon-Sat", () => {
+    // 2026-04-06 is a Monday; step through Mon..Sat, each should map back to 2026-04-06.
+    const mondayMs = new Date(2026, 3, 6, 12, 0, 0, 0).getTime();
+    const dayMs = 24 * 60 * 60 * 1000;
+    for (let offset = 0; offset < 6; offset += 1) {
+      expect(formatCurrentWeekLabel(mondayMs + offset * dayMs)).toBe("Week of 2026-04-06");
+    }
+  });
+
+  it("rolls Sunday back to the previous Monday", () => {
+    // Sunday 2026-04-12 should roll back to Monday 2026-04-06.
+    const sundayMs = new Date(2026, 3, 12, 12, 0, 0, 0).getTime();
+    expect(formatCurrentWeekLabel(sundayMs)).toBe("Week of 2026-04-06");
+  });
+
+  it("handles month boundaries (Sunday rolling back into previous month)", () => {
+    // Sunday 2026-05-03 should roll back to Monday 2026-04-27.
+    const sundayMs = new Date(2026, 4, 3, 12, 0, 0, 0).getTime();
+    expect(formatCurrentWeekLabel(sundayMs)).toBe("Week of 2026-04-27");
+  });
+
+  it("zero-pads single-digit month and day", () => {
+    // Monday 2026-01-05.
+    const mondayMs = new Date(2026, 0, 5, 12, 0, 0, 0).getTime();
+    expect(formatCurrentWeekLabel(mondayMs)).toBe("Week of 2026-01-05");
   });
 });

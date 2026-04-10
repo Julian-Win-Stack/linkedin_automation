@@ -37,7 +37,7 @@ import { EnrichedEmployee, ApifyOpenToWorkCache, LemlistPushOutcome, Prospect } 
 import { SelectedUser } from "../shared/selectedUser";
 import { runEmailCandidateWaterfall, TaggedEmailCandidate, LINKEDIN_KEYWORD_STAGE_INFRA, LINKEDIN_KEYWORD_STAGE_DEVOPS, LINKEDIN_KEYWORD_STAGE_NORMAL_ENG } from "../services/emailCandidateWaterfall";
 import { filterOpenToWorkFromCache, filterByKeywordsInApifyData } from "../services/apifyClient";
-import { syncApolloAccountsFromOutputRows } from "../services/apolloBulkUpdateAccounts";
+import { syncApolloAccountsFromOutputRows, formatCurrentWeekLabel } from "../services/apolloBulkUpdateAccounts";
 import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompanyRecords";
 import { getWeeklySuccessCounts, saveWeeklySuccessForJob } from "../services/weeklySuccessStore";
 import { scrapeCompanyEmployees, filterPoolByStage, filterByPastExperienceKeywords } from "../services/apifyCompanyEmployees";
@@ -1050,6 +1050,8 @@ export async function runResearchPipeline(
         const shouldStopAfterCurrentCompany =
           weeklyCounts.linkedinCount + sessionLinkedinSuccessfulCount >= WEEKLY_LINKEDIN_PUSH_LIMIT;
 
+        const outreachDateLabel = formatCurrentWeekLabel();
+
         outputRows.push({
           company_name: row.companyName,
           company_domain: row.companyDomain,
@@ -1059,6 +1061,7 @@ export async function runResearchPipeline(
           stage: "ChasingPOC",
           sre_count: exportedSreCount,
           notes: "",
+          outreach_date: outreachDateLabel,
         });
         syncableOutputRows.push({
           company_name: row.companyName,
@@ -1069,6 +1072,7 @@ export async function runResearchPipeline(
           stage: "ChasingPOC",
           sre_count: exportedSreCount,
           notes: "",
+          outreach_date: outreachDateLabel,
         });
         totalCompaniesReachedOutTo += 1;
         logPipelineStage("COMPANY_DONE", "Company processing complete.", companyContext);
@@ -1094,6 +1098,7 @@ export async function runResearchPipeline(
         const message = error instanceof Error ? error.message : "Unknown pipeline error";
         addJobWarning(jobId, `Apollo/Lemlist failed for ${row.companyName}: ${message}`);
         logPipelineStage("COMPANY_FAILED", `Company failed. error=${message}`, companyContext);
+        const outreachDateLabel = formatCurrentWeekLabel();
         outputRows.push({
           company_name: row.companyName,
           company_domain: row.companyDomain,
@@ -1103,6 +1108,7 @@ export async function runResearchPipeline(
           stage: "ChasingPOC",
           sre_count: 0,
           notes: "",
+          outreach_date: outreachDateLabel,
         });
         syncableOutputRows.push({
           company_name: row.companyName,
@@ -1113,6 +1119,7 @@ export async function runResearchPipeline(
           stage: "ChasingPOC",
           sre_count: 0,
           notes: "",
+          outreach_date: outreachDateLabel,
         });
         totalCompaniesReachedOutTo += 1;
       }

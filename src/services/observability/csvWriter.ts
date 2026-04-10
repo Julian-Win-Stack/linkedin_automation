@@ -9,6 +9,7 @@ export type OutputRow = {
   stage: "ChasingPOC" | "NotActionableNow" | "";
   sre_count: "" | number;
   notes: string;
+  outreach_date?: string;
 };
 
 export type RejectedOutputRow = {
@@ -37,6 +38,7 @@ export function rowsToCsvString(rows: OutputRow[]): Promise<string> {
           { key: "stage", header: "Stage" },
           { key: "sre_count", header: "Number of SREs" },
           { key: "notes", header: "Notes" },
+          { key: "outreach_date", header: "Outreach Date" },
         ],
       },
       (error, output) => {

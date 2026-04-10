@@ -37,6 +37,15 @@ For full architecture details, see @docs/architecture.md
 - **Always use context7** before building or modifying anything that involves a library, framework, or external API. Resolve the library ID first (`mcp__context7__resolve-library-id`), then fetch the relevant docs (`mcp__context7__query-docs`). This applies to Express, Vue, Vitest, Apify, Apollo, Attio, Lemlist, Azure OpenAI, SQLite, and any other dependency in this project.
 - Do not rely on training data for API shapes, SDK methods, or config options — fetch current docs via context7 every time.
 
+## Testing Rule
+
+Whenever you build or change something:
+
+1. **New behavior → write new tests.** If the change introduces behavior that isn't covered by an existing test, add tests for it in the matching `tests/<file>.test.ts`.
+2. **Changed behavior → update existing tests.** If the change alters the shape or semantics of something already covered, update those tests to match the new expectation.
+3. **Always run the full suite at the end.** Run `npm test` after the change and fix anything that breaks. Do not leave the task until the suite is green, except for pre-existing failures on `main` that are unrelated to your change — in that case, call them out explicitly.
+4. **Test mocks must follow new exports.** If you add a new named export to a module, any `vi.mock(...)` of that module in tests must also export it — otherwise consumers will get `undefined` at runtime and fail in surprising ways.
+
 ## Critical Constraints
 
 - **Never commit `.env`** — contains all API keys and campaign IDs.
