@@ -9,10 +9,6 @@ import {
   getJob,
   markJobDone,
   markJobCancelled,
-  markJobError,
-  setSkippedCompanies,
-  setJobSummary,
-  setRejectedCompanies,
   setJobPartialResults,
 } from "../src/jobs/jobStore";
 
@@ -181,92 +177,6 @@ describe("research job routes", () => {
     expect(response.body.error).toContain("selectedUser is required");
   });
 
-  it("returns done status with summary and rejected companies", async () => {
-    const app = createTestApp();
-    const jobId = createJob();
-    setSkippedCompanies(jobId, []);
-    setRejectedCompanies(jobId, ["Company X", "Company Y"], "rejected because they were using other observability tools");
-    setJobSummary(jobId, {
-      totalRows: 2,
-      eligibleCompanyCount: 1,
-      rejectedCompanyCount: 1,
-      skippedMissingWebsiteAndApolloAccountIdCount: 0,
-      apolloProcessedCompanyCount: 1,
-      totalSreFound: 3,
-      totalLinkedinCampaignSuccessful: 1,
-      totalLinkedinCampaignFailed: 0,
-      totalLemlistSuccessful: 2,
-      totalLemlistFailed: 1,
-      totalEmailCampaignSuccessful: 1,
-      totalEmailCampaignFailed: 0,
-      weeklyLimitSkippedCompanyCount: 0,
-    });
-    markJobDone(jobId, Buffer.from("a,b\n1,2\n", "utf8").toString("base64"));
-
-    const response = await request(app).get(`/status/${jobId}`);
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe("done");
-    expect(response.body.skippedCompanies).toEqual([]);
-    expect(response.body.rejectedCompanies).toEqual(["Company X", "Company Y"]);
-    expect(response.body.summary.apolloProcessedCompanyCount).toBe(1);
-    expect(response.body.summary.skippedMissingWebsiteAndApolloAccountIdCount).toBe(0);
-    expect(response.body.summary.totalLinkedinCampaignSuccessful).toBe(1);
-  });
-
-  it("returns 404 when status job does not exist", async () => {
-    const app = createTestApp();
-    const response = await request(app).get("/status/not-a-real-job");
-    expect(response.status).toBe(404);
-  });
-
-  it("returns done status from persisted queue item when finished job was evicted from memory", async () => {
-    const app = createTestApp();
-    getQueueItemByJobIdMock.mockReturnValueOnce({
-      queueItemId: "queue-1",
-      selectedUser: "julian",
-      queueOrder: 1,
-      status: "done",
-      weekStartMs: 0,
-      csvInput: "Company Name,Website\nAcme,acme.com\n",
-      jobId: "finished-job",
-      csvOutputBase64: Buffer.from("a,b\n1,2\n", "utf8").toString("base64"),
-      summary: {
-        totalRows: 2,
-        eligibleCompanyCount: 1,
-        rejectedCompanyCount: 1,
-        skippedMissingWebsiteAndApolloAccountIdCount: 0,
-        apolloProcessedCompanyCount: 1,
-        totalSreFound: 3,
-        totalLinkedinCampaignSuccessful: 1,
-        totalLinkedinCampaignFailed: 0,
-        totalLinkedinCampaignSkipped: 0,
-        totalLemlistSuccessful: 2,
-        totalLemlistFailed: 1,
-        totalLemlistSkipped: 0,
-        totalEmailCampaignSuccessful: 1,
-        totalEmailCampaignFailed: 0,
-        totalEmailCampaignSkipped: 0,
-        weeklyLimitSkippedCompanyCount: 0,
-      },
-      warnings: ["warn-1"],
-      skippedCompanies: [],
-      rejectedCompanies: ["Company X"],
-      rejectedReason: "rejected",
-      errorMessage: null,
-      campaignPushData: null,
-      createdAtMs: 1,
-      updatedAtMs: 2,
-      startedAtMs: 3,
-      completedAtMs: 4,
-    });
-
-    const response = await request(app).get("/status/finished-job");
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe("done");
-    expect(response.body.rejectedCompanies).toEqual(["Company X"]);
-    expect(response.body.summary.apolloProcessedCompanyCount).toBe(1);
-  });
-
   it("lists queue items for selected user", async () => {
     const app = createTestApp();
     listQueueItemsForUserMock.mockReturnValueOnce([
@@ -362,35 +272,6 @@ describe("research job routes", () => {
 
     expect(response.status).toBe(400);
     expect(response.body.error).toContain("weekStartMs");
-  });
-
-  it("returns processing payload contract for in-progress job", async () => {
-    const app = createTestApp();
-    const jobId = createJob();
-    setJobMessage(jobId, "Working");
-    setJobProgress(jobId, { currentRow: 3, totalRows: 20 });
-
-    const response = await request(app).get(`/status/${jobId}`);
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe("pending");
-    expect(response.body.message).toBe("Working");
-    expect(response.body.currentRow).toBe(3);
-    expect(response.body.totalRows).toBe(20);
-    expect(Array.isArray(response.body.warnings)).toBe(true);
-    expect(response.body.csv).toBeUndefined();
-    expect(response.body.summary).toBeUndefined();
-  });
-
-  it("returns error payload contract when job failed", async () => {
-    const app = createTestApp();
-    const jobId = createJob();
-    markJobError(jobId, "pipeline exploded");
-
-    const response = await request(app).get(`/status/${jobId}`);
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe("error");
-    expect(response.body.error).toBe("pipeline exploded");
-    expect(response.body.csv).toBeUndefined();
   });
 
   it("cancels an in-progress job", async () => {

@@ -70,33 +70,33 @@ describe("jobStore lifecycle", () => {
     expect(errorJob?.error).toBe("failed");
   });
 
-  it("does not evict an actively updating job even after 60+ minutes from creation", async () => {
+  it("does not evict an actively updating job even after 1+ minutes from creation", async () => {
     const { createJob, getJob, setJobMessage } = await loadJobStore();
 
     const jobId = createJob(); // T=0, updatedAtMs=0
     expect(getJob(jobId)).toBeDefined();
 
-    // Simulate the job being updated at 59 min (still alive)
-    vi.setSystemTime(new Date("2026-01-01T00:59:00.000Z"));
-    setJobMessage(jobId, "still running"); // updatedAtMs = 59 min
+    // Simulate the job being updated at 59 seconds (still alive)
+    vi.setSystemTime(new Date("2026-01-01T00:00:59.000Z"));
+    setJobMessage(jobId, "still running"); // updatedAtMs = 59 sec
 
-    // Advance to 61 min from start, but only 2 min since last update
-    vi.setSystemTime(new Date("2026-01-01T01:01:00.000Z"));
+    // Advance to 61 seconds from start, but only 2 seconds since last update
+    vi.setSystemTime(new Date("2026-01-01T00:01:01.000Z"));
 
-    // Trigger cleanup — job should NOT be evicted (only 2 min since last update)
+    // Trigger cleanup — job should NOT be evicted (only 2 sec since last update)
     const job = getJob(jobId);
     expect(job).toBeDefined();
     expect(job?.message).toBe("still running");
   });
 
-  it("evicts a stale job that has not been updated for 60+ minutes", async () => {
+  it("evicts a stale job that has not been updated for 1+ minutes", async () => {
     const { createJob, getJob, setJobMessage } = await loadJobStore();
 
     const jobId = createJob(); // T=0
     setJobMessage(jobId, "started"); // updatedAtMs = T=0
 
-    // Advance 61 minutes — no updates since creation
-    vi.setSystemTime(new Date("2026-01-01T01:01:00.000Z"));
+    // Advance 61 seconds — no updates since creation
+    vi.setSystemTime(new Date("2026-01-01T00:01:01.000Z"));
 
     // Another job triggers cleanup
     createJob();

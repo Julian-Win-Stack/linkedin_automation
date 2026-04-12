@@ -41,45 +41,6 @@ function ensureQueueRecovery(): void {
   queueRecovered = true;
 }
 
-function toCompletedJobStatusResponse(item: ReturnType<typeof getQueueItemById>) {
-  if (!item) {
-    return null;
-  }
-  if (item.status === "done") {
-    return {
-      statusCode: 200,
-      body: {
-        status: "done",
-        csv: item.csvOutputBase64 ?? "",
-        warnings: item.warnings,
-        skippedCompanies: item.skippedCompanies,
-        rejectedCompanies: item.rejectedCompanies,
-        rejectedReason: item.rejectedReason,
-        summary: item.summary,
-      },
-    };
-  }
-  if (item.status === "error") {
-    return {
-      statusCode: 200,
-      body: {
-        status: "error",
-        error: item.errorMessage ?? "Unknown error",
-      },
-    };
-  }
-  if (item.status === "cancelled") {
-    return {
-      statusCode: 200,
-      body: {
-        status: "error",
-        error: item.errorMessage ?? "Job was cancelled",
-      },
-    };
-  }
-  return null;
-}
-
 async function processUserQueue(selectedUser: SelectedUser): Promise<void> {
   const config = loadPipelineConfig();
   while (true) {
@@ -248,51 +209,6 @@ router.get("/queue", (req, res) => {
   return res.status(200).json({ items });
 });
 
-router.get("/status/:jobId", (req, res) => {
-  const job = getJob(req.params.jobId);
-  if (!job) {
-    const completedItem = getQueueItemByJobId(req.params.jobId);
-    const completedResponse = toCompletedJobStatusResponse(completedItem);
-    if (completedResponse) {
-      return res.status(completedResponse.statusCode).json(completedResponse.body);
-    }
-    return res.status(404).json({ error: "Job not found" });
-  }
-
-  if (job.status === "done") {
-    return res.status(200).json({
-      status: "done",
-      csv: job.csvBase64 ?? "",
-      warnings: job.warnings,
-      skippedCompanies: job.skippedCompanies,
-      rejectedCompanies: job.rejectedCompanies,
-      rejectedReason: job.rejectedReason,
-      summary: job.summary,
-    });
-  }
-
-  if (job.status === "error") {
-    return res.status(200).json({
-      status: "error",
-      error: job.error ?? "Unknown error",
-    });
-  }
-
-  if (job.status === "cancelled") {
-    return res.status(200).json({
-      status: "error",
-      error: job.message ?? "Job was cancelled",
-    });
-  }
-
-  return res.status(200).json({
-    status: job.status,
-    message: job.message,
-    totalRows: job.totalRows,
-    currentRow: job.currentRow,
-    warnings: job.warnings,
-  });
-});
 
 router.get("/weekly-counts", (req, res) => {
   const selectedUserRaw = typeof req.query?.selectedUser === "string" ? req.query.selectedUser : "";

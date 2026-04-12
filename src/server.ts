@@ -27,5 +27,5 @@ if (existsSync(frontendDist)) {
 
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
-  console.log("Use POST /research and poll GET /status/:jobId.");
+  console.log("Use POST /research and poll GET /queue for job status.");
 });
