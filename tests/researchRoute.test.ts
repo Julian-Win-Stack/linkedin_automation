@@ -20,7 +20,6 @@ const setQueueItemJobIdMock = vi.fn();
 const recoverRunningItemsToQueuedMock = vi.fn();
 const listQueueItemsForUserMock = vi.fn();
 const getQueueItemByIdMock = vi.fn();
-const getQueueItemByJobIdMock = vi.fn();
 const completeQueueItemMock = vi.fn();
 const toQueueLabelMock = vi.fn();
 
@@ -43,7 +42,6 @@ vi.mock("../src/services/queueStore", () => ({
   recoverRunningItemsToQueued: (...args: unknown[]) => recoverRunningItemsToQueuedMock(...args),
   listQueueItemsForUser: (...args: unknown[]) => listQueueItemsForUserMock(...args),
   getQueueItemById: (...args: unknown[]) => getQueueItemByIdMock(...args),
-  getQueueItemByJobId: (...args: unknown[]) => getQueueItemByJobIdMock(...args),
   completeQueueItem: (...args: unknown[]) => completeQueueItemMock(...args),
   toQueueLabel: (...args: unknown[]) => toQueueLabelMock(...args),
 }));
@@ -66,7 +64,6 @@ describe("research job routes", () => {
     recoverRunningItemsToQueuedMock.mockReset();
     listQueueItemsForUserMock.mockReset();
     getQueueItemByIdMock.mockReset();
-    getQueueItemByJobIdMock.mockReset();
     completeQueueItemMock.mockReset();
     toQueueLabelMock.mockReset();
     loadPipelineConfigMock.mockReturnValue({
@@ -92,7 +89,6 @@ describe("research job routes", () => {
     claimNextQueuedItemForUserMock.mockReturnValue(null);
     recoverRunningItemsToQueuedMock.mockReturnValue(0);
     listQueueItemsForUserMock.mockReturnValue([]);
-    getQueueItemByJobIdMock.mockReturnValue(null);
     toQueueLabelMock.mockReturnValue("1st queue");
   });
 
@@ -303,53 +299,6 @@ describe("research job routes", () => {
     expect(response.headers["content-disposition"]).toContain('attachment; filename="research-results.csv"');
   });
 
-  it("downloads pdf for a persisted finished job", async () => {
-    const app = createTestApp();
-    const finishedItem = {
-      queueItemId: "queue-1",
-      selectedUser: "julian",
-      queueOrder: 1,
-      status: "done",
-      weekStartMs: 0,
-      csvInput: "x",
-      jobId: "finished-job",
-      csvOutputBase64: null,
-      summary: null,
-      warnings: [],
-      skippedCompanies: [],
-      rejectedCompanies: [],
-      rejectedReason: null,
-      errorMessage: null,
-      campaignPushData: {
-        linkedinSre: [
-          {
-            companyName: "Acme",
-            name: "Jane Doe",
-            title: "SRE",
-            linkedinUrl: "https://linkedin.com/in/jane",
-            lemlistStatus: "succeed",
-          },
-        ],
-        linkedinEngLead: [],
-        linkedinEng: [],
-        emailSre: [],
-        emailEng: [],
-        emailEngLead: [],
-        filteredOutCandidates: [],
-        normalEngineerApifyWarnings: [],
-      },
-      createdAtMs: 1,
-      updatedAtMs: 2,
-      startedAtMs: 3,
-      completedAtMs: 4,
-    };
-    // called twice: once for ownership check, once for the actual data
-    getQueueItemByJobIdMock.mockReturnValue(finishedItem);
-
-    const response = await request(app).get("/pdf/finished-job").query({ selectedUser: "julian" });
-    expect(response.status).toBe(200);
-    expect(response.headers["content-type"]).toContain("application/pdf");
-  });
 
   it("evicts a finished job from memory after persisting the queue item", async () => {
     const app = createTestApp();
@@ -648,25 +597,6 @@ describe("research job routes", () => {
     expect(response.body.error).toContain("does not belong to this user");
   });
 
-  it("returns 400 when selectedUser is missing for /pdf/:jobId", async () => {
-    const app = createTestApp();
-    const response = await request(app).get("/pdf/some-job-id");
-    expect(response.status).toBe(400);
-    expect(response.body.error).toContain("selectedUser is required");
-  });
-
-  it("returns 403 when selectedUser does not match job owner for /pdf/:jobId", async () => {
-    const app = createTestApp();
-    getQueueItemByJobIdMock.mockReturnValue({
-      queueItemId: "queue-1",
-      selectedUser: "julian",
-      jobId: "some-job-id",
-      status: "done",
-    });
-    const response = await request(app).get("/pdf/some-job-id").query({ selectedUser: "raihan" });
-    expect(response.status).toBe(403);
-    expect(response.body.error).toContain("does not belong to this user");
-  });
 
   it("returns 400 when selectedUser is missing for queue item cancel", async () => {
     const app = createTestApp();

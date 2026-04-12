@@ -12,7 +12,6 @@ import {
   completeQueueItem,
   enqueueQueueItem,
   getQueueItemById,
-  getQueueItemByJobId,
   listQueueItemsForUser,
   recoverRunningItemsToQueued,
   setQueueItemJobId,
@@ -319,48 +318,6 @@ router.post("/queue/clear-finished", (req, res) => {
   return res.status(200).json({ status: "cleared", clearedCount: deletedCount });
 });
 
-router.get("/pdf/:jobId", (req, res) => {
-  const selectedUserRaw = typeof req.query?.selectedUser === "string" ? req.query.selectedUser : "";
-  const normalizedSelectedUser = selectedUserRaw.trim().toLowerCase();
-  if (!isSelectedUser(normalizedSelectedUser)) {
-    return res.status(400).json({
-      error: "selectedUser is required and must be one of: raihan, cherry, julian.",
-    });
-  }
-  const selectedUser: SelectedUser = normalizedSelectedUser;
-
-  const ownerItem = getQueueItemByJobId(req.params.jobId);
-  if (ownerItem && ownerItem.selectedUser !== selectedUser) {
-    return res.status(403).json({ error: "Job does not belong to this user." });
-  }
-
-  const job = getJob(req.params.jobId);
-  if (!job) {
-    const completedItem = getQueueItemByJobId(req.params.jobId);
-    if (!completedItem) {
-      return res.status(404).json({ error: "Job not found" });
-    }
-    if (completedItem.status !== "done" || !completedItem.campaignPushData) {
-      return res.status(400).json({ error: "PDF is not available for this job." });
-    }
-    const persistedDoc = generateCampaignPdf(completedItem.campaignPushData);
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", 'attachment; filename="people.pdf"');
-    persistedDoc.pipe(res);
-    persistedDoc.end();
-    return;
-  }
-  if (job.status !== "done" || !job.campaignPushData) {
-    return res.status(400).json({ error: "PDF is not available for this job." });
-  }
-
-  const doc = generateCampaignPdf(job.campaignPushData);
-
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", 'attachment; filename="people.pdf"');
-  doc.pipe(res);
-  doc.end();
-});
 
 router.get("/queue/:queueItemId/csv", (req, res) => {
   const selectedUserRaw = typeof req.query?.selectedUser === "string" ? req.query.selectedUser : "";
@@ -420,7 +377,7 @@ router.get("/queue/:queueItemId/pdf", (req, res) => {
     res.setHeader("Content-Disposition", 'attachment; filename="people.pdf"');
     doc.pipe(res);
     doc.end();
-    return;
+    return res;
   }
   if (item.jobId) {
     const runningJob = getJob(item.jobId);
@@ -430,7 +387,7 @@ router.get("/queue/:queueItemId/pdf", (req, res) => {
       res.setHeader("Content-Disposition", 'attachment; filename="people-partial.pdf"');
       doc.pipe(res);
       doc.end();
-      return;
+      return res;
     }
   }
   return res.status(400).json({ error: "PDF is not available for this queue item." });
