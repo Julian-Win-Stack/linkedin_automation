@@ -298,14 +298,14 @@ describe("research job routes", () => {
       completedAtMs: 4,
     });
 
-    const response = await request(app).get("/queue/queue-1/csv");
+    const response = await request(app).get("/queue/queue-1/csv").query({ selectedUser: "julian" });
     expect(response.status).toBe(200);
     expect(response.headers["content-disposition"]).toContain('attachment; filename="research-results.csv"');
   });
 
   it("downloads pdf for a persisted finished job", async () => {
     const app = createTestApp();
-    getQueueItemByJobIdMock.mockReturnValueOnce({
+    const finishedItem = {
       queueItemId: "queue-1",
       selectedUser: "julian",
       queueOrder: 1,
@@ -342,9 +342,11 @@ describe("research job routes", () => {
       updatedAtMs: 2,
       startedAtMs: 3,
       completedAtMs: 4,
-    });
+    };
+    // called twice: once for ownership check, once for the actual data
+    getQueueItemByJobIdMock.mockReturnValue(finishedItem);
 
-    const response = await request(app).get("/pdf/finished-job");
+    const response = await request(app).get("/pdf/finished-job").query({ selectedUser: "julian" });
     expect(response.status).toBe(200);
     expect(response.headers["content-type"]).toContain("application/pdf");
   });
@@ -586,7 +588,7 @@ describe("research job routes", () => {
 
     getQueueItemByIdMock.mockReturnValueOnce(makeRunningQueueItem(jobId));
 
-    const response = await request(app).get("/queue/queue-1/csv");
+    const response = await request(app).get("/queue/queue-1/csv").query({ selectedUser: "julian" });
     expect(response.status).toBe(200);
     expect(response.headers["content-disposition"]).toContain("research-results-partial.csv");
     expect(response.text).toBe(partialCsv);
@@ -599,7 +601,7 @@ describe("research job routes", () => {
 
     getQueueItemByIdMock.mockReturnValueOnce(makeRunningQueueItem(jobId));
 
-    const response = await request(app).get("/queue/queue-1/pdf");
+    const response = await request(app).get("/queue/queue-1/pdf").query({ selectedUser: "julian" });
     expect(response.status).toBe(200);
     expect(response.headers["content-type"]).toContain("application/pdf");
     expect(response.headers["content-disposition"]).toContain("people-partial.pdf");
@@ -611,8 +613,75 @@ describe("research job routes", () => {
 
     getQueueItemByIdMock.mockReturnValueOnce(makeRunningQueueItem(jobId));
 
-    const response = await request(app).get("/queue/queue-1/csv");
+    const response = await request(app).get("/queue/queue-1/csv").query({ selectedUser: "julian" });
     expect(response.status).toBe(400);
     expect(response.body.error).toContain("CSV is not available");
+  });
+
+  it("returns 400 when selectedUser is missing for queue csv", async () => {
+    const app = createTestApp();
+    const response = await request(app).get("/queue/queue-1/csv");
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("selectedUser is required");
+  });
+
+  it("returns 403 when selectedUser does not match queue item owner for csv", async () => {
+    const app = createTestApp();
+    getQueueItemByIdMock.mockReturnValueOnce(makeRunningQueueItem("job-1"));
+    const response = await request(app).get("/queue/queue-1/csv").query({ selectedUser: "raihan" });
+    expect(response.status).toBe(403);
+    expect(response.body.error).toContain("does not belong to this user");
+  });
+
+  it("returns 400 when selectedUser is missing for queue pdf", async () => {
+    const app = createTestApp();
+    const response = await request(app).get("/queue/queue-1/pdf");
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("selectedUser is required");
+  });
+
+  it("returns 403 when selectedUser does not match queue item owner for pdf", async () => {
+    const app = createTestApp();
+    getQueueItemByIdMock.mockReturnValueOnce(makeRunningQueueItem("job-1"));
+    const response = await request(app).get("/queue/queue-1/pdf").query({ selectedUser: "raihan" });
+    expect(response.status).toBe(403);
+    expect(response.body.error).toContain("does not belong to this user");
+  });
+
+  it("returns 400 when selectedUser is missing for /pdf/:jobId", async () => {
+    const app = createTestApp();
+    const response = await request(app).get("/pdf/some-job-id");
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("selectedUser is required");
+  });
+
+  it("returns 403 when selectedUser does not match job owner for /pdf/:jobId", async () => {
+    const app = createTestApp();
+    getQueueItemByJobIdMock.mockReturnValue({
+      queueItemId: "queue-1",
+      selectedUser: "julian",
+      jobId: "some-job-id",
+      status: "done",
+    });
+    const response = await request(app).get("/pdf/some-job-id").query({ selectedUser: "raihan" });
+    expect(response.status).toBe(403);
+    expect(response.body.error).toContain("does not belong to this user");
+  });
+
+  it("returns 400 when selectedUser is missing for queue item cancel", async () => {
+    const app = createTestApp();
+    const response = await request(app).post("/queue/queue-1/cancel").send({});
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain("selectedUser is required");
+  });
+
+  it("returns 403 when selectedUser does not match queue item owner for cancel", async () => {
+    const app = createTestApp();
+    getQueueItemByIdMock.mockReturnValueOnce(makeRunningQueueItem("job-1"));
+    const response = await request(app)
+      .post("/queue/queue-1/cancel")
+      .send({ selectedUser: "raihan" });
+    expect(response.status).toBe(403);
+    expect(response.body.error).toContain("does not belong to this user");
   });
 });

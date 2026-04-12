@@ -238,9 +238,21 @@ router.get("/weekly-counts", (req, res) => {
 
 
 router.post("/queue/:queueItemId/cancel", (req, res) => {
+  const selectedUserRaw = typeof req.body?.selectedUser === "string" ? req.body.selectedUser : "";
+  const normalizedSelectedUser = selectedUserRaw.trim().toLowerCase();
+  if (!isSelectedUser(normalizedSelectedUser)) {
+    return res.status(400).json({
+      error: "selectedUser is required and must be one of: raihan, cherry, julian.",
+    });
+  }
+  const selectedUser: SelectedUser = normalizedSelectedUser;
+
   const item = getQueueItemById(req.params.queueItemId);
   if (!item) {
     return res.status(404).json({ error: "Queue item not found" });
+  }
+  if (item.selectedUser !== selectedUser) {
+    return res.status(403).json({ error: "Queue item does not belong to this user." });
   }
   if (item.status === "done" || item.status === "error" || item.status === "cancelled") {
     return res.status(409).json({ error: `Cannot cancel a queue item in status "${item.status}"` });
@@ -308,6 +320,20 @@ router.post("/queue/clear-finished", (req, res) => {
 });
 
 router.get("/pdf/:jobId", (req, res) => {
+  const selectedUserRaw = typeof req.query?.selectedUser === "string" ? req.query.selectedUser : "";
+  const normalizedSelectedUser = selectedUserRaw.trim().toLowerCase();
+  if (!isSelectedUser(normalizedSelectedUser)) {
+    return res.status(400).json({
+      error: "selectedUser is required and must be one of: raihan, cherry, julian.",
+    });
+  }
+  const selectedUser: SelectedUser = normalizedSelectedUser;
+
+  const ownerItem = getQueueItemByJobId(req.params.jobId);
+  if (ownerItem && ownerItem.selectedUser !== selectedUser) {
+    return res.status(403).json({ error: "Job does not belong to this user." });
+  }
+
   const job = getJob(req.params.jobId);
   if (!job) {
     const completedItem = getQueueItemByJobId(req.params.jobId);
@@ -337,9 +363,21 @@ router.get("/pdf/:jobId", (req, res) => {
 });
 
 router.get("/queue/:queueItemId/csv", (req, res) => {
+  const selectedUserRaw = typeof req.query?.selectedUser === "string" ? req.query.selectedUser : "";
+  const normalizedSelectedUser = selectedUserRaw.trim().toLowerCase();
+  if (!isSelectedUser(normalizedSelectedUser)) {
+    return res.status(400).json({
+      error: "selectedUser is required and must be one of: raihan, cherry, julian.",
+    });
+  }
+  const selectedUser: SelectedUser = normalizedSelectedUser;
+
   const item = getQueueItemById(req.params.queueItemId);
   if (!item) {
     return res.status(404).json({ error: "Queue item not found" });
+  }
+  if (item.selectedUser !== selectedUser) {
+    return res.status(403).json({ error: "Queue item does not belong to this user." });
   }
   if (item.csvOutputBase64) {
     const csv = Buffer.from(item.csvOutputBase64, "base64");
@@ -360,9 +398,21 @@ router.get("/queue/:queueItemId/csv", (req, res) => {
 });
 
 router.get("/queue/:queueItemId/pdf", (req, res) => {
+  const selectedUserRaw = typeof req.query?.selectedUser === "string" ? req.query.selectedUser : "";
+  const normalizedSelectedUser = selectedUserRaw.trim().toLowerCase();
+  if (!isSelectedUser(normalizedSelectedUser)) {
+    return res.status(400).json({
+      error: "selectedUser is required and must be one of: raihan, cherry, julian.",
+    });
+  }
+  const selectedUser: SelectedUser = normalizedSelectedUser;
+
   const item = getQueueItemById(req.params.queueItemId);
   if (!item) {
     return res.status(404).json({ error: "Queue item not found" });
+  }
+  if (item.selectedUser !== selectedUser) {
+    return res.status(403).json({ error: "Queue item does not belong to this user." });
   }
   if (item.campaignPushData) {
     const doc = generateCampaignPdf(item.campaignPushData);
