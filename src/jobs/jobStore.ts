@@ -81,7 +81,7 @@ export type JobState = {
 };
 
 const jobs = new Map<string, JobState>();
-const MAX_JOB_AGE_MS = 60 * 60 * 1000;
+const MAX_JOB_AGE_MS = 1 * 60 * 1000;
 const MAX_JOBS = 20;
 let lastCleanupAtMs = 0;
 
