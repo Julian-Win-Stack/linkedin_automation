@@ -8,7 +8,6 @@ import {
   createJob,
   getJob,
   markJobDone,
-  markJobCancelled,
   setJobPartialResults,
 } from "../src/jobs/jobStore";
 
@@ -274,58 +273,6 @@ describe("research job routes", () => {
     expect(response.body.error).toContain("weekStartMs");
   });
 
-  it("cancels an in-progress job", async () => {
-    const app = createTestApp();
-    const jobId = createJob();
-    const response = await request(app).post(`/cancel/${jobId}`);
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe("cancelled");
-  });
-
-  it("returns 409 when cancelling an already cancelled job", async () => {
-    const app = createTestApp();
-    const jobId = createJob();
-    markJobCancelled(jobId);
-    const response = await request(app).post(`/cancel/${jobId}`);
-    expect(response.status).toBe(409);
-  });
-
-  it("returns 409 when cancelling a done job", async () => {
-    const app = createTestApp();
-    const jobId = createJob();
-    markJobDone(jobId, Buffer.from("a,b\n1,2\n", "utf8").toString("base64"));
-    const response = await request(app).post(`/cancel/${jobId}`);
-    expect(response.status).toBe(409);
-  });
-
-  it("returns 409 when cancelling a persisted finished job", async () => {
-    const app = createTestApp();
-    getQueueItemByJobIdMock.mockReturnValueOnce({
-      queueItemId: "queue-1",
-      selectedUser: "julian",
-      queueOrder: 1,
-      status: "done",
-      weekStartMs: 0,
-      csvInput: "x",
-      jobId: "finished-job",
-      csvOutputBase64: null,
-      summary: null,
-      warnings: [],
-      skippedCompanies: [],
-      rejectedCompanies: [],
-      rejectedReason: null,
-      errorMessage: null,
-      campaignPushData: null,
-      createdAtMs: 1,
-      updatedAtMs: 2,
-      startedAtMs: 3,
-      completedAtMs: 4,
-    });
-
-    const response = await request(app).post("/cancel/finished-job");
-    expect(response.status).toBe(409);
-    expect(response.body.error).toContain('"done"');
-  });
 
   it("downloads queue csv with clean filename", async () => {
     const app = createTestApp();

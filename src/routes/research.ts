@@ -236,22 +236,6 @@ router.get("/weekly-counts", (req, res) => {
   return res.status(200).json(counts);
 });
 
-router.post("/cancel/:jobId", (req, res) => {
-  const job = getJob(req.params.jobId);
-  if (!job) {
-    const completedItem = getQueueItemByJobId(req.params.jobId);
-    if (completedItem) {
-      return res.status(409).json({ error: `Cannot cancel a job in status "${completedItem.status}"` });
-    }
-    return res.status(404).json({ error: "Job not found" });
-  }
-  if (job.status === "done" || job.status === "error" || job.status === "cancelled") {
-    return res.status(409).json({ error: `Cannot cancel a job in status "${job.status}"` });
-  }
-
-  markJobCancelled(req.params.jobId);
-  return res.status(200).json({ status: "cancelled" });
-});
 
 router.post("/queue/:queueItemId/cancel", (req, res) => {
   const item = getQueueItemById(req.params.queueItemId);
