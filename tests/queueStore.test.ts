@@ -8,7 +8,6 @@ import {
   completeQueueItem,
   enqueueQueueItem,
   getQueueItemById,
-  getQueueItemByJobId,
   listQueueItemsForUser,
   recoverRunningItemsToQueued,
   setQueueItemJobId,
@@ -110,7 +109,6 @@ describe("queueStore", () => {
     expect(completed?.status).toBe("done");
     expect(completed?.csvOutputBase64).toBeTruthy();
     expect(completed?.warnings).toEqual(["warn-1"]);
-    expect(getQueueItemByJobId("job-1")?.queueItemId).toBe("q-1");
   });
 
   it("formats queue labels correctly", () => {

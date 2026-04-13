@@ -352,17 +352,6 @@ export function getQueueItemById(queueItemId: string): QueueItem | null {
   return row ? rowToQueueItem(row) : null;
 }
 
-export function getQueueItemByJobId(jobId: string): QueueItem | null {
-  const instance = ensureDb();
-  const stmt = instance.prepare<[string], QueueItemRow>(`
-    SELECT *
-    FROM queue_items
-    WHERE job_id = ?
-    LIMIT 1
-  `);
-  const row = stmt.get(jobId);
-  return row ? rowToQueueItem(row) : null;
-}
 
 export function __resetQueueStoreForTests(): void {
   if (!db) {
@@ -371,3 +360,4 @@ export function __resetQueueStoreForTests(): void {
   db.close();
   db = null;
 }
+
