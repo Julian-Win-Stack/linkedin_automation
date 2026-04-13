@@ -22,23 +22,6 @@ describe("jobStore lifecycle", () => {
     expect(getJob(oldJobId)).toBeUndefined();
   });
 
-  it("evicts oldest jobs when max job count is exceeded", async () => {
-    const { createJob, getJob } = await loadJobStore();
-    const ids: string[] = [];
-    for (let index = 0; index < 22; index += 1) {
-      vi.setSystemTime(new Date(`2026-01-01T00:00:${String(index).padStart(2, "0")}.000Z`));
-      ids.push(createJob());
-    }
-
-    // Advance >10s so cleanup runs again and enforces MAX_JOBS.
-    vi.setSystemTime(new Date("2026-01-01T00:01:00.000Z"));
-    const latestId = createJob();
-
-    expect(getJob(latestId)).toBeDefined();
-    expect(getJob(ids[0])).toBeUndefined();
-    expect(getJob(ids[1])).toBeUndefined();
-    expect(getJob(ids[2])).toBeDefined();
-  });
 
   it("updates status fields for done and error jobs", async () => {
     const {

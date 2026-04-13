@@ -82,7 +82,6 @@ export type JobState = {
 
 const jobs = new Map<string, JobState>();
 const MAX_JOB_AGE_MS = 1 * 60 * 1000;
-const MAX_JOBS = 20;
 let lastCleanupAtMs = 0;
 
 function cleanup(nowMs: number): void {
@@ -97,14 +96,6 @@ function cleanup(nowMs: number): void {
     }
   }
 
-  if (jobs.size <= MAX_JOBS) {
-    return;
-  }
-  const sorted = [...jobs.entries()].sort((a, b) => a[1].createdAtMs - b[1].createdAtMs);
-  const toDelete = sorted.length - MAX_JOBS;
-  for (let index = 0; index < toDelete; index += 1) {
-    jobs.delete(sorted[index][0]);
-  }
 }
 
 export function createJob(): string {
