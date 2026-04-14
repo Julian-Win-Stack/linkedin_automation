@@ -166,7 +166,7 @@ describe("apifyCompanyEmployees", () => {
     };
   }
 
-  it("makes only the SRE call when it returns 10 or more results", async () => {
+  it("makes only the SRE call when it returns 5 or more results", async () => {
     const profiles = Array.from({ length: 10 }, (_, i) => makeProfile(`emp-${i + 1}`));
     const mockFetch = vi.fn().mockResolvedValueOnce({
       ok: true,
@@ -191,8 +191,8 @@ describe("apifyCompanyEmployees", () => {
     expect(body.recentlyChangedJobs).toBe(false);
   });
 
-  it("makes the second call when SRE call returns fewer than 10 results", async () => {
-    const call1Profiles = Array.from({ length: 5 }, (_, i) => makeProfile(`sre-${i + 1}`));
+  it("makes the second call when SRE call returns fewer than 5 results", async () => {
+    const call1Profiles = Array.from({ length: 4 }, (_, i) => makeProfile(`sre-${i + 1}`));
     const call2Profiles = Array.from({ length: 3 }, (_, i) => makeProfile(`devops-${i + 1}`));
     const mockFetch = vi.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => call1Profiles })
@@ -206,7 +206,7 @@ describe("apifyCompanyEmployees", () => {
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(2);
-    expect(result.employees).toHaveLength(8);
+    expect(result.employees).toHaveLength(7);
     const body2 = JSON.parse(mockFetch.mock.calls[1][1].body as string);
     expect(body2.jobTitles).toEqual(["Infrastructure Engineer", "Staff engineer", "Principal engineer", "Software engineering lead"]);
     expect(body2.excludeCurrentJobTitles).toEqual(["SRE", "Site Reliability", "Platform engineer", "Devops"]);
@@ -214,8 +214,8 @@ describe("apifyCompanyEmployees", () => {
     expect(body2.recentlyChangedJobs).toBe(false);
   });
 
-  it("does not make a second call when call 1 returns exactly 10 results (boundary)", async () => {
-    const profiles = Array.from({ length: 10 }, (_, i) => makeProfile(`emp-${i + 1}`));
+  it("does not make a second call when call 1 returns exactly 5 results (boundary)", async () => {
+    const profiles = Array.from({ length: 5 }, (_, i) => makeProfile(`emp-${i + 1}`));
     const mockFetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => profiles,

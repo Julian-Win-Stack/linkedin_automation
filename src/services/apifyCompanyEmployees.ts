@@ -26,7 +26,7 @@ const CALL2_EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "310", "320", "110", "300"];
 const CALL2_EXCLUDE_CURRENT_JOB_TITLES = ["SRE", "Site Reliability", "Platform engineer", "Devops"];
 const CALL2_EXCLUDE_PAST_JOB_TITLES = ["SRE", "Site Reliability"];
 const CALL2_YEARS_AT_CURRENT_COMPANY_IDS = ["2", "3", "4", "5"];
-const MIN_CALL1_RESULTS_TO_SKIP_CALL2 = 10;
+const MIN_CALL1_RESULTS_TO_SKIP_CALL2 = 5;
 const EXCLUDE_FUNCTION_IDS = [
   "1",
   "2",
