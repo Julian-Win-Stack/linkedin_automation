@@ -182,7 +182,7 @@ function getCurrentWeekStartMsLocal(nowMs = Date.now()): number {
 
 async function refreshWeeklySuccessTotals(): Promise<void> {
   if (!selectedUser.value) {
-    weeklySuccessTotals.value = { linkedin: 0, email: 0, companiesReachedOutTo: 0 };
+    weeklySuccessTotals.value = { linkedin: 0, companiesReachedOutTo: 0 };
     return;
   }
   try {
