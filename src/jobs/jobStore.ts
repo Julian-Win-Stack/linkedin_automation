@@ -11,13 +11,15 @@ export interface CampaignPushEntry {
   lemlistError?: string;
 }
 
-export type FilteredOutReason = "open_to_work" | "frontend_role" | "contract_employment";
+export type FilteredOutReason = "open_to_work" | "frontend_role" | "contract_employment" | "hardware_heavy" | "qa_title";
 
 export interface FilteredOutCampaignSummary {
   companyName: string;
   openToWorkCount: number;
   frontendRoleCount: number;
   contractEmploymentCount: number;
+  hardwareHeavyCount: number;
+  qaTitleCount: number;
 }
 
 export interface WarningProblemSummary {
@@ -35,9 +37,6 @@ export interface CampaignPushData {
   linkedinSre: CampaignPushEntry[];
   linkedinEngLead: CampaignPushEntry[];
   linkedinEng: CampaignPushEntry[];
-  emailSre: CampaignPushEntry[];
-  emailEng: CampaignPushEntry[];
-  emailEngLead: CampaignPushEntry[];
   filteredOutCandidates: FilteredOutCampaignSummary[];
   normalEngineerApifyWarnings: NormalEngineerApifyWarningSummary[];
 }
@@ -52,12 +51,6 @@ export interface JobSummary {
   totalLinkedinCampaignSuccessful: number;
   totalLinkedinCampaignFailed: number;
   totalLinkedinCampaignSkipped: number;
-  totalLemlistSuccessful: number;
-  totalLemlistFailed: number;
-  totalLemlistSkipped: number;
-  totalEmailCampaignSuccessful: number;
-  totalEmailCampaignFailed: number;
-  totalEmailCampaignSkipped: number;
   weeklyLimitSkippedCompanyCount: number;
 }
 

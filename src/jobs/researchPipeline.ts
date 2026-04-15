@@ -1,7 +1,6 @@
 import { getEnvBoolean } from "../config/env";
 import { PipelineConfig } from "../config/pipelineConfig";
 import { getCompany, ResolvedCompany } from "../services/getCompany";
-import { pushPeopleToLemlistEmailCampaign } from "../services/lemlistEmailPushQueue";
 import { pushPeopleToLemlistCampaign, TaggedLinkedinCandidate } from "../services/lemlistPushQueue";
 import {
   PeopleSearchFilters,
@@ -9,7 +8,7 @@ import {
 } from "../services/searchPeople";
 import { countProcessableCompanies, readCompanies } from "../services/observability/csvReader";
 import { researchCompany } from "../services/observability/openaiClient";
-import { fillToMinimumWithBackfill, selectTopSreForLemlist, selectKeywordMatchedByTenure } from "../services/sreSelection";
+import { fillToMinimumWithBackfill, selectTopSreForLemlist, selectKeywordMatchedByTenure, runBackfillStages } from "../services/sreSelection";
 import {
   OutputRow,
   RejectedOutputRow,
@@ -35,13 +34,11 @@ import {
 } from "./jobStore";
 import { EnrichedEmployee, ApifyOpenToWorkCache, LemlistPushOutcome, Prospect } from "../types/prospect";
 import { SelectedUser } from "../shared/selectedUser";
-import { runEmailCandidateWaterfall, TaggedEmailCandidate, LINKEDIN_KEYWORD_STAGE_INFRA, LINKEDIN_KEYWORD_STAGE_DEVOPS, LINKEDIN_KEYWORD_STAGE_NORMAL_ENG } from "../services/emailCandidateWaterfall";
-import { filterOpenToWorkFromCache, filterByKeywordsInApifyData } from "../services/apifyClient";
+import { filterOpenToWorkFromCache, filterByKeywordsInApifyData, filterOutHardwareHeavyPeople } from "../services/apifyClient";
 import { syncApolloAccountsFromOutputRows, formatCurrentWeekLabel } from "../services/apolloBulkUpdateAccounts";
 import { syncAttioCompaniesFromOutputRows } from "../services/attioAssertCompanyRecords";
 import { getWeeklySuccessCounts, saveWeeklySuccessForJob } from "../services/weeklySuccessStore";
-import { scrapeCompanyEmployees, filterPoolByStage, filterByPastExperienceKeywords } from "../services/apifyCompanyEmployees";
-import { findEmailsInBulk } from "../services/apolloBulkEmailEnrichment";
+import { scrapeCompanyEmployees, filterByPastExperienceKeywords } from "../services/apifyCompanyEmployees";
 
 const MAX_ROWS = 500;
 const CHECKPOINT_SIZE = 50;
@@ -66,7 +63,9 @@ const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
 const WEEKLY_LINKEDIN_PUSH_LIMIT = 100;
 const LINKEDIN_LEADERSHIP_TITLE_REGEX = /\b(director|svp|vp|head|chief)\b/i;
 const EMAIL_TITLE_REJECT_REGEX = /\b(data|front[\s-]?end)\b/i;
-const ENG_LEAD_EMAIL_TITLE_REGEX = /\b(vice\s+principal|vp|director|chief|head)\b/i;
+
+const DEVOPS_TITLE_REGEX = /\b(devops|dev[\s-]?ops)\b/i;
+const QA_TITLE_REJECT_REGEX = /\bQA\b/i;
 
 const SRE_WORK_KEYWORDS: string[] = [
   "Oncall",
@@ -120,17 +119,6 @@ const SRE_WORK_KEYWORDS: string[] = [
   "Terraform",
 ];
 
-const LINKEDIN_KEYWORD_STAGES = [
-  { label: "DevOps", config: LINKEDIN_KEYWORD_STAGE_DEVOPS },
-  { label: "Infrastructure", config: LINKEDIN_KEYWORD_STAGE_INFRA },
-  { label: "Normal Engineer", config: LINKEDIN_KEYWORD_STAGE_NORMAL_ENG },
-];
-
-interface PendingEmailPushBatch {
-  companyName: string;
-  companyDomain: string;
-  candidates: TaggedEmailCandidate[];
-}
 
 type LinkedinPoolBucket = "sre" | "eng" | "engLead";
 
@@ -154,6 +142,8 @@ function getOrCreateFilteredOutSummary(
       openToWorkCount: 0,
       frontendRoleCount: 0,
       contractEmploymentCount: 0,
+      hardwareHeavyCount: 0,
+      qaTitleCount: 0,
     };
     campaignPushData.filteredOutCandidates.push(existing);
   }
@@ -176,6 +166,10 @@ function addFilteredOutCounts(
       summary.frontendRoleCount += 1;
     } else if (reason === "contract_employment") {
       summary.contractEmploymentCount += 1;
+    } else if (reason === "hardware_heavy") {
+      summary.hardwareHeavyCount += 1;
+    } else if (reason === "qa_title") {
+      summary.qaTitleCount += 1;
     }
   }
 }
@@ -303,73 +297,6 @@ function normalizeLinkedinUrlForLookup(url: string): string {
     .toLowerCase();
 }
 
-async function findEmailsForBatch(
-  batch: PendingEmailPushBatch,
-  jobId: string,
-  companyContext: { index: number; total: number; companyName: string }
-): Promise<void> {
-  const enrichmentInput = batch.candidates
-    .filter(({ employee }) => (employee.linkedinUrl?.trim() ?? "").length > 0)
-    .map(({ employee }) => ({
-      name: employee.name,
-      domain: batch.companyDomain,
-      linkedinUrl: employee.linkedinUrl!.trim(),
-    }));
-
-  if (enrichmentInput.length === 0) {
-    return;
-  }
-
-  try {
-    const emailsByLinkedin = await findEmailsInBulk(enrichmentInput);
-    for (const candidate of batch.candidates) {
-      const linkedinUrl = candidate.employee.linkedinUrl?.trim() ?? "";
-      if (!linkedinUrl || (candidate.employee.email && candidate.employee.email.trim().length > 0)) {
-        continue;
-      }
-      const foundEmail = emailsByLinkedin.get(normalizeLinkedinUrlForLookup(linkedinUrl));
-      if (foundEmail) {
-        candidate.employee.email = foundEmail;
-      }
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown Apollo bulk email enrichment error";
-    addJobWarning(jobId, `Apollo bulk email enrichment failed for ${batch.companyName}: ${message}`);
-  }
-}
-
-async function enrichAndPushEmailBatch(
-  batch: PendingEmailPushBatch,
-  jobId: string,
-  companyContext: { index: number; total: number; companyName: string },
-  selectedUser: SelectedUser,
-  campaignPushData: CampaignPushData,
-  onTotals: (result: { successful: number; failed: number; skipped: number }) => void
-): Promise<void> {
-  await findEmailsForBatch(batch, jobId, companyContext);
-  const emailPushMeta = await pushPeopleToLemlistEmailCampaign(
-    batch.candidates,
-    batch.companyName,
-    batch.companyDomain,
-    selectedUser
-  );
-  const emailOutcomeByKey = toOutcomeMap(emailPushMeta.outcomes);
-  for (const { employee, campaignBucket } of batch.candidates) {
-    const entry = toCampaignPushEntry(employee, emailOutcomeByKey, batch.companyName);
-    if (campaignBucket === "sre") {
-      campaignPushData.emailSre.push(entry);
-    } else if (campaignBucket === "engLead") {
-      campaignPushData.emailEngLead.push(entry);
-    } else {
-      campaignPushData.emailEng.push(entry);
-    }
-  }
-  onTotals({
-    successful: emailPushMeta.successful,
-    failed: emailPushMeta.failed,
-    skipped: emailPushMeta.outcomes.filter((outcome) => outcome.status === "skipped").length,
-  });
-}
 
 
 function dedupeEmployeesByKey(employees: EnrichedEmployee[]): EnrichedEmployee[] {
@@ -452,7 +379,6 @@ export async function runResearchPipeline(
   const rejectedOutputRows: RejectedOutputRow[] = [];
   const rejectedCompanies: string[] = [];
   const skippedCompanies: string[] = [];
-  let batchEmailTasks: Promise<void>[] = [];
   let companiesSinceLastCheckpoint = 0;
   let lastCheckpointSyncableIndex = 0;
   let lastCheckpointRejectedIndex = 0;
@@ -463,12 +389,6 @@ export async function runResearchPipeline(
   let totalLinkedinCampaignSuccessful = 0;
   let totalLinkedinCampaignFailed = 0;
   let totalLinkedinCampaignSkipped = 0;
-  let totalLemlistSuccessful = 0;
-  let totalLemlistFailed = 0;
-  let totalLemlistSkipped = 0;
-  let totalEmailCampaignSuccessful = 0;
-  let totalEmailCampaignFailed = 0;
-  let totalEmailCampaignSkipped = 0;
   let totalCompaniesReachedOutTo = 0;
   let eligibleCompanyCount = 0;
   let weeklyLimitSkippedCompanyCount = 0;
@@ -480,19 +400,11 @@ export async function runResearchPipeline(
     linkedinSre: [],
     linkedinEngLead: [],
     linkedinEng: [],
-    emailSre: [],
-    emailEng: [],
-    emailEngLead: [],
     filteredOutCandidates: [],
     normalEngineerApifyWarnings: [],
   };
 
   async function flushCheckpoint(): Promise<void> {
-    if (batchEmailTasks.length > 0) {
-      await Promise.allSettled(batchEmailTasks);
-      batchEmailTasks = [];
-    }
-
     const newSyncableRows = syncableOutputRows.slice(lastCheckpointSyncableIndex);
     const newRejectedRows: OutputRow[] = rejectedOutputRows.slice(lastCheckpointRejectedIndex).map((row) => ({
       company_name: row.company_name,
@@ -533,7 +445,6 @@ export async function runResearchPipeline(
       selectedUser,
       completedAtMs: Date.now(),
       linkedinSuccessCount: totalLinkedinCampaignSuccessful,
-      emailSuccessCount: totalEmailCampaignSuccessful,
       companiesReachedOutToCount: totalCompaniesReachedOutTo,
     });
 
@@ -706,8 +617,7 @@ export async function runResearchPipeline(
         );
 
         const linkedinCandidates: LinkedinPoolCandidate[] = [];
-        let keywordMatchedEmailRecycled: EnrichedEmployee[] = [];
-        let prePlatformKeys: Set<string> | null = null;
+        let preBackfillKeys: Set<string> | null = null;
 
         const currentSrePool = profilePool.filter((employee) =>
           SRE_PERSON_TITLES.some(
@@ -776,37 +686,41 @@ export async function runResearchPipeline(
         {
           logPipelineInfo(`\n${"═".repeat(78)}\n  LINKEDIN KEYWORD EXPANSION — ${row.companyName} (${row.companyDomain})\n${"═".repeat(78)}\n\n`);
           logPipelineStage("KEYWORD_EXPANSION_START", "LinkedIn keyword expansion started.", companyContext);
-          const allKeywordMatched: EnrichedEmployee[] = [];
           const alreadyLinkedinKeys = new Set(linkedinCandidates.map((candidate) => toEmployeeKey(candidate.employee)));
 
-          for (const { label, config: stageConfig } of LINKEDIN_KEYWORD_STAGES) {
-            logPipelineInfo(`  ▸ Filtering ${label} candidates from local pool...\n`);
-            const stagePool = filterPoolByStage(profilePool, apifyCache, {
-              currentTitles: stageConfig.currentTitles,
-              pastTitles: stageConfig.pastTitles,
-              notTitles: stageConfig.notTitles,
-              notPastTitles: stageConfig.notPastTitles,
-            }).filter((employee) => !alreadyLinkedinKeys.has(toEmployeeKey(employee)));
-            const stageFiltered = filterOpenToWorkFromCache(stagePool, apifyCache, {
-              companyName: row.companyName,
-              companyDomain: row.companyDomain,
-            });
-            for (const warning of stageFiltered.warnings) {
-              addJobWarning(jobId, warning);
-            }
-            addFilteredOutCounts(
-              campaignPushData,
-              company.companyName,
-              stageFiltered.filteredOut.map(({ reason }) => reason)
+          const devopsPool = profilePool.filter((employee) => {
+            const title = employee.currentTitle ?? "";
+            return (
+              DEVOPS_TITLE_REGEX.test(title) &&
+              !QA_TITLE_REJECT_REGEX.test(title) &&
+              !alreadyLinkedinKeys.has(toEmployeeKey(employee))
             );
-            const { matched } = filterByKeywordsInApifyData(stageFiltered.kept, apifyCache, SRE_WORK_KEYWORDS);
-            allKeywordMatched.push(...matched);
-            logPipelineInfo(`  ▸ ${label}: ${matched.length} matched SRE keywords\n`);
+          });
+          logPipelineInfo(`  ▸ DevOps pool size: ${devopsPool.length}\n`);
+
+          const devopsFiltered = filterOpenToWorkFromCache(devopsPool, apifyCache, {
+            companyName: row.companyName,
+            companyDomain: row.companyDomain,
+          });
+          for (const warning of devopsFiltered.warnings) {
+            addJobWarning(jobId, warning);
           }
+          addFilteredOutCounts(
+            campaignPushData,
+            company.companyName,
+            devopsFiltered.filteredOut.map(({ reason }) => reason)
+          );
+          const devopsHardwareFiltered = filterOutHardwareHeavyPeople(devopsFiltered.kept, apifyCache);
+          const { matched: allKeywordMatched } = filterByKeywordsInApifyData(
+            devopsHardwareFiltered.kept,
+            apifyCache,
+            SRE_WORK_KEYWORDS
+          );
+          logPipelineInfo(`  ▸ DevOps keyword matched: ${allKeywordMatched.length}\n`);
 
           if (allKeywordMatched.length > 0) {
             const selectedForLinkedin = linkedinCandidates.map((candidate) => candidate.employee);
-            const { forLinkedin, forEmailRecycling } = selectKeywordMatchedByTenure(
+            const { forLinkedin } = selectKeywordMatchedByTenure(
               allKeywordMatched,
               selectedForLinkedin,
               7
@@ -817,11 +731,10 @@ export async function runResearchPipeline(
                 linkedinBucket: toLinkedinPoolBucket(employee),
               }))
             );
-            keywordMatchedEmailRecycled = forEmailRecycling;
           }
           logPipelineStage(
             "KEYWORD_EXPANSION_DONE",
-            `Keyword expansion complete. linkedin_total=${linkedinCandidates.length} recycled=${keywordMatchedEmailRecycled.length}`,
+            `Keyword expansion complete. linkedin_total=${linkedinCandidates.length}`,
             companyContext
           );
         }
@@ -849,27 +762,30 @@ export async function runResearchPipeline(
           );
 
           if (selectedForLemlist.length < 5) {
-            prePlatformKeys = new Set(selectedForLemlist.map(toEmployeeKey));
-            logPipelineStage("BACKFILL_PHASE_2_START", "Backfill phase 2 (platform) started.", companyContext);
-            const platformPool = filterPoolByStage(profilePool, apifyCache, {
-              currentTitles: ["platform engineer"],
-            });
-            const platformFiltered = filterOpenToWorkFromCache(platformPool, apifyCache, {
-              companyName: row.companyName,
-              companyDomain: row.companyDomain,
-            });
-            addFilteredOutCounts(
-              campaignPushData,
-              company.companyName,
-              platformFiltered.filteredOut.map(({ reason }) => reason)
+            preBackfillKeys = new Set(selectedForLemlist.map(toEmployeeKey));
+            logPipelineStage("BACKFILL_STAGES_START", "Backfill stages (Infra→Platform→DevOps→NormalEng→EngLeader) started.", companyContext);
+            const backfillResult = runBackfillStages(
+              selectedForLemlist,
+              profilePool,
+              apifyCache,
+              { companyName: row.companyName, companyDomain: row.companyDomain }
             );
-            selectedForLemlist = fillToMinimumWithBackfill(selectedForLemlist, [], platformFiltered.kept, {
-              minimum: 5,
-              max: 5,
-            });
+            for (const w of backfillResult.warnings) addJobWarning(jobId, w);
+            addFilteredOutCounts(campaignPushData, company.companyName, backfillResult.filteredOutReasons);
+            if (backfillResult.normalEngineerApifyWarnings.length > 0) {
+              addWarningProblemCounts(
+                campaignPushData,
+                company.companyName,
+                backfillResult.normalEngineerApifyWarnings.map(({ problem }) => problem)
+              );
+            }
+            selectedForLemlist = dedupeEmployeesByKey([
+              ...selectedForLemlist,
+              ...backfillResult.candidates.map((c) => c.employee),
+            ]);
             logPipelineStage(
-              "BACKFILL_PHASE_2_DONE",
-              `Backfill phase 2 complete. selected_after_phase2=${selectedForLemlist.length}`,
+              "BACKFILL_STAGES_DONE",
+              `Backfill stages complete. selected_after_backfill=${selectedForLemlist.length}`,
               companyContext
             );
           }
@@ -884,9 +800,9 @@ export async function runResearchPipeline(
           const taggedForLemlist: TaggedLinkedinCandidate[] = selectedForLemlist
             .filter((emp) => !EMAIL_TITLE_REJECT_REGEX.test(emp.currentTitle))
             .map((emp) => {
-              const fromPrePlatformPhase = prePlatformKeys === null || prePlatformKeys.has(toEmployeeKey(emp));
+              const fromStages123 = preBackfillKeys === null || preBackfillKeys.has(toEmployeeKey(emp));
               const isLeadershipTitle = isLinkedinLeadershipTitle(emp.currentTitle);
-              const linkedinBucket = fromPrePlatformPhase
+              const linkedinBucket = fromStages123
                 ? (isLeadershipTitle ? "engLead" as const : "sre" as const)
                 : (isLeadershipTitle ? "engLead" as const : "eng" as const);
               return {
@@ -960,9 +876,6 @@ export async function runResearchPipeline(
           totalLinkedinCampaignSuccessful += lemlistSuccessful;
           totalLinkedinCampaignFailed += lemlistFailed;
           totalLinkedinCampaignSkipped += lemlistSkipped;
-          totalLemlistSuccessful += lemlistSuccessful;
-          totalLemlistFailed += lemlistFailed;
-          totalLemlistSkipped += lemlistSkipped;
           logPipelineInfo(
             `  ▸ LinkedIn push done — ${lemlistSuccessful} successful, ${lemlistFailed} failed, ${lemlistSkipped} skipped\n`
           );
@@ -971,80 +884,6 @@ export async function runResearchPipeline(
             `LinkedIn push complete. successful=${lemlistSuccessful} failed=${lemlistFailed} skipped=${lemlistSkipped}`,
             companyContext
           );
-        }
-
-        if (lemlistEnabled) {
-          const attemptedLinkedinKeys = new Set(selectedForLemlist.map((employee) => toEmployeeKey(employee)));
-          logPipelineInfo(`  ▸ Starting email candidate waterfall...\n`);
-          logPipelineStage("EMAIL_WATERFALL_START", "Email candidate waterfall started.", companyContext);
-          const waterfallResult = await runEmailCandidateWaterfall(
-            company,
-            attemptedLinkedinKeys,
-            profilePool,
-            apifyCache,
-            { rawSreCount, recycledKeywordMatched: keywordMatchedEmailRecycled }
-          );
-          logPipelineStage(
-            "EMAIL_WATERFALL_DONE",
-            `Email candidate waterfall complete. candidates=${waterfallResult.candidates.length}`,
-            companyContext
-          );
-
-          for (const warning of waterfallResult.warnings) {
-            addJobWarning(jobId, warning);
-          }
-
-          if (waterfallResult.normalEngineerApifyWarnings.length > 0) {
-            addWarningProblemCounts(
-              campaignPushData,
-              company.companyName,
-              waterfallResult.normalEngineerApifyWarnings.map(({ problem }) => problem)
-            );
-          }
-
-          if (waterfallResult.filteredOutCandidates.length > 0) {
-            addFilteredOutCounts(
-              campaignPushData,
-              company.companyName,
-              waterfallResult.filteredOutCandidates.map(({ reason }) => reason)
-            );
-          }
-
-          const emailCandidates = waterfallResult.candidates.filter(
-            ({ employee, campaignBucket }) => {
-              if (EMAIL_TITLE_REJECT_REGEX.test(employee.currentTitle)) return false;
-              if (campaignBucket === "engLead" && !ENG_LEAD_EMAIL_TITLE_REGEX.test(employee.currentTitle)) return false;
-              return true;
-            }
-          );
-
-          if (emailCandidates.length > 0) {
-            const emailBatch: PendingEmailPushBatch = {
-              companyName: company.companyName,
-              companyDomain: company.domain,
-              candidates: emailCandidates,
-            };
-            batchEmailTasks.push(
-              enrichAndPushEmailBatch(
-                emailBatch,
-                jobId,
-                companyContext,
-                selectedUser,
-                campaignPushData,
-                ({ successful, failed, skipped }) => {
-                  totalLemlistSuccessful += successful;
-                  totalLemlistFailed += failed;
-                  totalLemlistSkipped += skipped;
-                  totalEmailCampaignSuccessful += successful;
-                  totalEmailCampaignFailed += failed;
-                  totalEmailCampaignSkipped += skipped;
-                }
-              ).catch((error) => {
-                const message = error instanceof Error ? error.message : "Unknown email company task error";
-                addJobWarning(jobId, `Email push failed for ${emailBatch.companyName}: ${message}`);
-              })
-            );
-          }
         }
 
         const shouldStopAfterCurrentCompany =
@@ -1152,12 +991,6 @@ export async function runResearchPipeline(
       totalLinkedinCampaignSuccessful,
       totalLinkedinCampaignFailed,
       totalLinkedinCampaignSkipped,
-      totalLemlistSuccessful,
-      totalLemlistFailed,
-      totalLemlistSkipped,
-      totalEmailCampaignSuccessful,
-      totalEmailCampaignFailed,
-      totalEmailCampaignSkipped,
       weeklyLimitSkippedCompanyCount,
     };
     setJobSummary(jobId, summary);
@@ -1184,7 +1017,7 @@ export async function runResearchPipeline(
     markJobDone(jobId, csvBase64);
     logPipelineStage(
       "JOB_DONE",
-      `Job done: processed=${apolloProcessedCompanyCount} linkedin_success=${totalLinkedinCampaignSuccessful} linkedin_skipped=${totalLinkedinCampaignSkipped} lemlist_success=${totalLemlistSuccessful} lemlist_failed=${totalLemlistFailed} lemlist_skipped=${totalLemlistSkipped}`
+      `Job done: processed=${apolloProcessedCompanyCount} linkedin_success=${totalLinkedinCampaignSuccessful} linkedin_skipped=${totalLinkedinCampaignSkipped}`
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected job failure";

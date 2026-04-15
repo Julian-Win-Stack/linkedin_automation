@@ -33,7 +33,6 @@ router.post("/admin/adjust-weekly-counts", (req, res) => {
   const {
     selectedUser: rawUser,
     targetLinkedinCount,
-    targetEmailCount,
     targetCompaniesReachedOutToCount,
     weekStartMs: rawWeekStartMs,
   } = req.body ?? {};
@@ -45,10 +44,6 @@ router.post("/admin/adjust-weekly-counts", (req, res) => {
 
   if (typeof targetLinkedinCount !== "number" || !Number.isInteger(targetLinkedinCount) || targetLinkedinCount < 0) {
     return res.status(400).json({ error: "targetLinkedinCount must be a non-negative integer." });
-  }
-
-  if (typeof targetEmailCount !== "number" || !Number.isInteger(targetEmailCount) || targetEmailCount < 0) {
-    return res.status(400).json({ error: "targetEmailCount must be a non-negative integer." });
   }
 
   if (
@@ -69,15 +64,13 @@ router.post("/admin/adjust-weekly-counts", (req, res) => {
 
   const current = getWeeklySuccessCounts({ selectedUser: normalizedUser, weekStartMs });
   const linkedinDelta = targetLinkedinCount - current.linkedinCount;
-  const emailDelta = targetEmailCount - current.emailCount;
   const companiesReachedOutToDelta =
     targetCompaniesReachedOutToCount - current.companiesReachedOutToCount;
 
-  if (linkedinDelta !== 0 || emailDelta !== 0 || companiesReachedOutToDelta !== 0) {
+  if (linkedinDelta !== 0 || companiesReachedOutToDelta !== 0) {
     insertWeeklySuccessAdjustment({
       selectedUser: normalizedUser,
       linkedinDelta,
-      emailDelta,
       companiesReachedOutToDelta,
       nowMs,
     });
@@ -86,13 +79,10 @@ router.post("/admin/adjust-weekly-counts", (req, res) => {
   return res.status(200).json({
     selectedUser: normalizedUser,
     previousLinkedinCount: current.linkedinCount,
-    previousEmailCount: current.emailCount,
     previousCompaniesReachedOutToCount: current.companiesReachedOutToCount,
     newLinkedinCount: targetLinkedinCount,
-    newEmailCount: targetEmailCount,
     newCompaniesReachedOutToCount: targetCompaniesReachedOutToCount,
     adjustedLinkedinBy: linkedinDelta,
-    adjustedEmailBy: emailDelta,
     adjustedCompaniesReachedOutToBy: companiesReachedOutToDelta,
   });
 });

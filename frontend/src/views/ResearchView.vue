@@ -40,7 +40,7 @@ const error = ref<string | null>(null);
 const queueItems = ref<QueueItem[]>([]);
 const selectedUser = ref<SelectedUser | null>(null);
 const queuePollIntervalId = ref<number | null>(null);
-const weeklySuccessTotals = ref({ linkedin: 0, email: 0, companiesReachedOutTo: 0 });
+const weeklySuccessTotals = ref({ linkedin: 0, companiesReachedOutTo: 0 });
 
 const canAddToQueue = computed(() => !isSubmitting.value && !!selectedFile.value && !!selectedUser.value);
 const selectedUserLabel = computed(() => {
@@ -168,7 +168,7 @@ async function logoutSelectedUser(): Promise<void> {
   queueItems.value = [];
   selectedFile.value = null;
   error.value = null;
-  weeklySuccessTotals.value = { linkedin: 0, email: 0, companiesReachedOutTo: 0 };
+  weeklySuccessTotals.value = { linkedin: 0, companiesReachedOutTo: 0 };
   clearQueuePolling();
 }
 
@@ -196,16 +196,14 @@ async function refreshWeeklySuccessTotals(): Promise<void> {
     }
     const payload = (await response.json()) as {
       linkedinCount?: number;
-      emailCount?: number;
       companiesReachedOutToCount?: number;
     };
     weeklySuccessTotals.value = {
       linkedin: Number(payload.linkedinCount ?? 0),
-      email: Number(payload.emailCount ?? 0),
       companiesReachedOutTo: Number(payload.companiesReachedOutToCount ?? 0),
     };
   } catch {
-    weeklySuccessTotals.value = { linkedin: 0, email: 0, companiesReachedOutTo: 0 };
+    weeklySuccessTotals.value = { linkedin: 0, companiesReachedOutTo: 0 };
   }
 }
 
@@ -392,7 +390,6 @@ async function clearFinishedQueueItems(): Promise<void> {
         class="w-full rounded-xl border border-indigo-400/25 bg-[#10192b]/90 px-3 py-2 text-center text-[11px] text-indigo-100 shadow-[0_8px_20px_rgba(0,0,0,0.28)]"
       >
         <p class="font-medium">LinkedIn count: {{ weeklySuccessTotals.linkedin }}</p>
-        <p class="mt-1 font-medium">Email count: {{ weeklySuccessTotals.email }}</p>
         <p class="mt-1 font-medium">Companies reached out to: {{ weeklySuccessTotals.companiesReachedOutTo }}</p>
       </div>
       <button
@@ -512,22 +509,20 @@ async function clearFinishedQueueItems(): Promise<void> {
 
               <div v-if="item.summary" class="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-300">
                 <p>LinkedIn pushed: {{ item.summary.totalLinkedinCampaignSuccessful ?? 0 }}</p>
-                <p>Email pushed: {{ item.summary.totalEmailCampaignSuccessful ?? 0 }}</p>
                 <p>LinkedIn failed: {{ item.summary.totalLinkedinCampaignFailed ?? 0 }}</p>
-                <p>Email failed: {{ item.summary.totalEmailCampaignFailed ?? 0 }}</p>
               </div>
 
               <div class="mt-3 flex flex-wrap gap-2">
                 <a
                   v-if="item.hasCsv"
-                  :href="`${API_URL}/queue/${item.queueItemId}/csv`"
+                  :href="`${API_URL}/queue/${item.queueItemId}/csv?selectedUser=${selectedUser}`"
                   class="inline-flex items-center rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600"
                 >
                   Download CSV
                 </a>
                 <a
                   v-if="item.hasPdf"
-                  :href="`${API_URL}/queue/${item.queueItemId}/pdf`"
+                  :href="`${API_URL}/queue/${item.queueItemId}/pdf?selectedUser=${selectedUser}`"
                   class="inline-flex items-center rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-600"
                 >
                   Download PDF

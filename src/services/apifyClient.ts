@@ -7,6 +7,8 @@ const ANSI_RESET = "\x1b[0m";
 const FRONTEND_REGEX = /\b(front[\s-]?end|android|ios|ai|ml|machine[\s-]?learning)\b/i;
 const FRONTEND_OVERRIDE_REGEX = /\b(back[\s-]?end|full[\s-]?stack|end[\s-]?to[\s-]?end)\b/i;
 const TITLE_REJECT_REGEX = /\b(data|front[\s-]?end)\b/i;
+const HARDWARE_REGEX = /\bhardware\b/gi;
+const HARDWARE_MIN_OCCURRENCES = 1;
 
 function print(line: string): void {
   void line;
@@ -285,9 +287,17 @@ export function filterFrontendEngineers(
       continue;
     }
 
-    const desc = matchedEntry.description ?? "";
+    const allTexts: string[] = [matchedEntry.description ?? ""];
+    for (const entry of cached.experience) {
+      if (entry.description) allTexts.push(entry.description);
+      if (entry.skills) allTexts.push(...entry.skills);
+    }
+    for (const skill of cached.profileSkills) allTexts.push(skill.name);
+    if (cached.about) allTexts.push(cached.about);
+    const combinedText = allTexts.join(" ");
+
     const rejectedByTitle = TITLE_REJECT_REGEX.test(emp.currentTitle);
-    const rejectedByDesc = FRONTEND_REGEX.test(desc) && !FRONTEND_OVERRIDE_REGEX.test(desc);
+    const rejectedByDesc = FRONTEND_REGEX.test(combinedText) && !FRONTEND_OVERRIDE_REGEX.test(combinedText);
 
     if (rejectedByTitle || rejectedByDesc) {
       rejectedFrontend.push(emp);
@@ -316,6 +326,46 @@ export function filterFrontendEngineers(
   }
 
   return { kept, rejectedFrontend, warningCandidates };
+}
+
+export interface HardwareFilterResult {
+  kept: EnrichedEmployee[];
+  rejected: EnrichedEmployee[];
+}
+
+export function filterOutHardwareHeavyPeople(
+  employees: EnrichedEmployee[],
+  cache: ApifyOpenToWorkCache
+): HardwareFilterResult {
+  const kept: EnrichedEmployee[] = [];
+  const rejected: EnrichedEmployee[] = [];
+
+  for (const emp of employees) {
+    const normalizedUrl = emp.linkedinUrl ? normalizeLinkedinUrl(emp.linkedinUrl) : null;
+    const cached = normalizedUrl ? cache.get(normalizedUrl) : null;
+
+    const texts: string[] = [emp.currentTitle, emp.headline ?? ""];
+    if (cached) {
+      for (const entry of cached.experience) {
+        if (entry.description) texts.push(entry.description);
+        if (entry.skills) texts.push(...entry.skills);
+      }
+      for (const skill of cached.profileSkills) texts.push(skill.name);
+      if (cached.about) texts.push(cached.about);
+    }
+
+    const combined = texts.join(" ");
+    const matches = combined.match(HARDWARE_REGEX);
+    const count = matches ? matches.length : 0;
+
+    if (count >= HARDWARE_MIN_OCCURRENCES) {
+      rejected.push(emp);
+    } else {
+      kept.push(emp);
+    }
+  }
+
+  return { kept, rejected };
 }
 
 export interface SreKeywordFilterResult {

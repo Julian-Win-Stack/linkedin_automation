@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fillToMinimumWithBackfill, selectTopSreForLemlist, selectKeywordMatchedByTenure } from "../src/services/sreSelection";
-import { EnrichedEmployee } from "../src/types/prospect";
+import { fillToMinimumWithBackfill, runBackfillStages, selectTopSreForLemlist, selectKeywordMatchedByTenure } from "../src/services/sreSelection";
+import { ApifyOpenToWorkCache, EnrichedEmployee } from "../src/types/prospect";
 
 function employee(overrides: Partial<EnrichedEmployee>): EnrichedEmployee {
   return {
@@ -400,5 +400,49 @@ describe("selectKeywordMatchedByTenure", () => {
 
     expect(result.forLinkedin).toHaveLength(0);
     expect(result.forEmailRecycling).toHaveLength(0);
+  });
+});
+
+describe("runBackfillStages", () => {
+  const companyInfo = { companyName: "Acme", companyDomain: "acme.com" };
+
+  it("drops QA-titled candidates and records them as qa_title filtered-out reasons", () => {
+    const qa = employee({ id: "qa-1", name: "QA One", currentTitle: "QA Infrastructure Engineer", tenure: 12 });
+    const clean = employee({ id: "clean-1", name: "Clean One", currentTitle: "Infrastructure Engineer", tenure: 12 });
+
+    const result = runBackfillStages([], [qa, clean], new Map() as ApifyOpenToWorkCache, companyInfo);
+
+    const ids = result.candidates.map((c) => c.employee.id);
+    expect(ids).toContain("clean-1");
+    expect(ids).not.toContain("qa-1");
+    expect(result.filteredOutReasons).toContain("qa_title");
+  });
+
+  it("still drops hardware-heavy candidates inside runBackfillStages", () => {
+    const hardware = employee({
+      id: "hw-1",
+      name: "Hardware One",
+      currentTitle: "Infrastructure Engineer",
+      headline: "hardware hardware hardware",
+      tenure: 12,
+    });
+    const clean = employee({ id: "clean-2", name: "Clean Two", currentTitle: "Infrastructure Engineer", tenure: 12 });
+
+    const result = runBackfillStages([], [hardware, clean], new Map() as ApifyOpenToWorkCache, companyInfo);
+
+    const ids = result.candidates.map((c) => c.employee.id);
+    expect(ids).toContain("clean-2");
+    expect(ids).not.toContain("hw-1");
+    expect(result.filteredOutReasons).toContain("hardware_heavy");
+  });
+
+  it("does not drop titles where 'qa' is only a non-word-bounded substring", () => {
+    const safe = employee({ id: "safe-1", name: "Safe One", currentTitle: "Infrastructure QAlpha Engineer", tenure: 12 });
+
+    const result = runBackfillStages([], [safe], new Map() as ApifyOpenToWorkCache, companyInfo);
+
+    const ids = result.candidates.map((c) => c.employee.id);
+    expect(ids).toContain("safe-1");
+    expect(result.filteredOutReasons).not.toContain("qa_title");
   });
 });

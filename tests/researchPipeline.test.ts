@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createJob, getJob } from "../src/jobs/jobStore";
 import { runResearchPipeline } from "../src/jobs/researchPipeline";
 import { EnrichedEmployee } from "../src/types/prospect";
-import { TaggedEmailCandidate, EmailWaterfallResult } from "../src/services/emailCandidateWaterfall";
 
 const readCompaniesMock = vi.fn();
 const countProcessableCompaniesMock = vi.fn();
@@ -14,13 +13,12 @@ const filterPoolByStageMock = vi.fn();
 const filterOpenToWorkFromCacheMock = vi.fn();
 const splitByTenureMock = vi.fn();
 const filterByKeywordsInApifyDataMock = vi.fn();
-const findEmailsInBulkMock = vi.fn();
+const filterOutHardwareHeavyPeopleMock = vi.fn();
 const selectTopSreForLemlistMock = vi.fn();
 const fillToMinimumWithBackfillMock = vi.fn();
 const selectKeywordMatchedByTenureMock = vi.fn();
+const runBackfillStagesMock = vi.fn();
 const pushPeopleToLemlistCampaignMock = vi.fn();
-const pushPeopleToLemlistEmailCampaignMock = vi.fn();
-const runEmailCandidateWaterfallMock = vi.fn();
 const rowsToCsvStringMock = vi.fn();
 const syncApolloAccountsFromOutputRowsMock = vi.fn();
 const syncAttioCompaniesFromOutputRowsMock = vi.fn();
@@ -54,31 +52,19 @@ vi.mock("../src/services/apifyClient", () => ({
   filterOpenToWorkFromCache: (...args: unknown[]) => filterOpenToWorkFromCacheMock(...args),
   splitByTenure: (...args: unknown[]) => splitByTenureMock(...args),
   filterByKeywordsInApifyData: (...args: unknown[]) => filterByKeywordsInApifyDataMock(...args),
-}));
-
-vi.mock("../src/services/apolloBulkEmailEnrichment", () => ({
-  findEmailsInBulk: (...args: unknown[]) => findEmailsInBulkMock(...args),
+  filterOutHardwareHeavyPeople: (...args: unknown[]) => filterOutHardwareHeavyPeopleMock(...args),
 }));
 
 vi.mock("../src/services/sreSelection", () => ({
   selectTopSreForLemlist: (...args: unknown[]) => selectTopSreForLemlistMock(...args),
   fillToMinimumWithBackfill: (...args: unknown[]) => fillToMinimumWithBackfillMock(...args),
   selectKeywordMatchedByTenure: (...args: unknown[]) => selectKeywordMatchedByTenureMock(...args),
+  runBackfillStages: (...args: unknown[]) => runBackfillStagesMock(...args),
+  BACKFILL_STAGES: [],
 }));
 
 vi.mock("../src/services/lemlistPushQueue", () => ({
   pushPeopleToLemlistCampaign: (...args: unknown[]) => pushPeopleToLemlistCampaignMock(...args),
-}));
-
-vi.mock("../src/services/lemlistEmailPushQueue", () => ({
-  pushPeopleToLemlistEmailCampaign: (...args: unknown[]) => pushPeopleToLemlistEmailCampaignMock(...args),
-}));
-
-vi.mock("../src/services/emailCandidateWaterfall", () => ({
-  runEmailCandidateWaterfall: (...args: unknown[]) => runEmailCandidateWaterfallMock(...args),
-  LINKEDIN_KEYWORD_STAGE_INFRA: { currentTitles: ["Infrastructure"], minTenureMonths: 12, campaignBucket: "eng" },
-  LINKEDIN_KEYWORD_STAGE_DEVOPS: { currentTitles: ["DevOps"], minTenureMonths: 12, campaignBucket: "eng" },
-  LINKEDIN_KEYWORD_STAGE_NORMAL_ENG: { currentTitles: ["Engineer"], minTenureMonths: 12, campaignBucket: "eng" },
 }));
 
 vi.mock("../src/services/observability/csvWriter", () => ({
@@ -123,10 +109,6 @@ function makeEmployee(id: string, title = "SRE", tenure: number | null = 12, lin
   };
 }
 
-function emptyWaterfallResult(): EmailWaterfallResult {
-  return { candidates: [], filteredOutCandidates: [], warnings: [], normalEngineerApifyWarnings: [] };
-}
-
 async function waitForCondition(predicate: () => void, attempts = 20): Promise<void> {
   let lastError: unknown;
   for (let index = 0; index < attempts; index += 1) {
@@ -153,13 +135,13 @@ describe("runResearchPipeline orchestration", () => {
     filterOpenToWorkFromCacheMock.mockReset();
     splitByTenureMock.mockReset();
     filterByKeywordsInApifyDataMock.mockReset();
-    findEmailsInBulkMock.mockReset();
+    filterOutHardwareHeavyPeopleMock.mockReset();
+    filterOutHardwareHeavyPeopleMock.mockImplementation((employees: EnrichedEmployee[]) => ({ kept: employees, rejected: [] }));
     selectTopSreForLemlistMock.mockReset();
     fillToMinimumWithBackfillMock.mockReset();
     selectKeywordMatchedByTenureMock.mockReset();
+    runBackfillStagesMock.mockReset();
     pushPeopleToLemlistCampaignMock.mockReset();
-    pushPeopleToLemlistEmailCampaignMock.mockReset();
-    runEmailCandidateWaterfallMock.mockReset();
     rowsToCsvStringMock.mockReset();
     syncApolloAccountsFromOutputRowsMock.mockReset();
     syncAttioCompaniesFromOutputRowsMock.mockReset();
@@ -168,14 +150,6 @@ describe("runResearchPipeline orchestration", () => {
 
     rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
     pushPeopleToLemlistCampaignMock.mockResolvedValue({
-      attempted: 0,
-      successful: 0,
-      failed: 0,
-      successItems: [],
-      failedItems: [],
-      outcomes: [],
-    });
-    pushPeopleToLemlistEmailCampaignMock.mockResolvedValue({
       attempted: 0,
       successful: 0,
       failed: 0,
@@ -195,11 +169,10 @@ describe("runResearchPipeline orchestration", () => {
     }));
     splitByTenureMock.mockImplementation((employees: EnrichedEmployee[]) => ({ eligible: employees, droppedByTenure: [] }));
     filterByKeywordsInApifyDataMock.mockReturnValue({ matched: [], unmatched: [] });
-    findEmailsInBulkMock.mockResolvedValue(new Map());
-    runEmailCandidateWaterfallMock.mockResolvedValue(emptyWaterfallResult());
     selectTopSreForLemlistMock.mockImplementation((employees: EnrichedEmployee[]) => employees.slice(0, 7));
     fillToMinimumWithBackfillMock.mockImplementation((selected: EnrichedEmployee[]) => selected);
-    selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [], forEmailRecycling: [] });
+    selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [] });
+    runBackfillStagesMock.mockReturnValue({ candidates: [], filteredOutReasons: [], warnings: [], normalEngineerApifyWarnings: [] });
     syncApolloAccountsFromOutputRowsMock.mockResolvedValue({
       attemptedRows: 0,
       dedupedAccounts: 0,
@@ -219,7 +192,7 @@ describe("runResearchPipeline orchestration", () => {
       duplicateDomainCount: 0,
       warnings: [],
     });
-    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 0, emailCount: 0, companiesReachedOutToCount: 0 });
+    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 0, companiesReachedOutToCount: 0 });
     countProcessableCompaniesMock.mockResolvedValue(500);
     process.env.LEMLIST_PUSH_ENABLED = "true";
   });
@@ -501,296 +474,7 @@ describe("runResearchPipeline orchestration", () => {
     expect(attioSyncArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(5);
   });
 
-  it("runs email waterfall from local pool", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
-      employees: [makeEmployee("pool-1"), makeEmployee("pool-2")],
-      apifyCache: new Map(),
-      profileCount: 2,
-    });
 
-    const jobId = createJob();
-    await runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    expect(runEmailCandidateWaterfallMock).toHaveBeenCalledTimes(1);
-    expect(runEmailCandidateWaterfallMock.mock.calls[0]?.[2]).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: "pool-1" })])
-    );
-  });
-
-  it("uses Apify bulk email enrichment before email campaign push", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    const candidates: TaggedEmailCandidate[] = [
-      { employee: makeEmployee("email-1", "SRE", 8), campaignBucket: "sre" },
-    ];
-    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
-      candidates,
-      filteredOutCandidates: [],
-      warnings: [],
-      normalEngineerApifyWarnings: [],
-    });
-    findEmailsInBulkMock.mockResolvedValueOnce(
-      new Map([["linkedin.com/in/email-1", "has@example.com"]])
-    );
-
-    const jobId = createJob();
-    await runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    expect(findEmailsInBulkMock).toHaveBeenCalledTimes(1);
-    expect(candidates[0].employee.email).toBe("has@example.com");
-    expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
-    expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[0][0]).toEqual(candidates);
-  });
-
-  it("continues processing the next company while first email enrichment is still running", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([
-        { companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 },
-        { companyName: "Beta", companyDomain: "beta.com", companyLinkedinUrl: "", apolloAccountId: "org_2", rowNumber: 3 },
-      ])
-    );
-
-    const acmeCandidates: TaggedEmailCandidate[] = [
-      { employee: { ...makeEmployee("email-1", "SRE", 8), email: "acme@example.com" }, campaignBucket: "sre" },
-    ];
-    const betaCandidates: TaggedEmailCandidate[] = [
-      { employee: { ...makeEmployee("email-2", "SRE", 8), email: "beta@example.com" }, campaignBucket: "sre" },
-    ];
-    getCompanyMock
-      .mockResolvedValueOnce({ companyName: "Acme", domain: "acme.com" })
-      .mockResolvedValueOnce({ companyName: "Beta", domain: "beta.com" });
-
-    let allowFirstEmailEnrichmentToFinish: (() => void) | null = null;
-    findEmailsInBulkMock.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          allowFirstEmailEnrichmentToFinish = () =>
-            resolve(new Map([["linkedin.com/in/email-1", "acme@example.com"]]));
-        })
-    );
-    findEmailsInBulkMock.mockResolvedValueOnce(
-      new Map([["linkedin.com/in/email-2", "beta@example.com"]])
-    );
-    pushPeopleToLemlistEmailCampaignMock
-      .mockResolvedValueOnce({
-        attempted: acmeCandidates.length,
-        successful: 1,
-        failed: 0,
-        successItems: ["Person email-1"],
-        failedItems: [],
-        outcomes: [
-          {
-            key: "email-1",
-            name: "Person email-1",
-            title: "SRE",
-            linkedinUrl: "https://linkedin.com/in/email-1",
-            status: "succeed",
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        attempted: betaCandidates.length,
-        successful: 1,
-        failed: 0,
-        successItems: ["Person email-2"],
-        failedItems: [],
-        outcomes: [
-          {
-            key: "email-2",
-            name: "Person email-2",
-            title: "SRE",
-            linkedinUrl: "https://linkedin.com/in/email-2",
-            status: "succeed",
-          },
-        ],
-      });
-    runEmailCandidateWaterfallMock
-      .mockResolvedValueOnce({
-        candidates: acmeCandidates,
-        filteredOutCandidates: [],
-        warnings: [],
-        normalEngineerApifyWarnings: [],
-      })
-      .mockResolvedValueOnce({
-        candidates: betaCandidates,
-        filteredOutCandidates: [],
-        warnings: [],
-        normalEngineerApifyWarnings: [],
-      });
-
-    const jobId = createJob();
-    const runPromise = runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    await waitForCondition(() => {
-      expect(researchCompanyMock).toHaveBeenCalledTimes(2);
-    });
-    expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(0);
-
-    allowFirstEmailEnrichmentToFinish?.();
-
-    await waitForCondition(() => {
-      expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
-    });
-    expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[0][1]).toBe("Acme");
-
-    await runPromise;
-
-    expect(findEmailsInBulkMock).toHaveBeenCalledTimes(2);
-    expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(2);
-    expect(researchCompanyMock).toHaveBeenCalledTimes(2);
-    expect(pushPeopleToLemlistEmailCampaignMock.mock.calls[1][1]).toBe("Beta");
-  });
-
-  it("waits for pending email task completion before finalizing after linkedin limit is reached", async () => {
-    getWeeklySuccessCountsMock.mockReturnValueOnce({ linkedinCount: 99, emailCount: 0, companiesReachedOutToCount: 0 });
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([
-        { companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 },
-        { companyName: "Beta", companyDomain: "beta.com", companyLinkedinUrl: "", apolloAccountId: "org_2", rowNumber: 3 },
-      ])
-    );
-    const linkedinSelection = [makeEmployee("linkedin-1", "SRE", 12)];
-    const emailCandidates: TaggedEmailCandidate[] = [
-      { employee: makeEmployee("email-1", "SRE", 8), campaignBucket: "sre" },
-    ];
-    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
-      employees: linkedinSelection,
-      apifyCache: new Map(),
-      profileCount: 1,
-    });
-    searchPeopleMock.mockResolvedValueOnce([{ id: "apollo-1", name: "Apollo One", title: "SRE" }]);
-    selectTopSreForLemlistMock.mockReturnValueOnce(linkedinSelection);
-    pushPeopleToLemlistCampaignMock.mockResolvedValueOnce({
-      attempted: 1,
-      successful: 1,
-      failed: 0,
-      successItems: ["Person linkedin-1"],
-      failedItems: [],
-      outcomes: [
-        {
-          key: "linkedin-1",
-          name: "Person linkedin-1",
-          title: "SRE",
-          linkedinUrl: "https://linkedin.com/in/linkedin-1",
-          status: "succeed",
-        },
-      ],
-    });
-    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
-      candidates: emailCandidates,
-      filteredOutCandidates: [],
-      warnings: [],
-      normalEngineerApifyWarnings: [],
-    });
-
-    let releaseEnrichment: (() => void) | null = null;
-    findEmailsInBulkMock.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          releaseEnrichment = () =>
-            resolve(new Map([["linkedin.com/in/email-1", "acme@example.com"]]));
-        })
-    );
-    pushPeopleToLemlistEmailCampaignMock.mockResolvedValueOnce({
-      attempted: 1,
-      successful: 1,
-      failed: 0,
-      successItems: ["Person email-1"],
-      failedItems: [],
-      outcomes: [
-        {
-          key: "email-1",
-          name: "Person email-1",
-          title: "SRE",
-          linkedinUrl: "https://linkedin.com/in/email-1",
-          status: "succeed",
-        },
-      ],
-    });
-
-    const jobId = createJob();
-    const runPromise = runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    await waitForCondition(() => {
-      expect(findEmailsInBulkMock).toHaveBeenCalledTimes(1);
-    });
-    expect(researchCompanyMock).toHaveBeenCalledTimes(1);
-    expect(pushPeopleToLemlistEmailCampaignMock).not.toHaveBeenCalled();
-
-    releaseEnrichment?.();
-    await waitForCondition(() => {
-      expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
-    });
-    await runPromise;
-
-    expect(researchCompanyMock).toHaveBeenCalledTimes(1);
-    expect(pushPeopleToLemlistEmailCampaignMock).toHaveBeenCalledTimes(1);
-    expect(emailCandidates[0].employee.email).toBe("acme@example.com");
-  });
 
   it("stores filtered candidate summaries as per-company counts", async () => {
     readCompaniesMock.mockReturnValueOnce(
@@ -816,12 +500,9 @@ describe("runResearchPipeline orchestration", () => {
         warnings: [],
         filteredOut: [],
       });
-    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
+    runBackfillStagesMock.mockReturnValueOnce({
       candidates: [],
-      filteredOutCandidates: [
-        { employee: makeEmployee("filtered-3", "Engineer", 12), reason: "contract_employment" },
-        { employee: makeEmployee("filtered-4", "Engineer", 12), reason: "open_to_work" },
-      ],
+      filteredOutReasons: ["contract_employment", "open_to_work"],
       warnings: [],
       normalEngineerApifyWarnings: [],
     });
@@ -851,6 +532,8 @@ describe("runResearchPipeline orchestration", () => {
         openToWorkCount: 2,
         frontendRoleCount: 1,
         contractEmploymentCount: 1,
+        hardwareHeavyCount: 0,
+        qaTitleCount: 0,
       },
     ]);
   });
@@ -859,14 +542,14 @@ describe("runResearchPipeline orchestration", () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
     );
-    runEmailCandidateWaterfallMock.mockResolvedValueOnce({
+    runBackfillStagesMock.mockReturnValueOnce({
       candidates: [],
-      filteredOutCandidates: [],
+      filteredOutReasons: [],
       warnings: [],
       normalEngineerApifyWarnings: [
-        { employee: makeEmployee("warn-1", "Engineer", 12), problem: "Missing skills data" },
-        { employee: makeEmployee("warn-2", "Engineer", 12), problem: "Missing skills data" },
-        { employee: makeEmployee("warn-3", "Engineer", 12), problem: "Missing headline data" },
+        { problem: "Missing skills data" },
+        { problem: "Missing skills data" },
+        { problem: "Missing headline data" },
       ],
     });
 
@@ -902,7 +585,7 @@ describe("runResearchPipeline orchestration", () => {
   });
 
   it("skips company when weekly linkedin limit reached", async () => {
-    getWeeklySuccessCountsMock.mockReturnValueOnce({ linkedinCount: 100, emailCount: 0, companiesReachedOutToCount: 0 });
+    getWeeklySuccessCountsMock.mockReturnValueOnce({ linkedinCount: 100, companiesReachedOutToCount: 0 });
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
     );
@@ -957,6 +640,170 @@ describe("runResearchPipeline orchestration", () => {
     expect(job?.status).toBe("done");
     expect(job?.warnings.some((w) => w.includes("Apollo bulk account sync failed"))).toBe(true);
   });
+
+  describe("LinkedIn keyword expansion (DevOps-only)", () => {
+    const runWith = async (profile: EnrichedEmployee[]) => {
+      readCompaniesMock.mockReturnValueOnce(
+        asyncCompanyRows([
+          { companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 },
+        ])
+      );
+      scrapeCompanyEmployeesMock.mockResolvedValueOnce({
+        employees: profile,
+        apifyCache: new Map(),
+        profileCount: profile.length,
+      });
+      const jobId = createJob();
+      await runResearchPipeline(
+        jobId,
+        "csv",
+        {
+          azureOpenAiApiKey: "k",
+          azureOpenAiBaseUrl: "u",
+          searchApiKey: "s",
+          model: "m",
+          maxCompletionTokens: 1000,
+          nameColumn: "Company Name",
+          domainColumn: "Website",
+          apolloAccountIdColumn: "Apollo Account Id",
+        },
+        "julian",
+        Date.now()
+      );
+      return jobId;
+    };
+
+    it("includes a DevOps-titled employee whose Apify data matches an SRE keyword", async () => {
+      const devopsEmployee = makeEmployee("devops-1", "DevOps Engineer");
+      filterByKeywordsInApifyDataMock.mockReturnValueOnce({ matched: [devopsEmployee], unmatched: [] });
+      selectKeywordMatchedByTenureMock.mockReturnValueOnce({ forLinkedin: [devopsEmployee] });
+
+      await runWith([devopsEmployee]);
+
+      expect(filterByKeywordsInApifyDataMock).toHaveBeenCalledTimes(1);
+      const poolArg = filterByKeywordsInApifyDataMock.mock.calls[0][0] as EnrichedEmployee[];
+      expect(poolArg.map((e) => e.id)).toContain("devops-1");
+
+      const tagged = pushPeopleToLemlistCampaignMock.mock.calls[0][0] as Array<{ employee: EnrichedEmployee }>;
+      expect(tagged.map((t) => t.employee.id)).toContain("devops-1");
+    });
+
+    it("excludes non-DevOps titles from the keyword expansion pool even if their profile contains keywords", async () => {
+      const seniorEng = makeEmployee("sde-1", "Senior Software Engineer");
+      const platformEng = makeEmployee("plat-1", "Platform Engineer");
+      // Pretend the mock would match them if they reached it
+      filterByKeywordsInApifyDataMock.mockReturnValueOnce({
+        matched: [seniorEng, platformEng],
+        unmatched: [],
+      });
+      selectKeywordMatchedByTenureMock.mockImplementation((matched: EnrichedEmployee[]) => ({ forLinkedin: matched }));
+
+      await runWith([seniorEng, platformEng]);
+
+      // filterByKeywordsInApifyData must be called, but with an empty pool
+      expect(filterByKeywordsInApifyDataMock).toHaveBeenCalledTimes(1);
+      const poolArg = filterByKeywordsInApifyDataMock.mock.calls[0][0] as EnrichedEmployee[];
+      expect(poolArg).toEqual([]);
+    });
+
+    it("accepts DevOps, Dev Ops, and Dev-Ops title variants", async () => {
+      const variants = [
+        makeEmployee("v1", "DevOps Engineer"),
+        makeEmployee("v2", "Senior Dev Ops Engineer"),
+        makeEmployee("v3", "Dev-Ops Lead"),
+      ];
+      filterByKeywordsInApifyDataMock.mockReturnValueOnce({ matched: [], unmatched: variants });
+      selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [] });
+
+      await runWith(variants);
+
+      expect(filterByKeywordsInApifyDataMock).toHaveBeenCalledTimes(1);
+      const poolArg = filterByKeywordsInApifyDataMock.mock.calls[0][0] as EnrichedEmployee[];
+      expect(poolArg.map((e) => e.id).sort()).toEqual(["v1", "v2", "v3"]);
+    });
+
+    it("excludes a DevOps-titled employee when their profile does not match any SRE keyword", async () => {
+      const devops = makeEmployee("devops-2", "DevOps Engineer");
+      filterByKeywordsInApifyDataMock.mockReturnValueOnce({ matched: [], unmatched: [devops] });
+      selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [] });
+
+      await runWith([devops]);
+
+      const tagged = (pushPeopleToLemlistCampaignMock.mock.calls[0]?.[0] ?? []) as Array<{ employee: EnrichedEmployee }>;
+      expect(tagged.map((t) => t.employee.id)).not.toContain("devops-2");
+    });
+
+    it("invokes filterByKeywordsInApifyData exactly once per company (no per-stage looping)", async () => {
+      const mixed = [
+        makeEmployee("d-1", "DevOps Engineer"),
+        makeEmployee("i-1", "Infrastructure Engineer"),
+        makeEmployee("p-1", "Platform Engineer"),
+        makeEmployee("e-1", "Staff Engineer"),
+      ];
+      filterByKeywordsInApifyDataMock.mockReturnValueOnce({ matched: [], unmatched: [] });
+      selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [] });
+
+      await runWith(mixed);
+
+      expect(filterByKeywordsInApifyDataMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects a DevOps-titled employee whose title also contains 'QA'", async () => {
+      const devopsQa = makeEmployee("dqa-1", "DevOps QA Engineer");
+      const devopsClean = makeEmployee("d-clean", "DevOps Engineer");
+      filterByKeywordsInApifyDataMock.mockReturnValueOnce({ matched: [devopsClean], unmatched: [] });
+      selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [devopsClean] });
+
+      await runWith([devopsQa, devopsClean]);
+
+      const poolArg = filterByKeywordsInApifyDataMock.mock.calls[0][0] as EnrichedEmployee[];
+      expect(poolArg.map((e) => e.id)).not.toContain("dqa-1");
+      expect(poolArg.map((e) => e.id)).toContain("d-clean");
+    });
+  });
+
+  describe("Hardware filter scope", () => {
+    it("does not apply the hardware filter to the current-SRE or past-SRE selection paths", async () => {
+      const sre = makeEmployee("sre-1", "SRE");
+      const devops = makeEmployee("devops-1", "DevOps Engineer");
+      readCompaniesMock.mockReturnValueOnce(
+        asyncCompanyRows([
+          { companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 },
+        ])
+      );
+      scrapeCompanyEmployeesMock.mockResolvedValueOnce({
+        employees: [sre, devops],
+        apifyCache: new Map(),
+        profileCount: 2,
+      });
+      filterByKeywordsInApifyDataMock.mockReturnValueOnce({ matched: [], unmatched: [] });
+      selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [] });
+
+      const jobId = createJob();
+      await runResearchPipeline(
+        jobId,
+        "csv",
+        {
+          azureOpenAiApiKey: "k",
+          azureOpenAiBaseUrl: "u",
+          searchApiKey: "s",
+          model: "m",
+          maxCompletionTokens: 1000,
+          nameColumn: "Company Name",
+          domainColumn: "Website",
+          apolloAccountIdColumn: "Apollo Account Id",
+        },
+        "julian",
+        Date.now()
+      );
+
+      // Hardware filter should be invoked only once per company (for the DevOps pool),
+      // never for the current-SRE tier selection or past-SRE backfill.
+      expect(filterOutHardwareHeavyPeopleMock).toHaveBeenCalledTimes(1);
+      const hardwarePoolArg = filterOutHardwareHeavyPeopleMock.mock.calls[0][0] as EnrichedEmployee[];
+      expect(hardwarePoolArg.map((e) => e.id)).not.toContain("sre-1");
+    });
+  });
 });
 
 const defaultPipelineConfig = {
@@ -992,13 +839,13 @@ describe("50-company checkpoint flush", () => {
     filterOpenToWorkFromCacheMock.mockReset();
     splitByTenureMock.mockReset();
     filterByKeywordsInApifyDataMock.mockReset();
-    findEmailsInBulkMock.mockReset();
+    filterOutHardwareHeavyPeopleMock.mockReset();
+    filterOutHardwareHeavyPeopleMock.mockImplementation((employees: EnrichedEmployee[]) => ({ kept: employees, rejected: [] }));
     selectTopSreForLemlistMock.mockReset();
     fillToMinimumWithBackfillMock.mockReset();
     selectKeywordMatchedByTenureMock.mockReset();
+    runBackfillStagesMock.mockReset();
     pushPeopleToLemlistCampaignMock.mockReset();
-    pushPeopleToLemlistEmailCampaignMock.mockReset();
-    runEmailCandidateWaterfallMock.mockReset();
     rowsToCsvStringMock.mockReset();
     syncApolloAccountsFromOutputRowsMock.mockReset();
     syncAttioCompaniesFromOutputRowsMock.mockReset();
@@ -1007,7 +854,6 @@ describe("50-company checkpoint flush", () => {
 
     rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
     pushPeopleToLemlistCampaignMock.mockResolvedValue({ attempted: 0, successful: 0, failed: 0, successItems: [], failedItems: [], outcomes: [] });
-    pushPeopleToLemlistEmailCampaignMock.mockResolvedValue({ attempted: 0, successful: 0, failed: 0, successItems: [], failedItems: [], outcomes: [] });
     searchPeopleMock.mockResolvedValue([]);
     researchCompanyMock.mockResolvedValue("Not found");
     getCompanyMock.mockResolvedValue({ companyName: "Acme", domain: "acme.com" });
@@ -1016,14 +862,13 @@ describe("50-company checkpoint flush", () => {
     filterOpenToWorkFromCacheMock.mockImplementation((employees: EnrichedEmployee[]) => ({ kept: employees, warnings: [], filteredOut: [] }));
     splitByTenureMock.mockImplementation((employees: EnrichedEmployee[]) => ({ eligible: employees, droppedByTenure: [] }));
     filterByKeywordsInApifyDataMock.mockReturnValue({ matched: [], unmatched: [] });
-    findEmailsInBulkMock.mockResolvedValue(new Map());
-    runEmailCandidateWaterfallMock.mockResolvedValue(emptyWaterfallResult());
     selectTopSreForLemlistMock.mockImplementation((employees: EnrichedEmployee[]) => employees.slice(0, 7));
     fillToMinimumWithBackfillMock.mockImplementation((selected: EnrichedEmployee[]) => selected);
-    selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [], forEmailRecycling: [] });
+    selectKeywordMatchedByTenureMock.mockReturnValue({ forLinkedin: [] });
+    runBackfillStagesMock.mockReturnValue({ candidates: [], filteredOutReasons: [], warnings: [], normalEngineerApifyWarnings: [] });
     syncApolloAccountsFromOutputRowsMock.mockResolvedValue({ attemptedRows: 0, dedupedAccounts: 0, updatedAccounts: 0, skippedMissingAccountIdCount: 0, skippedNoMappableFieldsCount: 0, duplicateAccountIdCount: 0, warnings: [] });
     syncAttioCompaniesFromOutputRowsMock.mockResolvedValue({ attemptedRows: 0, dedupedDomains: 0, assertedCount: 0, failedCount: 0, skippedMissingDomainCount: 0, skippedNoMappableFieldsCount: 0, duplicateDomainCount: 0, warnings: [] });
-    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 0, emailCount: 0, companiesReachedOutToCount: 0 });
+    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 0, companiesReachedOutToCount: 0 });
     countProcessableCompaniesMock.mockResolvedValue(500);
     process.env.LEMLIST_PUSH_ENABLED = "true";
   });
@@ -1095,7 +940,7 @@ describe("50-company checkpoint flush", () => {
   });
 
   it("weekly-limit skipped companies count toward the checkpoint threshold", async () => {
-    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 100, emailCount: 0, companiesReachedOutToCount: 0 });
+    getWeeklySuccessCountsMock.mockReturnValue({ linkedinCount: 100, companiesReachedOutToCount: 0 });
     readCompaniesMock.mockReturnValueOnce(asyncCompanyRows(makeCompanyRows(50)));
     countProcessableCompaniesMock.mockResolvedValue(50);
 
