@@ -335,27 +335,14 @@ export interface HardwareFilterResult {
 
 export function filterOutHardwareHeavyPeople(
   employees: EnrichedEmployee[],
-  cache: ApifyOpenToWorkCache
+  _cache: ApifyOpenToWorkCache
 ): HardwareFilterResult {
   const kept: EnrichedEmployee[] = [];
   const rejected: EnrichedEmployee[] = [];
 
   for (const emp of employees) {
-    const normalizedUrl = emp.linkedinUrl ? normalizeLinkedinUrl(emp.linkedinUrl) : null;
-    const cached = normalizedUrl ? cache.get(normalizedUrl) : null;
-
-    const texts: string[] = [emp.currentTitle, emp.headline ?? ""];
-    if (cached) {
-      for (const entry of cached.experience) {
-        if (entry.description) texts.push(entry.description);
-        if (entry.skills) texts.push(...entry.skills);
-      }
-      for (const skill of cached.profileSkills) texts.push(skill.name);
-      if (cached.about) texts.push(cached.about);
-    }
-
-    const combined = texts.join(" ");
-    const matches = combined.match(HARDWARE_REGEX);
+    const title = emp.currentTitle ?? "";
+    const matches = title.match(HARDWARE_REGEX);
     const count = matches ? matches.length : 0;
 
     if (count >= HARDWARE_MIN_OCCURRENCES) {

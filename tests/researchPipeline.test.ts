@@ -763,7 +763,7 @@ describe("runResearchPipeline orchestration", () => {
   });
 
   describe("Hardware filter scope", () => {
-    it("does not apply the hardware filter to the current-SRE or past-SRE selection paths", async () => {
+    it("applies the hardware filter to the entire Apify pool upfront, including current-SRE candidates", async () => {
       const sre = makeEmployee("sre-1", "SRE");
       const devops = makeEmployee("devops-1", "DevOps Engineer");
       readCompaniesMock.mockReturnValueOnce(
@@ -797,11 +797,11 @@ describe("runResearchPipeline orchestration", () => {
         Date.now()
       );
 
-      // Hardware filter should be invoked only once per company (for the DevOps pool),
-      // never for the current-SRE tier selection or past-SRE backfill.
-      expect(filterOutHardwareHeavyPeopleMock).toHaveBeenCalledTimes(1);
-      const hardwarePoolArg = filterOutHardwareHeavyPeopleMock.mock.calls[0][0] as EnrichedEmployee[];
-      expect(hardwarePoolArg.map((e) => e.id)).not.toContain("sre-1");
+      // Hardware filter now runs upfront on the full Apify pool, so the first
+      // call receives every employee returned from Apify — including current-SRE.
+      expect(filterOutHardwareHeavyPeopleMock).toHaveBeenCalled();
+      const upfrontPoolArg = filterOutHardwareHeavyPeopleMock.mock.calls[0][0] as EnrichedEmployee[];
+      expect(upfrontPoolArg.map((e) => e.id)).toEqual(expect.arrayContaining(["sre-1", "devops-1"]));
     });
   });
 });

@@ -609,7 +609,14 @@ export async function runResearchPipeline(
           maxItemsPerCompany: 30,
         });
         const apifyCache = poolResult.apifyCache;
-        const profilePool = dedupeEmployeesByKey(poolResult.employees);
+        const rawProfilePool = dedupeEmployeesByKey(poolResult.employees);
+        const hardwareFilteredPool = filterOutHardwareHeavyPeople(rawProfilePool, apifyCache);
+        addFilteredOutCounts(
+          campaignPushData,
+          company.companyName,
+          hardwareFilteredPool.rejected.map(() => "hardware_heavy")
+        );
+        const profilePool = hardwareFilteredPool.kept;
         logPipelineStage(
           "APIFY_COMPANY_POOL_DONE",
           `Company pool loaded. profiles=${poolResult.profileCount} mapped=${profilePool.length}`,

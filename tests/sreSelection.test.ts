@@ -422,8 +422,7 @@ describe("runBackfillStages", () => {
     const hardware = employee({
       id: "hw-1",
       name: "Hardware One",
-      currentTitle: "Infrastructure Engineer",
-      headline: "hardware hardware hardware",
+      currentTitle: "Hardware Infrastructure Engineer",
       tenure: 12,
     });
     const clean = employee({ id: "clean-2", name: "Clean Two", currentTitle: "Infrastructure Engineer", tenure: 12 });
