@@ -326,8 +326,15 @@ async function addToQueue(): Promise<void> {
 }
 
 async function cancelQueueItem(queueItemId: string): Promise<void> {
+  if (!selectedUser.value) {
+    return;
+  }
   try {
-    const response = await fetch(`${API_URL}/queue/${queueItemId}/cancel`, { method: "POST" });
+    const response = await fetch(`${API_URL}/queue/${queueItemId}/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selectedUser: selectedUser.value }),
+    });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({ error: response.statusText }));
       throw new Error(payload.error ?? "Failed to cancel queue item.");

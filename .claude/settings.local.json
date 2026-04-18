@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(pkill -f \"npm run dev\")",
+      "Bash(pkill -f \"ts-node\\\\|tsx\\\\|node.*researchPipeline\\\\|node.*dev\")",
+      "Bash(grep:*)",
+      "Bash(xxd)",
+      "Bash(python3)",
+      "Bash(python3 -c ':*)",
+      "Bash(npx vitest:*)",
+      "Bash(npm test:*)",
+      "Bash(curl:*)",
+      "Bash(npm run:*)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(pkill -f \"tsx watch\")",
+      "Bash(pkill -f \"node.*dist/index\")",
+      "Bash(pkill -f \"node.*src/server\")",
+      "Bash(rm -rf node_modules)",
+      "Bash(npm install:*)",
+      "Bash(npx vue-tsc:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "mcp__ide__getDiagnostics",
+      "Skill(update-config)"
+    ]
+  }
+}
