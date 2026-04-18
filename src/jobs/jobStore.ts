@@ -74,21 +74,25 @@ export type JobState = {
 };
 
 const jobs = new Map<string, JobState>();
-const MAX_JOB_AGE_MS = 1 * 60 * 1000;
+const TERMINAL_JOB_TTL_MS = 60_000;
+const CLEANUP_THROTTLE_MS = 60_000;
+const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["done", "error", "cancelled"]);
 let lastCleanupAtMs = 0;
 
 function cleanup(nowMs: number): void {
-  if (nowMs - lastCleanupAtMs < 10_000) {
+  if (nowMs - lastCleanupAtMs < CLEANUP_THROTTLE_MS) {
     return;
   }
   lastCleanupAtMs = nowMs;
 
   for (const [jobId, job] of jobs) {
-    if (nowMs - job.updatedAtMs > MAX_JOB_AGE_MS) {
+    if (!TERMINAL_STATUSES.has(job.status)) {
+      continue;
+    }
+    if (nowMs - job.updatedAtMs > TERMINAL_JOB_TTL_MS) {
       jobs.delete(jobId);
     }
   }
-
 }
 
 export function createJob(): string {
