@@ -7,7 +7,7 @@ const ANSI_RESET = "\x1b[0m";
 const FRONTEND_REGEX = /\b(front[\s-]?end|android|ios|ai|ml|machine[\s-]?learning)\b/i;
 const FRONTEND_OVERRIDE_REGEX = /\b(back[\s-]?end|full[\s-]?stack|end[\s-]?to[\s-]?end)\b/i;
 const TITLE_REJECT_REGEX = /\b(data|front[\s-]?end)\b/i;
-const HARDWARE_REGEX = /\bhardware\b/gi;
+const HARDWARE_REGEX = /\b(hardware|hw)\b/gi;
 const HARDWARE_MIN_OCCURRENCES = 1;
 
 function print(line: string): void {

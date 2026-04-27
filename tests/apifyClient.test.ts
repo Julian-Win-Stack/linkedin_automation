@@ -11,6 +11,7 @@ import {
   filterFrontendEngineers,
   filterByKeywordsInApifyData,
   filterOpenToWorkFromCache,
+  filterOutHardwareHeavyPeople,
 } from "../src/services/apifyClient";
 
 function makeEmployee(
@@ -648,4 +649,30 @@ describe("filterByKeywordsInApifyData", () => {
     expect(result.unmatched).toHaveLength(1);
     expect(result.unmatched[0].name).toBe("NoMatch");
   });
+});
+
+describe("filterOutHardwareHeavyPeople", () => {
+  const cache: ApifyOpenToWorkCache = new Map();
+
+  it("rejects titles containing the standalone word 'hardware'", () => {
+    const emp = makeEmployee({ name: "Alice", linkedinUrl: null, currentTitle: "Hardware Engineer" });
+    const result = filterOutHardwareHeavyPeople([emp], cache);
+    expect(result.rejected).toHaveLength(1);
+    expect(result.kept).toHaveLength(0);
+  });
+
+  it("rejects titles containing the standalone word 'HW'", () => {
+    const emp = makeEmployee({ name: "Bob", linkedinUrl: null, currentTitle: "HW Engineer" });
+    const result = filterOutHardwareHeavyPeople([emp], cache);
+    expect(result.rejected).toHaveLength(1);
+    expect(result.kept).toHaveLength(0);
+  });
+
+  it("does not reject titles where 'hw' is a substring of a longer word", () => {
+    const emp = makeEmployee({ name: "Carol", linkedinUrl: null, currentTitle: "webhook Infrastructure Engineer" });
+    const result = filterOutHardwareHeavyPeople([emp], cache);
+    expect(result.kept).toHaveLength(1);
+    expect(result.rejected).toHaveLength(0);
+  });
+
 });
