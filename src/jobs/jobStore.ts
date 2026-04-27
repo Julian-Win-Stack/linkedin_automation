@@ -72,7 +72,6 @@ export type JobState = {
 const jobs = new Map<string, JobState>();
 const TERMINAL_JOB_TTL_MS = 60_000;
 const CLEANUP_THROTTLE_MS = 60_000;
-const TERMINAL_STATUSES: ReadonlySet<JobStatus> = new Set(["done", "error", "cancelled"]);
 let lastCleanupAtMs = 0;
 
 function cleanup(nowMs: number): void {
@@ -82,9 +81,6 @@ function cleanup(nowMs: number): void {
   lastCleanupAtMs = nowMs;
 
   for (const [jobId, job] of jobs) {
-    if (!TERMINAL_STATUSES.has(job.status)) {
-      continue;
-    }
     if (nowMs - job.updatedAtMs > TERMINAL_JOB_TTL_MS) {
       jobs.delete(jobId);
     }
