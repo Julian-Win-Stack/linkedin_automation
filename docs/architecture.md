@@ -8,7 +8,7 @@ src/
   jobs/         — in-memory job state (jobStore.ts) and main orchestration (researchPipeline.ts)
   routes/       — Express routes: research.ts (all job/queue endpoints), admin.ts (count override)
   services/     — all external API clients and business logic
-    observability/  — CSV I/O, Azure OpenAI research, SearchAPI web search
+    observability/  — CSV I/O (csvReader.ts, csvWriter.ts)
   shared/       — SelectedUser type and guard (selectedUser.ts)
   types/        — domain types: Prospect, EnrichedEmployee, CampaignPushData, etc. (prospect.ts)
 frontend/src/   — Vue 3 SPA (Vite); ResearchView.vue is the primary upload/status UI
@@ -28,7 +28,7 @@ data/           — SQLite databases (gitignored); single file: weekly-success.s
 
 ### 2. Orchestration (`src/jobs/researchPipeline.ts`)
 
-The 1,000+ line core. Reads one `CompanyRow` at a time from the CSV async generator and drives each company through all pipeline stages. Every 50 companies it flushes pending work via `Promise.allSettled` and writes a partial checkpoint to in-memory job state (partial CSV + `CampaignPushData`). See **Pipeline Stages** below.
+The core orchestrator. Reads one `CompanyRow` at a time from the CSV async generator and drives each company through all pipeline stages. Every 50 companies it flushes pending work via `Promise.allSettled` and writes a partial checkpoint to in-memory job state (partial CSV + `CampaignPushData`). See **Pipeline Stages** below.
 
 ### 3. State / Storage
 
@@ -49,8 +49,6 @@ Each stage runs per-company inside `researchPipeline.ts`:
 | Stage | Files | Reject condition |
 |-------|-------|-----------------|
 | CSV parse | `observability/csvReader.ts` | Missing name + domain + Apollo ID |
-| Company research | `observability/openaiClient.ts`, `observability/searchApiClient.ts` | Observability tool is not Datadog / Grafana / Prometheus |
-| SRE pre-filter | `services/searchPeople.ts` (Apollo) | Apollo returns > 15 SRE matches (too saturated) |
 | Apify scrape | `services/apifyCompanyEmployees.ts` | — |
 | Candidate filter | `services/apifyClient.ts`, `services/computeTenure.ts` | open_to_work, frontend role, contract employment removed |
 | LinkedIn selection | `services/sreSelection.ts` | — |
@@ -75,8 +73,6 @@ Users are `raihan | cherry | julian`. Each user has full isolation across:
 | Apify | `apifyClient.ts`, `apifyCompanyEmployees.ts` | Bearer token | — |
 | Lemlist | `lemlistClient.ts`, `lemlistPushQueue.ts`, `lemlistEmailPushQueue.ts` | Basic auth | Rate limit: 20 req / 2s window |
 | Attio | `attioClient.ts`, `attioAssertCompanyRecords.ts` | Bearer token | Retries on 429 (parses `Retry-After` header) |
-| Azure OpenAI | `observability/openaiClient.ts` | API key | — |
-| SearchAPI | `observability/searchApiClient.ts` | API key | — |
 
 ### 7. Candidate Selection Logic
 

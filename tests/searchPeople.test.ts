@@ -5,7 +5,6 @@ import {
   ApolloSearchCache,
   searchCurrentPlatformEngineerPeople,
   searchPastSrePeople,
-  searchPeople,
 } from "../src/services/searchPeople";
 import { ResolvedCompany } from "../src/services/getCompany";
 
@@ -20,116 +19,9 @@ describe("searchPeople", () => {
     companyName: "Acme",
     domain: "acme.com",
   };
-  const domainlessCompany: ResolvedCompany = {
-    companyName: "NoDomainCo",
-    domain: "",
-  };
 
   beforeEach(() => {
     apolloPostWithQueryMock.mockReset();
-  });
-
-  it("passes person_titles to Apollo and maps returned people", async () => {
-    apolloPostWithQueryMock.mockResolvedValue({
-      people: [
-        {
-          name: "A Person",
-          title: "Platform Engineer",
-          organization_name: "Acme",
-        },
-        {
-          name: "B Person",
-          title: "Frontend Engineer",
-          organization_name: "Acme",
-        },
-      ],
-      pagination: { page: 1, total_pages: 1 },
-    });
-
-    const result = await searchPeople(company, 25);
-    expect(result).toHaveLength(2);
-    expect(result[0].name).toBe("A Person");
-    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
-      page: 1,
-      per_page: 100,
-      include_similar_titles: false,
-      "q_organization_domains_list[]": ["acme.com"],
-      "person_titles[]": ["SRE", "Site Reliability"],
-    });
-  });
-
-  it("supports custom person_titles filters", async () => {
-    apolloPostWithQueryMock.mockResolvedValue({
-      people: [
-        {
-          name: "A Person",
-          title: "Backend Engineer",
-          organization_name: "Acme",
-        },
-        {
-          name: "B Person",
-          title: "Designer",
-          organization_name: "Acme",
-        },
-      ],
-      pagination: { page: 1, total_pages: 1 },
-    });
-
-    const result = await searchPeople(company, 25, ["Site Reliability Engineer"]);
-    expect(result).toHaveLength(2);
-    expect(result[0].title).toBe("Backend Engineer");
-  });
-
-  it("includes q_organization_ids[] when apollo organization id is provided", async () => {
-    apolloPostWithQueryMock.mockResolvedValue({
-      people: [{ id: "person-1", name: "A Person", title: "SRE" }],
-      pagination: { page: 1, total_pages: 1 },
-    });
-
-    await searchPeople(company, 25, ["SRE"], { apolloOrganizationId: "org_123" });
-
-    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
-      page: 1,
-      per_page: 100,
-      include_similar_titles: false,
-      "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_123"],
-      "person_titles[]": ["SRE"],
-    });
-  });
-
-  it("includes person_not_titles[] when notTitles is provided in filters", async () => {
-    apolloPostWithQueryMock.mockResolvedValue({
-      people: [{ id: "person-1", name: "A Person", title: "SRE" }],
-      pagination: { page: 1, total_pages: 1 },
-    });
-
-    await searchPeople(company, 25, ["SRE"], {
-      apolloOrganizationId: "org_123",
-      notTitles: ["contract"],
-    });
-
-    expect(apolloPostWithQueryMock).toHaveBeenCalledWith("/mixed_people/api_search", {
-      page: 1,
-      per_page: 100,
-      include_similar_titles: false,
-      "q_organization_domains_list[]": ["acme.com"],
-      "q_organization_ids[]": ["org_123"],
-      "person_titles[]": ["SRE"],
-      "person_not_titles[]": ["contract"],
-    });
-  });
-
-  it("does not include domain filter when company domain is empty", async () => {
-    apolloPostWithQueryMock.mockResolvedValueOnce({
-      people: [{ id: "person-1", name: "No Domain", title: "SRE" }],
-      pagination: { page: 1, total_pages: 1 },
-    });
-
-    await searchPeople(domainlessCompany, 10, ["SRE"], { apolloOrganizationId: "org_123" });
-    const requestQuery = apolloPostWithQueryMock.mock.calls[0]?.[1] as Record<string, unknown>;
-    expect(requestQuery["q_organization_domains_list[]"]).toBeUndefined();
-    expect(requestQuery["q_organization_ids[]"]).toEqual(["org_123"]);
   });
 
   it("queries targeted past SRE helper with person_past_titles[]", async () => {

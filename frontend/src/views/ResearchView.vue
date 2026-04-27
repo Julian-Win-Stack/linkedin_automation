@@ -20,8 +20,6 @@ type QueueItem = {
   summary: Record<string, number> | null;
   warnings: string[];
   skippedCompanies: string[];
-  rejectedCompanies: string[];
-  rejectedReason: string | null;
   errorMessage: string | null;
   progressMessage: string | null;
   currentRow: number | null;
@@ -112,17 +110,11 @@ function statusLabel(status: QueueItemStatus): string {
 
 function toFriendlyStageMessage(message: string): string {
   const lowered = message.toLowerCase();
-  if (lowered.includes("starting engineer and sre pre-filter")) {
-    return "Preparing the company checks.";
+  if (lowered.includes("starting pipeline")) {
+    return "Preparing the pipeline.";
   }
-  if (lowered.includes("engineer/sre pre-filter")) {
-    return "Checking if each company is a good fit.";
-  }
-  if (lowered.includes("observability research")) {
-    return "Researching each company's observability setup.";
-  }
-  if (lowered.includes("apollo stage")) {
-    return "Finding and selecting the best contacts.";
+  if (lowered.includes("processing row")) {
+    return "Processing companies.";
   }
   return message;
 }

@@ -16,8 +16,7 @@ const RETRY_DELAYS_MS = [3000, 6000];
 // Call 1 — SRE-focused
 const CALL1_JOB_TITLES = ["SRE", "Site Reliability", "platform engineer", "devops"];
 const CALL1_PAST_JOB_TITLES = ["SRE", "Site Reliability"];
-const CALL1_SENIORITY_LEVEL_IDS = ["110", "120", "130", "200", "210", "220"];
-const CALL1_EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "310", "320"];
+const CALL1_EXCLUDE_SENIORITY_LEVEL_IDS = ["100", "110"];
 
 // Call 2 — DevOps/Infra-focused (fallback when call 1 returns < 10 results)
 const CALL2_JOB_TITLES = ["Infrastructure Engineer", "Staff engineer", "Principal engineer", "Software engineering lead"];
@@ -398,6 +397,7 @@ export async function scrapeCompanyEmployees(input: CompanyEmployeesInput): Prom
     companies,
     jobTitles: CALL1_JOB_TITLES,
     pastJobTitles: CALL1_PAST_JOB_TITLES,
+    excludeSeniorityLevelIds: CALL1_EXCLUDE_SENIORITY_LEVEL_IDS,
     recentlyChangedJobs: false,
   }, apiKey);
 

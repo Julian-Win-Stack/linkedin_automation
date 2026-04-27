@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { rowsToCsvString, rejectedRowsToCsvString, OutputRow, RejectedOutputRow } from "../src/services/observability/csvWriter";
+import { rowsToCsvString, OutputRow } from "../src/services/observability/csvWriter";
 
 describe("rowsToCsvString", () => {
   it("produces CSV with correct headers", async () => {
@@ -10,10 +10,11 @@ describe("rowsToCsvString", () => {
     expect(csv).toContain("Website");
     expect(csv).toContain("Company Linkedin Url");
     expect(csv).toContain("Apollo Account Id");
-    expect(csv).toContain("observability_tool");
     expect(csv).toContain("Stage");
-    expect(csv).toContain("Number of SREs");
-    expect(csv).toContain("Notes");
+    expect(csv).toContain("Outreach Date");
+    expect(csv).not.toContain("observability_tool");
+    expect(csv).not.toContain("Number of SREs");
+    expect(csv).not.toContain("Notes");
   });
 
   it("serializes a single row correctly", async () => {
@@ -23,10 +24,8 @@ describe("rowsToCsvString", () => {
         company_domain: "acme.com",
         company_linkedin_url: "https://linkedin.com/company/acme",
         apollo_account_id: "acc_123",
-        observability_tool_research: "Datadog",
         stage: "ChasingPOC",
-        sre_count: 5,
-        notes: "Good prospect",
+        outreach_date: "Week of 2026-04-28",
       },
     ];
 
@@ -40,16 +39,13 @@ describe("rowsToCsvString", () => {
     expect(lines[1]).toContain("ChasingPOC");
   });
 
-  it("handles empty sre_count", async () => {
+  it("handles empty stage", async () => {
     const rows: OutputRow[] = [
       {
         company_name: "Test",
         company_domain: "test.com",
         company_linkedin_url: "",
-        observability_tool_research: "",
-        stage: "NotActionableNow",
-        sre_count: "",
-        notes: "",
+        stage: "",
       },
     ];
 
@@ -58,43 +54,19 @@ describe("rowsToCsvString", () => {
     expect(csv.trim().split("\n")).toHaveLength(2);
   });
 
-  it("omits engineer count column from output csv", async () => {
-    const rows: OutputRow[] = [
-      {
-        company_name: "Big Corp",
-        company_domain: "big.com",
-        company_linkedin_url: "",
-        observability_tool_research: "",
-        stage: "NotActionableNow",
-        sre_count: 0,
-        notes: "Too many engineers",
-      },
-    ];
-
-    const csv = await rowsToCsvString(rows);
-    expect(csv).not.toContain("Number of Engineers");
-    expect(csv).not.toContain("> 1000");
-  });
-
   it("serializes multiple rows", async () => {
     const rows: OutputRow[] = [
       {
         company_name: "Alpha",
         company_domain: "alpha.com",
         company_linkedin_url: "",
-        observability_tool_research: "Grafana",
         stage: "ChasingPOC",
-        sre_count: 3,
-        notes: "",
       },
       {
         company_name: "Beta",
         company_domain: "beta.com",
         company_linkedin_url: "",
-        observability_tool_research: "Prometheus",
         stage: "ChasingPOC",
-        sre_count: 7,
-        notes: "",
       },
     ];
 
@@ -102,39 +74,5 @@ describe("rowsToCsvString", () => {
     const lines = csv.trim().split("\n");
 
     expect(lines).toHaveLength(3);
-  });
-});
-
-describe("rejectedRowsToCsvString", () => {
-  it("produces CSV with correct headers for rejected rows", async () => {
-    const rows: RejectedOutputRow[] = [];
-    const csv = await rejectedRowsToCsvString(rows);
-
-    expect(csv).toContain("Company Name");
-    expect(csv).toContain("Website");
-    expect(csv).toContain("Apollo Account Id");
-    expect(csv).toContain("Stage");
-    expect(csv).toContain("Notes");
-  });
-
-  it("serializes a rejected row correctly", async () => {
-    const rows: RejectedOutputRow[] = [
-      {
-        company_name: "Rejected Corp",
-        company_domain: "rejected.com",
-        company_linkedin_url: "",
-        observability_tool_research: "New Relic",
-        sre_count: 2,
-        status: "NotActionableNow",
-        notes: "Not actionable",
-      },
-    ];
-
-    const csv = await rejectedRowsToCsvString(rows);
-    const lines = csv.trim().split("\n");
-
-    expect(lines).toHaveLength(2);
-    expect(lines[1]).toContain("Rejected Corp");
-    expect(lines[1]).toContain("NotActionableNow");
   });
 });

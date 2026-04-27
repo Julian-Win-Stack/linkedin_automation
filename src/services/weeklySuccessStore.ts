@@ -6,13 +6,6 @@ import type { SelectedUser } from "../shared/selectedUser";
 const DEFAULT_DB_DIR = path.join(process.cwd(), "data");
 const DEFAULT_DB_PATH = path.join(DEFAULT_DB_DIR, "weekly-success.sqlite");
 
-interface WeeklySuccessRow {
-  selected_user: SelectedUser;
-  completed_at_ms: number;
-  linkedin_success_count: number;
-  companies_reached_out_to: number;
-}
-
 let db: Database.Database | null = null;
 
 function getDbPath(): string {

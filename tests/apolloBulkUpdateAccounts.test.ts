@@ -17,10 +17,7 @@ function makeRow(overrides: Partial<OutputRow> = {}): OutputRow {
     company_domain: "acme.com",
     company_linkedin_url: "https://linkedin.com/company/acme",
     apollo_account_id: "acc_1",
-    observability_tool_research: "Datadog",
     stage: "ChasingPOC",
-    sre_count: 4,
-    notes: "ready",
     ...overrides,
   };
 }
@@ -31,7 +28,7 @@ describe("syncApolloAccountsFromOutputRows", () => {
     apolloPostMock.mockResolvedValue({ accounts: [{ id: "acc_1" }] });
   });
 
-  it("builds account_attributes with system stage + mapped typed_custom_fields", async () => {
+  it("builds account_attributes with system stage + current week custom field", async () => {
     await syncApolloAccountsFromOutputRows([makeRow()]);
 
     expect(apolloPostMock).toHaveBeenCalledTimes(1);
@@ -43,9 +40,6 @@ describe("syncApolloAccountsFromOutputRows", () => {
             id: "acc_1",
             account_stage_id: "6971e93a8f17d1001569a9bb",
             typed_custom_fields: {
-              "6980e9f46ff5a0002169a12a": "Datadog",
-              "6967fde7e9b8720011d25737": "4",
-              "696fe565def36a00193ece7e": "ready",
               [CURRENT_WEEK_CUSTOM_FIELD_ID]: CURRENT_WEEK_LABEL,
             },
           },
@@ -64,7 +58,7 @@ describe("syncApolloAccountsFromOutputRows", () => {
     expect(Object.values(typedCustomFields ?? {})).not.toContain("https://linkedin.com/company/acme");
   });
 
-  it("logs colored errors for unknown stage and skips stage while keeping custom fields", async () => {
+  it("logs colored errors for unknown stage and skips stage while keeping current week field", async () => {
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     await syncApolloAccountsFromOutputRows([makeRow({ stage: "UnknownStage" })]);
 
@@ -73,9 +67,6 @@ describe("syncApolloAccountsFromOutputRows", () => {
     const attributes = apolloPostMock.mock.calls[0]?.[1]?.account_attributes?.[0];
     expect(attributes.account_stage_id).toBeUndefined();
     expect(attributes.typed_custom_fields).toEqual({
-      "6980e9f46ff5a0002169a12a": "Datadog",
-      "6967fde7e9b8720011d25737": "4",
-      "696fe565def36a00193ece7e": "ready",
       [CURRENT_WEEK_CUSTOM_FIELD_ID]: CURRENT_WEEK_LABEL,
     });
 
@@ -94,9 +85,6 @@ describe("syncApolloAccountsFromOutputRows", () => {
             id: "acc_1",
             account_stage_id: "6971e93a8f17d1001569a9bb",
             typed_custom_fields: {
-              "6980e9f46ff5a0002169a12a": "Datadog",
-              "6967fde7e9b8720011d25737": "4",
-              "696fe565def36a00193ece7e": "ready",
               [CURRENT_WEEK_CUSTOM_FIELD_ID]: CURRENT_WEEK_LABEL,
             },
           },
@@ -106,14 +94,11 @@ describe("syncApolloAccountsFromOutputRows", () => {
     );
   });
 
-  it("uses hardcoded Apollo custom field IDs for custom values", async () => {
+  it("always stamps the current week custom field on synced accounts", async () => {
     await syncApolloAccountsFromOutputRows([makeRow()]);
 
     expect(apolloPostMock).toHaveBeenCalledTimes(1);
     expect(apolloPostMock.mock.calls[0]?.[1]?.account_attributes?.[0]?.typed_custom_fields).toEqual({
-      "6980e9f46ff5a0002169a12a": "Datadog",
-      "6967fde7e9b8720011d25737": "4",
-      "696fe565def36a00193ece7e": "ready",
       [CURRENT_WEEK_CUSTOM_FIELD_ID]: CURRENT_WEEK_LABEL,
     });
   });
@@ -131,12 +116,7 @@ describe("syncApolloAccountsFromOutputRows", () => {
 
   it("skips rows with no stage and no custom field values", async () => {
     const result = await syncApolloAccountsFromOutputRows([
-      makeRow({
-        observability_tool_research: "",
-        sre_count: "",
-        notes: "",
-        stage: "",
-      }),
+      makeRow({ stage: "" }),
     ]);
 
     expect(apolloPostMock).not.toHaveBeenCalled();
@@ -155,8 +135,8 @@ describe("syncApolloAccountsFromOutputRows", () => {
 
   it("dedupes duplicate account ids with deterministic last-row-wins", async () => {
     await syncApolloAccountsFromOutputRows([
-      makeRow({ apollo_account_id: "acc_dup", stage: "NotActionableNow", notes: "old" }),
-      makeRow({ apollo_account_id: "acc_dup", stage: "ChasingPOC", notes: "new" }),
+      makeRow({ apollo_account_id: "acc_dup", stage: "NotActionableNow" }),
+      makeRow({ apollo_account_id: "acc_dup", stage: "ChasingPOC" }),
     ]);
 
     expect(apolloPostMock).toHaveBeenCalledTimes(1);
@@ -166,7 +146,7 @@ describe("syncApolloAccountsFromOutputRows", () => {
       id: "acc_dup",
       account_stage_id: "6971e93a8f17d1001569a9bb",
       typed_custom_fields: {
-        "696fe565def36a00193ece7e": "new",
+        [CURRENT_WEEK_CUSTOM_FIELD_ID]: CURRENT_WEEK_LABEL,
       },
     });
   });
@@ -194,7 +174,7 @@ describe("syncApolloAccountsFromOutputRows", () => {
   it("stamps the current week on every synced account", async () => {
     await syncApolloAccountsFromOutputRows([
       makeRow({ apollo_account_id: "acc_1" }),
-      makeRow({ apollo_account_id: "acc_2", notes: "other" }),
+      makeRow({ apollo_account_id: "acc_2" }),
     ]);
 
     const accounts = apolloPostMock.mock.calls[0]?.[1]?.account_attributes;

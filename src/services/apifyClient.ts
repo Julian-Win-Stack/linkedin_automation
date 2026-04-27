@@ -1,9 +1,7 @@
-import { EnrichedEmployee, ApifyOpenToWorkCache, ApifyExperienceEntry, ApifyProfileSkill } from "../types/prospect";
+import { EnrichedEmployee, ApifyOpenToWorkCache, ApifyExperienceEntry } from "../types/prospect";
 
 const LINE_WIDTH = 78;
 const HEAVY_LINE = "═".repeat(LINE_WIDTH);
-const ANSI_ERROR_RED = "\x1b[31m";
-const ANSI_RESET = "\x1b[0m";
 const FRONTEND_REGEX = /\b(front[\s-]?end|android|ios|ai|ml|machine[\s-]?learning)\b/i;
 const FRONTEND_OVERRIDE_REGEX = /\b(back[\s-]?end|full[\s-]?stack|end[\s-]?to[\s-]?end)\b/i;
 const TITLE_REJECT_REGEX = /\b(data|front[\s-]?end)\b/i;

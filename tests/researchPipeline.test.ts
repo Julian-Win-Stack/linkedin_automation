@@ -5,7 +5,6 @@ import { EnrichedEmployee } from "../src/types/prospect";
 
 const readCompaniesMock = vi.fn();
 const countProcessableCompaniesMock = vi.fn();
-const researchCompanyMock = vi.fn();
 const getCompanyMock = vi.fn();
 const searchPeopleMock = vi.fn();
 const scrapeCompanyEmployeesMock = vi.fn();
@@ -28,10 +27,6 @@ const getWeeklySuccessCountsMock = vi.fn();
 vi.mock("../src/services/observability/csvReader", () => ({
   readCompanies: (...args: unknown[]) => readCompaniesMock(...args),
   countProcessableCompanies: (...args: unknown[]) => countProcessableCompaniesMock(...args),
-}));
-
-vi.mock("../src/services/observability/openaiClient", () => ({
-  researchCompany: (...args: unknown[]) => researchCompanyMock(...args),
 }));
 
 vi.mock("../src/services/getCompany", () => ({
@@ -109,25 +104,10 @@ function makeEmployee(id: string, title = "SRE", tenure: number | null = 12, lin
   };
 }
 
-async function waitForCondition(predicate: () => void, attempts = 20): Promise<void> {
-  let lastError: unknown;
-  for (let index = 0; index < attempts; index += 1) {
-    try {
-      predicate();
-      return;
-    } catch (error) {
-      lastError = error;
-      await Promise.resolve();
-    }
-  }
-  throw lastError;
-}
-
 describe("runResearchPipeline orchestration", () => {
   beforeEach(() => {
     readCompaniesMock.mockReset();
     countProcessableCompaniesMock.mockReset();
-    researchCompanyMock.mockReset();
     getCompanyMock.mockReset();
     searchPeopleMock.mockReset();
     scrapeCompanyEmployeesMock.mockReset();
@@ -158,7 +138,6 @@ describe("runResearchPipeline orchestration", () => {
       outcomes: [],
     });
     searchPeopleMock.mockResolvedValue([]);
-    researchCompanyMock.mockResolvedValue("Not found");
     getCompanyMock.mockResolvedValue({ companyName: "Acme", domain: "acme.com" });
     scrapeCompanyEmployeesMock.mockResolvedValue({ employees: [], apifyCache: new Map(), profileCount: 0 });
     filterPoolByStageMock.mockImplementation((pool: EnrichedEmployee[]) => pool);
@@ -201,7 +180,6 @@ describe("runResearchPipeline orchestration", () => {
     readCompaniesMock.mockReturnValueOnce(
       asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
     );
-    searchPeopleMock.mockResolvedValueOnce([{ id: "p1", name: "P1", title: "SRE" }]);
     const poolEmployees = [makeEmployee("sre-1"), makeEmployee("sre-2", "Director of Engineering")];
     scrapeCompanyEmployeesMock.mockResolvedValueOnce({
       employees: poolEmployees,
@@ -214,11 +192,6 @@ describe("runResearchPipeline orchestration", () => {
       jobId,
       "csv",
       {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
         nameColumn: "Company Name",
         domainColumn: "Website",
         apolloAccountIdColumn: "Apollo Account Id",
@@ -232,249 +205,6 @@ describe("runResearchPipeline orchestration", () => {
     const tagged = pushPeopleToLemlistCampaignMock.mock.calls[0][0] as Array<{ linkedinBucket: string }>;
     expect(tagged.length).toBeGreaterThan(0);
   });
-
-  it("logs returned SRE pre-filter people to the terminal stream", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    searchPeopleMock.mockResolvedValueOnce([
-      { id: "sre-1", name: "Alice", title: "SRE" },
-      { id: "sre-2", name: "Bob", title: "Site Reliability Engineer" },
-      ...Array.from({ length: 28 }, (_, index) => ({
-        id: `sre-extra-${index + 1}`,
-        name: `Extra ${index + 1}`,
-        title: "SRE",
-      })),
-    ]);
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const jobId = createJob();
-    await runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    const loggedOutput = consoleErrorSpy.mock.calls.map(([message]) => String(message)).join("\n");
-    expect(loggedOutput).toContain("SRE pre-filter results for Acme: 30 (returned cap of 30)");
-    expect(loggedOutput).toContain("1. Alice | SRE | sre-1");
-    expect(loggedOutput).toContain("2. Bob | Site Reliability Engineer | sre-2");
-
-    consoleErrorSpy.mockRestore();
-  });
-
-  it("does not reject a domainless company from Apollo SRE pre-filter count", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "Acme", companyDomain: "", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    const jobId = createJob();
-    await runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    expect(searchPeopleMock).not.toHaveBeenCalled();
-    expect(researchCompanyMock).toHaveBeenCalledTimes(1);
-    const loggedOutput = consoleErrorSpy.mock.calls.map(([message]) => String(message)).join("\n");
-    expect(loggedOutput).toContain(
-      "SRE pre-filter skipped for Acme: missing company domain makes Apollo org-id-only search unreliable"
-    );
-
-    consoleErrorSpy.mockRestore();
-  });
-
-  it("rejects a domainless company when Apify SRE count exceeds maximum", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "Acme", companyDomain: "", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    const sreEmployees = Array.from({ length: 16 }, (_, index) =>
-      makeEmployee(`sre-${index + 1}`, "SRE", 12)
-    );
-    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
-      employees: sreEmployees,
-      apifyCache: new Map(),
-      profileCount: 16,
-    });
-
-    const jobId = createJob();
-    await runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    expect(searchPeopleMock).not.toHaveBeenCalled();
-    expect(pushPeopleToLemlistCampaignMock).not.toHaveBeenCalled();
-    const job = getJob(jobId);
-    expect(job?.rejectedCompanies).toEqual(
-      expect.arrayContaining([expect.stringContaining("Acme")])
-    );
-    const csvArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
-    const acmeRow = csvArg?.find((row) => row.company_name === "Acme");
-    expect(acmeRow?.sre_count).toBe(16);
-  });
-
-  it("writes Apify-derived SRE count to output row for domainless company that passes", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "Acme", companyDomain: "", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    const sreEmployees = Array.from({ length: 5 }, (_, index) =>
-      makeEmployee(`sre-${index + 1}`, "SRE", 12)
-    );
-    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
-      employees: sreEmployees,
-      apifyCache: new Map(),
-      profileCount: 5,
-    });
-
-    const jobId = createJob();
-    await runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    expect(searchPeopleMock).not.toHaveBeenCalled();
-    const csvArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
-    const acmeRow = csvArg?.find((row) => row.company_name === "Acme");
-    expect(acmeRow?.sre_count).toBe(5);
-  });
-
-  it("uses the larger linkedin current SRE count for csv and sync outputs", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    searchPeopleMock.mockResolvedValueOnce([{ id: "apollo-1", name: "Apollo One", title: "SRE" }]);
-    const linkedinSreEmployees = Array.from({ length: 4 }, (_, index) => makeEmployee(`linkedin-${index + 1}`, "SRE", 12));
-    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
-      employees: linkedinSreEmployees,
-      apifyCache: new Map(),
-      profileCount: 4,
-    });
-
-    const jobId = createJob();
-    await runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    const csvArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
-    const apolloSyncArg =
-      syncApolloAccountsFromOutputRowsMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
-    const attioSyncArg =
-      syncAttioCompaniesFromOutputRowsMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
-
-    expect(csvArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(4);
-    expect(apolloSyncArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(4);
-    expect(attioSyncArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(4);
-  });
-
-  it("keeps the Apollo SRE count when it is larger than linkedin current SRE count", async () => {
-    readCompaniesMock.mockReturnValueOnce(
-      asyncCompanyRows([{ companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 2 }])
-    );
-    searchPeopleMock.mockResolvedValueOnce([
-      { id: "apollo-1", name: "Apollo One", title: "SRE" },
-      { id: "apollo-2", name: "Apollo Two", title: "SRE" },
-      { id: "apollo-3", name: "Apollo Three", title: "SRE" },
-      { id: "apollo-4", name: "Apollo Four", title: "SRE" },
-      { id: "apollo-5", name: "Apollo Five", title: "SRE" },
-    ]);
-    scrapeCompanyEmployeesMock.mockResolvedValueOnce({
-      employees: [makeEmployee("linkedin-1", "SRE", 12), makeEmployee("linkedin-2", "SRE", 12)],
-      apifyCache: new Map(),
-      profileCount: 2,
-    });
-
-    const jobId = createJob();
-    await runResearchPipeline(
-      jobId,
-      "csv",
-      {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
-      },
-      "julian",
-      Date.now()
-    );
-
-    const csvArg = rowsToCsvStringMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
-    const apolloSyncArg =
-      syncApolloAccountsFromOutputRowsMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
-    const attioSyncArg =
-      syncAttioCompaniesFromOutputRowsMock.mock.calls[0]?.[0] as Array<{ company_name: string; sre_count: number | "" }> | undefined;
-
-    expect(csvArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(5);
-    expect(apolloSyncArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(5);
-    expect(attioSyncArg?.find((row) => row.company_name === "Acme")?.sre_count).toBe(5);
-  });
-
-
 
   it("stores filtered candidate summaries as per-company counts", async () => {
     readCompaniesMock.mockReturnValueOnce(
@@ -512,11 +242,6 @@ describe("runResearchPipeline orchestration", () => {
       jobId,
       "csv",
       {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
         nameColumn: "Company Name",
         domainColumn: "Website",
         apolloAccountIdColumn: "Apollo Account Id",
@@ -558,11 +283,6 @@ describe("runResearchPipeline orchestration", () => {
       jobId,
       "csv",
       {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
         nameColumn: "Company Name",
         domainColumn: "Website",
         apolloAccountIdColumn: "Apollo Account Id",
@@ -595,11 +315,6 @@ describe("runResearchPipeline orchestration", () => {
       jobId,
       "csv",
       {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
         nameColumn: "Company Name",
         domainColumn: "Website",
         apolloAccountIdColumn: "Apollo Account Id",
@@ -609,7 +324,6 @@ describe("runResearchPipeline orchestration", () => {
     );
 
     expect(scrapeCompanyEmployeesMock).not.toHaveBeenCalled();
-    expect(searchPeopleMock).not.toHaveBeenCalled();
   });
 
   it("still marks done when account sync fails", async () => {
@@ -623,11 +337,6 @@ describe("runResearchPipeline orchestration", () => {
       jobId,
       "csv",
       {
-        azureOpenAiApiKey: "k",
-        azureOpenAiBaseUrl: "u",
-        searchApiKey: "s",
-        model: "m",
-        maxCompletionTokens: 1000,
         nameColumn: "Company Name",
         domainColumn: "Website",
         apolloAccountIdColumn: "Apollo Account Id",
@@ -658,11 +367,6 @@ describe("runResearchPipeline orchestration", () => {
         jobId,
         "csv",
         {
-          azureOpenAiApiKey: "k",
-          azureOpenAiBaseUrl: "u",
-          searchApiKey: "s",
-          model: "m",
-          maxCompletionTokens: 1000,
           nameColumn: "Company Name",
           domainColumn: "Website",
           apolloAccountIdColumn: "Apollo Account Id",
@@ -784,11 +488,6 @@ describe("runResearchPipeline orchestration", () => {
         jobId,
         "csv",
         {
-          azureOpenAiApiKey: "k",
-          azureOpenAiBaseUrl: "u",
-          searchApiKey: "s",
-          model: "m",
-          maxCompletionTokens: 1000,
           nameColumn: "Company Name",
           domainColumn: "Website",
           apolloAccountIdColumn: "Apollo Account Id",
@@ -807,11 +506,6 @@ describe("runResearchPipeline orchestration", () => {
 });
 
 const defaultPipelineConfig = {
-  azureOpenAiApiKey: "k",
-  azureOpenAiBaseUrl: "u",
-  searchApiKey: "s",
-  model: "m",
-  maxCompletionTokens: 1000,
   nameColumn: "Company Name",
   domainColumn: "Website",
   apolloAccountIdColumn: "Apollo Account Id",
@@ -831,7 +525,6 @@ describe("50-company checkpoint flush", () => {
   beforeEach(() => {
     readCompaniesMock.mockReset();
     countProcessableCompaniesMock.mockReset();
-    researchCompanyMock.mockReset();
     getCompanyMock.mockReset();
     searchPeopleMock.mockReset();
     scrapeCompanyEmployeesMock.mockReset();
@@ -855,7 +548,6 @@ describe("50-company checkpoint flush", () => {
     rowsToCsvStringMock.mockResolvedValue("company_name\nAcme\n");
     pushPeopleToLemlistCampaignMock.mockResolvedValue({ attempted: 0, successful: 0, failed: 0, successItems: [], failedItems: [], outcomes: [] });
     searchPeopleMock.mockResolvedValue([]);
-    researchCompanyMock.mockResolvedValue("Not found");
     getCompanyMock.mockResolvedValue({ companyName: "Acme", domain: "acme.com" });
     scrapeCompanyEmployeesMock.mockResolvedValue({ employees: [], apifyCache: new Map(), profileCount: 0 });
     filterPoolByStageMock.mockImplementation((pool: EnrichedEmployee[]) => pool);

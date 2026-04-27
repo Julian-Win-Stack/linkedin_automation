@@ -2,7 +2,6 @@ import { apolloPostWithQuery } from "./apolloClient";
 import { ResolvedCompany } from "./getCompany";
 import { ApolloPerson, Prospect } from "../types/prospect";
 
-const DEFAULT_PERSON_TITLES = ["SRE", "Site Reliability"];
 const APOLLO_PAGE_SIZE = 100;
 const MAX_APOLLO_PAGES = 500;
 
@@ -124,15 +123,6 @@ async function searchPeopleByTitleParam(
   }
 
   return prospects.slice(0, normalizedMaxResults);
-}
-
-export async function searchPeople(
-  company: ResolvedCompany,
-  maxResults = 100,
-  personTitles: string[] = DEFAULT_PERSON_TITLES,
-  filters: PeopleSearchFilters = {}
-): Promise<Prospect[]> {
-  return searchPeopleByTitleParam(company, maxResults, personTitles, "person_titles[]", filters, false);
 }
 
 const BACKFILL_PAST_SRE_TITLES = [

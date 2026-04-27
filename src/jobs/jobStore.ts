@@ -44,10 +44,8 @@ export interface CampaignPushData {
 export interface JobSummary {
   totalRows: number;
   eligibleCompanyCount: number;
-  rejectedCompanyCount: number;
   skippedMissingWebsiteAndApolloAccountIdCount: number;
   apolloProcessedCompanyCount: number;
-  totalSreFound: number;
   totalLinkedinCampaignSuccessful: number;
   totalLinkedinCampaignFailed: number;
   totalLinkedinCampaignSkipped: number;
@@ -63,8 +61,6 @@ export type JobState = {
   skippedCompanies: string[];
   csvBase64?: string;
   error?: string;
-  rejectedCompanies: string[];
-  rejectedReason?: string;
   summary?: JobSummary;
   campaignPushData?: CampaignPushData;
   partialCsvBase64?: string;
@@ -104,7 +100,6 @@ export function createJob(): string {
     status: "pending",
     warnings: [],
     skippedCompanies: [],
-    rejectedCompanies: [],
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
   });
@@ -167,16 +162,6 @@ export function setSkippedCompanies(jobId: string, companies: string[]): void {
     return;
   }
   job.skippedCompanies = companies;
-  job.updatedAtMs = Date.now();
-}
-
-export function setRejectedCompanies(jobId: string, companies: string[], rejectedReason: string): void {
-  const job = jobs.get(jobId);
-  if (!job) {
-    return;
-  }
-  job.rejectedCompanies = companies;
-  job.rejectedReason = rejectedReason;
   job.updatedAtMs = Date.now();
 }
 

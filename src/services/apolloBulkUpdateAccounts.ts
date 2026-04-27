@@ -8,11 +8,7 @@ const APOLLO_BULK_UPDATE_MAX_PER_REQUEST = 1000;
 const APOLLO_ERROR_COLOR = "\x1b[31m";
 const APOLLO_WARNING_COLOR = "\x1b[33m";
 const ANSI_RESET = "\x1b[0m";
-const HARDCODED_CUSTOM_FIELD_IDS: Partial<Record<keyof OutputRow, string>> = {
-  observability_tool_research: "6980e9f46ff5a0002169a12a",
-  sre_count: "6967fde7e9b8720011d25737",
-  notes: "696fe565def36a00193ece7e",
-};
+const HARDCODED_CUSTOM_FIELD_IDS: Partial<Record<keyof OutputRow, string>> = {};
 const CURRENT_WEEK_CUSTOM_FIELD_ID = "69af02b6aa89be0015250321";
 
 export function formatCurrentWeekLabel(nowMs: number = Date.now()): string {
@@ -45,10 +41,7 @@ const COLUMN_KEY_TO_HEADER: Partial<Record<keyof OutputRow, string>> = {
   company_domain: "Website",
   company_linkedin_url: "Company Linkedin Url",
   apollo_account_id: "Apollo Account Id",
-  observability_tool_research: "Observability",
   stage: "Stage",
-  sre_count: "Number of SREs",
-  notes: "Notes",
 };
 
 const EXCLUDED_HEADERS = new Set<string>([
@@ -128,6 +121,11 @@ function buildAccountAttributesPayload(
       continue;
     }
 
+    if (!toDisplayValue(row.stage)) {
+      skippedNoMappableFieldsCount += 1;
+      continue;
+    }
+
     const typedCustomFields: Record<string, string> = {};
     let accountStageId: string | undefined;
 
@@ -161,11 +159,6 @@ function buildAccountAttributesPayload(
       }
 
       typedCustomFields[fieldId] = displayValue;
-    }
-
-    if (Object.keys(typedCustomFields).length === 0 && !accountStageId) {
-      skippedNoMappableFieldsCount += 1;
-      continue;
     }
 
     typedCustomFields[CURRENT_WEEK_CUSTOM_FIELD_ID] = weekLabel;

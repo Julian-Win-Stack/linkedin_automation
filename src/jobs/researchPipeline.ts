@@ -2,16 +2,10 @@ import { getEnvBoolean } from "../config/env";
 import { PipelineConfig } from "../config/pipelineConfig";
 import { getCompany, ResolvedCompany } from "../services/getCompany";
 import { pushPeopleToLemlistCampaign, TaggedLinkedinCandidate } from "../services/lemlistPushQueue";
-import {
-  PeopleSearchFilters,
-  searchPeople,
-} from "../services/searchPeople";
 import { countProcessableCompanies, readCompanies } from "../services/observability/csvReader";
-import { researchCompany } from "../services/observability/openaiClient";
 import { fillToMinimumWithBackfill, selectTopSreForLemlist, selectKeywordMatchedByTenure, runBackfillStages } from "../services/sreSelection";
 import {
   OutputRow,
-  RejectedOutputRow,
   rowsToCsvString,
 } from "../services/observability/csvWriter";
 import {
@@ -29,10 +23,9 @@ import {
   setJobStatus,
   setJobSummary,
   setCampaignPushData,
-  setRejectedCompanies,
   setJobPartialResults,
 } from "./jobStore";
-import { EnrichedEmployee, ApifyOpenToWorkCache, LemlistPushOutcome, Prospect } from "../types/prospect";
+import { EnrichedEmployee, LemlistPushOutcome } from "../types/prospect";
 import { SelectedUser } from "../shared/selectedUser";
 import { filterOpenToWorkFromCache, filterByKeywordsInApifyData, filterOutHardwareHeavyPeople } from "../services/apifyClient";
 import { syncApolloAccountsFromOutputRows, formatCurrentWeekLabel } from "../services/apolloBulkUpdateAccounts";
@@ -49,15 +42,6 @@ const SRE_PERSON_TITLES = [
   "Site Reliability Engineering",
   "Head of Reliability",
 ];
-const MAX_RESULTS = 30;
-/** Current-title exclusions for LinkedIn Apollo searches (SRE, past SRE, platform backfill). */
-const LINKEDIN_APOLLO_NOT_TITLES: string[] = [];
-
-function linkedinApolloPeopleFilters(filters: PeopleSearchFilters): PeopleSearchFilters {
-  return { ...filters, notTitles: LINKEDIN_APOLLO_NOT_TITLES };
-}
-const REJECTED_REASON = "rejected because they were using other observability tools";
-const MAX_SRE_COUNT = 15;
 const PAST_SRE_EXPERIENCE_KEYWORDS = ["SRE", "Site Reliability"];
 const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
 const WEEKLY_LINKEDIN_PUSH_LIMIT = 100;
@@ -221,29 +205,6 @@ function isCancelled(jobId: string): boolean {
   return !job || job.status === "cancelled";
 }
 
-function shouldProcessByObservability(observability: string): boolean {
-  const normalized = observability.toLowerCase();
-  if (normalized.trim() === "not found") {
-    return true;
-  }
-  return normalized.includes("datadog") || normalized.includes("grafana") || normalized.includes("prometheus");
-}
-
-function dedupeProspectsById<T extends { id: string }>(items: T[]): T[] {
-  const seen = new Set<string>();
-  const deduped: T[] = [];
-
-  for (const item of items) {
-    if (seen.has(item.id)) {
-      continue;
-    }
-    seen.add(item.id);
-    deduped.push(item);
-  }
-
-  return deduped;
-}
-
 function toEmployeeKey(employee: EnrichedEmployee): string {
   return employee.id ?? `${employee.name}|${employee.currentTitle}|${employee.linkedinUrl ?? ""}`;
 }
@@ -317,27 +278,6 @@ function logPipelineInfo(_line: string): void {
   // Intentionally muted to reduce noisy normal-color logs.
 }
 
-function logCurrentSrePrefilterResults(companyName: string, prospects: Prospect[], maxResults: number): void {
-  const cappedSuffix = prospects.length >= maxResults ? ` (returned cap of ${maxResults})` : "";
-  console.error("");
-  console.error(`SRE pre-filter results for ${companyName}: ${prospects.length}${cappedSuffix}`);
-
-  if (prospects.length === 0) {
-    console.error("  (no SREs returned)");
-    return;
-  }
-
-  for (const [index, prospect] of prospects.entries()) {
-    const name = prospect.name.trim() || "Unknown";
-    const title = prospect.title.trim() || "Unknown title";
-    console.error(`  ${index + 1}. ${name} | ${title} | ${prospect.id}`);
-  }
-}
-
-function canTrustSrePrefilter(company: ResolvedCompany): boolean {
-  return company.domain.trim().length > 0;
-}
-
 function createPipelineStepLogger(jobId: string): (
   step: string,
   message: string,
@@ -376,16 +316,12 @@ export async function runResearchPipeline(
   const logPipelineStage = createPipelineStepLogger(jobId);
   const outputRows: OutputRow[] = [];
   const syncableOutputRows: OutputRow[] = [];
-  const rejectedOutputRows: RejectedOutputRow[] = [];
-  const rejectedCompanies: string[] = [];
   const skippedCompanies: string[] = [];
   let companiesSinceLastCheckpoint = 0;
   let lastCheckpointSyncableIndex = 0;
-  let lastCheckpointRejectedIndex = 0;
   let totalRows = 0;
   let skippedMissingWebsiteAndApolloAccountIdCount = 0;
   let apolloProcessedCompanyCount = 0;
-  let totalSreFound = 0;
   let totalLinkedinCampaignSuccessful = 0;
   let totalLinkedinCampaignFailed = 0;
   let totalLinkedinCampaignSkipped = 0;
@@ -406,22 +342,11 @@ export async function runResearchPipeline(
 
   async function flushCheckpoint(): Promise<void> {
     const newSyncableRows = syncableOutputRows.slice(lastCheckpointSyncableIndex);
-    const newRejectedRows: OutputRow[] = rejectedOutputRows.slice(lastCheckpointRejectedIndex).map((row) => ({
-      company_name: row.company_name,
-      company_domain: row.company_domain,
-      company_linkedin_url: row.company_linkedin_url,
-      apollo_account_id: row.apollo_account_id,
-      observability_tool_research: row.observability_tool_research,
-      stage: row.status,
-      sre_count: row.sre_count,
-      notes: row.notes,
-    }));
     lastCheckpointSyncableIndex = syncableOutputRows.length;
-    lastCheckpointRejectedIndex = rejectedOutputRows.length;
 
     const [apolloOutcome, attioOutcome] = await Promise.allSettled([
-      syncApolloAccountsFromOutputRows([...newSyncableRows, ...newRejectedRows]),
-      syncAttioCompaniesFromOutputRows([...newSyncableRows, ...newRejectedRows]),
+      syncApolloAccountsFromOutputRows(newSyncableRows),
+      syncAttioCompaniesFromOutputRows(newSyncableRows),
     ]);
     if (apolloOutcome.status === "rejected") {
       const msg = apolloOutcome.reason instanceof Error ? apolloOutcome.reason.message : "Unknown";
@@ -448,17 +373,7 @@ export async function runResearchPipeline(
       companiesReachedOutToCount: totalCompaniesReachedOutTo,
     });
 
-    const allRejectedSoFar: OutputRow[] = rejectedOutputRows.map((row) => ({
-      company_name: row.company_name,
-      company_domain: row.company_domain,
-      company_linkedin_url: row.company_linkedin_url,
-      apollo_account_id: row.apollo_account_id,
-      observability_tool_research: row.observability_tool_research,
-      stage: row.status,
-      sre_count: row.sre_count,
-      notes: row.notes,
-    }));
-    const partialCsvString = await rowsToCsvString([...outputRows, ...allRejectedSoFar]);
+    const partialCsvString = await rowsToCsvString(outputRows);
     const partialCsvBase64 = Buffer.from(partialCsvString, "utf8").toString("base64");
     setJobPartialResults(jobId, partialCsvBase64, campaignPushData);
 
@@ -468,7 +383,7 @@ export async function runResearchPipeline(
   try {
     setJobStatus(jobId, "processing");
     logPipelineStage("JOB_START", `Job started. selected_user=${selectedUser}`);
-    setJobMessage(jobId, "Starting engineer and SRE pre-filter...");
+    setJobMessage(jobId, "Starting pipeline...");
 
     const lemlistEnabled = getEnvBoolean("LEMLIST_PUSH_ENABLED", true);
     const progressTotalRows = Math.min(
@@ -504,7 +419,7 @@ export async function runResearchPipeline(
       }
 
       setJobProgress(jobId, { currentRow: totalRows, totalRows: progressTotalRows });
-      setJobMessage(jobId, `Engineer/SRE pre-filter row ${row.rowNumber}: ${row.companyName}`);
+      setJobMessage(jobId, `Processing row ${row.rowNumber}: ${row.companyName}`);
       const companyContext = { index: totalRows - 1, total: progressTotalRows, companyName: row.companyName };
 
       let shouldBreakAfterCompany = false;
@@ -517,10 +432,7 @@ export async function runResearchPipeline(
           company_domain: row.companyDomain,
           company_linkedin_url: row.companyLinkedinUrl,
           apollo_account_id: row.apolloAccountId ?? "",
-          observability_tool_research: "",
           stage: "",
-          sre_count: "",
-          notes: "",
         });
         if (!weeklyLimitWarningAdded) {
           addJobWarning(
@@ -531,72 +443,8 @@ export async function runResearchPipeline(
         }
       } else {
 
-      const company = await resolveCompanyForApolloInput(row);
-      const peopleSearchFilters: PeopleSearchFilters = {
-        apolloOrganizationId: row.apolloAccountId,
-      };
-
-      logPipelineStage("SEARCH_CURRENT_SRE", "Searching current SRE candidates for pre-filter.", companyContext);
-      const trustCurrentSrePrefilter = canTrustSrePrefilter(company);
-      const currentSreProspects = trustCurrentSrePrefilter
-        ? dedupeProspectsById(
-            await searchPeople(company, MAX_RESULTS, SRE_PERSON_TITLES, linkedinApolloPeopleFilters(peopleSearchFilters))
-          )
-        : [];
-      const apolloSreCount = currentSreProspects.length;
-      let rawSreCount = apolloSreCount;
-      let exportedSreCount = apolloSreCount;
-      if (trustCurrentSrePrefilter) {
-        logCurrentSrePrefilterResults(row.companyName, currentSreProspects, MAX_RESULTS);
-      } else {
-        console.error("");
-        console.error(`SRE pre-filter skipped for ${row.companyName}: missing company domain makes Apollo org-id-only search unreliable`);
-      }
-      logPipelineStage("SEARCH_CURRENT_SRE_DONE", `Current SRE candidates found. count=${rawSreCount}`, companyContext);
-      if (trustCurrentSrePrefilter && rawSreCount > MAX_SRE_COUNT) {
-        const rejectionNote = `${row.companyName} got rejected because it has ${rawSreCount} number of SREs`;
-        logPipelineStage("REJECT_SRE_MAX", `Company rejected by SRE maximum. count=${rawSreCount}`, companyContext);
-        rejectedCompanies.push(rejectionNote);
-        rejectedOutputRows.push({
-          company_name: row.companyName,
-          company_domain: row.companyDomain,
-          company_linkedin_url: row.companyLinkedinUrl,
-          apollo_account_id: row.apolloAccountId ?? "",
-          observability_tool_research: "",
-          sre_count: rawSreCount,
-          status: "NotActionableNow",
-          notes: rejectionNote,
-        });
-        continue;
-      }
-
-      setJobMessage(jobId, `Observability research row ${row.rowNumber}: ${row.companyName}`);
-      const observability = await researchCompany(row.companyName, row.companyDomain, {
-        apiKey: config.azureOpenAiApiKey,
-        baseUrl: config.azureOpenAiBaseUrl,
-        model: config.model,
-        maxCompletionTokens: config.maxCompletionTokens,
-        searchApiKey: config.searchApiKey,
-      });
-      if (!shouldProcessByObservability(observability)) {
-        rejectedCompanies.push(
-          `Company ${row.companyName} was rejected because it was using ${observability.trim() || "other observability tools"}`
-        );
-        rejectedOutputRows.push({
-          company_name: row.companyName,
-          company_domain: row.companyDomain,
-          company_linkedin_url: row.companyLinkedinUrl,
-          apollo_account_id: row.apolloAccountId ?? "",
-          observability_tool_research: observability,
-          sre_count: rawSreCount,
-          status: "NotActionableNow",
-          notes: observability.trim() || REJECTED_REASON,
-        });
-        continue;
-      }
-
       eligibleCompanyCount += 1;
-      setJobMessage(jobId, `Apollo stage row ${row.rowNumber}: ${row.companyName}`);
+      const company = await resolveCompanyForApolloInput(row);
       logPipelineStage("COMPANY_START", "Company processing started.", companyContext);
 
       try {
@@ -633,35 +481,6 @@ export async function runResearchPipeline(
               (employee.headline ?? "").toLowerCase().includes(keyword.toLowerCase())
           )
         );
-        const linkedinCurrentSreCount = currentSrePool.length;
-        if (!trustCurrentSrePrefilter) {
-          rawSreCount = linkedinCurrentSreCount;
-          exportedSreCount = rawSreCount;
-          console.error("");
-          console.error(`SRE count from Apify for ${row.companyName}: ${rawSreCount}`);
-          for (const [index, employee] of currentSrePool.entries()) {
-            console.error(`  ${index + 1}. ${employee.name} | ${employee.currentTitle}`);
-          }
-          logPipelineStage("SEARCH_CURRENT_SRE_DONE", `Apify SRE count derived. count=${rawSreCount}`, companyContext);
-          if (rawSreCount > MAX_SRE_COUNT) {
-            const rejectionNote = `${row.companyName} got rejected because it has ${rawSreCount} number of SREs`;
-            logPipelineStage("REJECT_SRE_MAX", `Company rejected by SRE maximum (Apify count). count=${rawSreCount}`, companyContext);
-            rejectedCompanies.push(rejectionNote);
-            rejectedOutputRows.push({
-              company_name: row.companyName,
-              company_domain: row.companyDomain,
-              company_linkedin_url: row.companyLinkedinUrl,
-              apollo_account_id: row.apolloAccountId ?? "",
-              observability_tool_research: "",
-              sre_count: rawSreCount,
-              status: "NotActionableNow",
-              notes: rejectionNote,
-            });
-            continue;
-          }
-        } else {
-          exportedSreCount = Math.max(apolloSreCount, linkedinCurrentSreCount);
-        }
         const currentSreKeys = new Set(currentSrePool.map(toEmployeeKey));
         const nonSrePool = profilePool.filter((emp) => !currentSreKeys.has(toEmployeeKey(emp)));
         const pastSrePool = filterByPastExperienceKeywords(nonSrePool, apifyCache, PAST_SRE_EXPERIENCE_KEYWORDS);
@@ -799,7 +618,6 @@ export async function runResearchPipeline(
         }
 
         apolloProcessedCompanyCount += 1;
-        totalSreFound += rawSreCount;
 
         let lemlistSuccessful = 0;
         let lemlistFailed = 0;
@@ -903,10 +721,7 @@ export async function runResearchPipeline(
           company_domain: row.companyDomain,
           company_linkedin_url: row.companyLinkedinUrl,
           apollo_account_id: row.apolloAccountId ?? "",
-          observability_tool_research: observability,
           stage: "ChasingPOC",
-          sre_count: exportedSreCount,
-          notes: "",
           outreach_date: outreachDateLabel,
         });
         syncableOutputRows.push({
@@ -914,10 +729,7 @@ export async function runResearchPipeline(
           company_domain: row.companyDomain,
           company_linkedin_url: row.companyLinkedinUrl,
           apollo_account_id: row.apolloAccountId ?? "",
-          observability_tool_research: observability,
           stage: "ChasingPOC",
-          sre_count: exportedSreCount,
-          notes: "",
           outreach_date: outreachDateLabel,
         });
         totalCompaniesReachedOutTo += 1;
@@ -950,10 +762,7 @@ export async function runResearchPipeline(
           company_domain: row.companyDomain,
           company_linkedin_url: row.companyLinkedinUrl,
           apollo_account_id: row.apolloAccountId ?? "",
-          observability_tool_research: observability,
           stage: "ChasingPOC",
-          sre_count: 0,
-          notes: "",
           outreach_date: outreachDateLabel,
         });
         syncableOutputRows.push({
@@ -961,10 +770,7 @@ export async function runResearchPipeline(
           company_domain: row.companyDomain,
           company_linkedin_url: row.companyLinkedinUrl,
           apollo_account_id: row.apolloAccountId ?? "",
-          observability_tool_research: observability,
           stage: "ChasingPOC",
-          sre_count: 0,
-          notes: "",
           outreach_date: outreachDateLabel,
         });
         totalCompaniesReachedOutTo += 1;
@@ -985,16 +791,13 @@ export async function runResearchPipeline(
     await flushCheckpoint();
 
     setJobMessage(jobId, "Finalizing results and syncing company updates.");
-    setRejectedCompanies(jobId, rejectedCompanies, REJECTED_REASON);
     setSkippedCompanies(jobId, skippedCompanies);
 
     const summary: JobSummary = {
       totalRows,
       eligibleCompanyCount,
-      rejectedCompanyCount: rejectedCompanies.length,
       skippedMissingWebsiteAndApolloAccountIdCount,
       apolloProcessedCompanyCount,
-      totalSreFound,
       totalLinkedinCampaignSuccessful,
       totalLinkedinCampaignFailed,
       totalLinkedinCampaignSkipped,
@@ -1003,22 +806,7 @@ export async function runResearchPipeline(
     setJobSummary(jobId, summary);
     setCampaignPushData(jobId, campaignPushData);
 
-    const rejectedAsOutputRows: OutputRow[] = rejectedOutputRows.map((row) => ({
-        company_name: row.company_name,
-        company_domain: row.company_domain,
-        company_linkedin_url: row.company_linkedin_url,
-        apollo_account_id: row.apollo_account_id,
-        observability_tool_research: row.observability_tool_research,
-        stage: row.status,
-        sre_count: row.sre_count,
-        notes: row.notes,
-      }));
-    const combinedOutputRows: OutputRow[] = [
-      ...outputRows,
-      ...rejectedAsOutputRows,
-    ];
-
-    const csvString = await rowsToCsvString(combinedOutputRows);
+    const csvString = await rowsToCsvString(outputRows);
     const csvBase64 = Buffer.from(csvString, "utf8").toString("base64");
     setJobMessage(jobId, "Completed. CSV and PDF are ready to download.");
     markJobDone(jobId, csvBase64);

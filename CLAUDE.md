@@ -22,7 +22,7 @@ src/config/      — env loading and pipeline config
 src/jobs/        — in-memory job state + main orchestration (researchPipeline.ts)
 src/routes/      — Express routes (research.ts, admin.ts)
 src/services/    — all external API clients and business logic
-  observability/ — CSV I/O, Azure OpenAI research, SearchAPI
+  observability/ — CSV I/O (csvReader.ts, csvWriter.ts)
 src/shared/      — SelectedUser type
 src/types/       — domain types (prospect.ts)
 frontend/src/    — Vue 3 SPA
@@ -34,8 +34,12 @@ For full architecture details, see @docs/architecture.md
 
 ## Documentation
 
-- **Always use context7** before building or modifying anything that involves a library, framework, or external API. Resolve the library ID first (`mcp__context7__resolve-library-id`), then fetch the relevant docs (`mcp__context7__query-docs`). This applies to Express, Vue, Vitest, Apify, Apollo, Attio, Lemlist, Azure OpenAI, SQLite, and any other dependency in this project.
+- **Always use context7** before building or modifying anything that involves a library, framework, or external API. Resolve the library ID first (`mcp__context7__resolve-library-id`), then fetch the relevant docs (`mcp__context7__query-docs`). This applies to Express, Vue, Vitest, Apify, Apollo, Attio, Lemlist, SQLite, and any other dependency in this project.
 - Do not rely on training data for API shapes, SDK methods, or config options — fetch current docs via context7 every time.
+
+## Pre-Commit Lint Check
+
+Always run `npm run lint` before creating any git commit and fix all errors first. Do not commit with lint errors present.
 
 ## Testing Rule
 
@@ -58,4 +62,3 @@ Whenever you build or change something:
 
 - `APOLLO_WATERFALL_ENABLED` defaults `false` — Apollo waterfall enrichment is off unless explicitly set.
 - CSV column names default to `"Company Name"`, `"Website"`, `"Apollo Account Id"` but are overridable via `NAME_COLUMN`, `DOMAIN_COLUMN`, `APOLLO_ACCOUNT_ID_COLUMN` env vars.
-- Companies are rejected (not just skipped) if their observability tool is not Datadog, Grafana, or Prometheus — this is intentional targeting logic in `observability/openaiClient.ts`.

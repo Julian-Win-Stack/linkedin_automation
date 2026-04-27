@@ -16,10 +16,7 @@ function makeRow(overrides: Partial<OutputRow> = {}): OutputRow {
     company_domain: "https://www.acme.com/path",
     company_linkedin_url: "https://linkedin.com/company/acme",
     apollo_account_id: "apollo_1",
-    observability_tool_research: "Datadog",
     stage: "ChasingPOC",
-    sre_count: 3,
-    notes: "important",
     ...overrides,
   };
 }
@@ -32,11 +29,8 @@ describe("syncAttioCompaniesFromOutputRows", () => {
       data: [
         { api_slug: "name" },
         { api_slug: "domains" },
-        { api_slug: "observability_tool_research" },
         { api_slug: "status_5" },
         { api_slug: "stage" },
-        { api_slug: "number_of_sres" },
-        { api_slug: "current_workflow" },
         { api_slug: "company_linkedin_url" },
         { api_slug: "outreach_date" },
       ],
@@ -57,27 +51,21 @@ describe("syncAttioCompaniesFromOutputRows", () => {
       name: "Acme",
       domains: ["acme.com"],
       company_linkedin_url: "https://linkedin.com/company/acme",
-      observability_tool_research: "Datadog",
       status_5: "ChasingPOC",
-      number_of_sres: "3",
-      current_workflow: "important",
     });
     expect(body.data.values.stage).toBeUndefined();
-    expect(body.data.values.sre_count).toBeUndefined();
-    expect(body.data.values.notes).toBeUndefined();
     expect(body.data.values.apollo_account_id).toBeUndefined();
   });
 
   it("dedupes by normalized domain with deterministic last-row-wins", async () => {
     await syncAttioCompaniesFromOutputRows([
-      makeRow({ company_domain: "acme.com", notes: "old" }),
-      makeRow({ company_domain: "https://acme.com/about", notes: "new" }),
+      makeRow({ company_domain: "acme.com", stage: "" }),
+      makeRow({ company_domain: "https://acme.com/about", stage: "ChasingPOC" }),
     ]);
 
     expect(attioPutMock).toHaveBeenCalledTimes(1);
     const body = attioPutMock.mock.calls[0]?.[1] as { data: { values: Record<string, unknown> } };
-    expect(body.data.values.current_workflow).toBe("new");
-    expect(body.data.values.notes).toBeUndefined();
+    expect(body.data.values.status_5).toBe("ChasingPOC");
   });
 
   it("skips rows with missing domain", async () => {
@@ -115,10 +103,7 @@ describe("syncAttioCompaniesFromOutputRows", () => {
         { api_slug: "NAME" },
         { api_slug: "Domains" },
         { api_slug: "Company Linkedin Url" },
-        { api_slug: "Observability Tool Research" },
         { api_slug: "Status 5" },
-        { api_slug: "Number Of SREs" },
-        { api_slug: "Current Workflow" },
       ],
     });
 
@@ -130,14 +115,9 @@ describe("syncAttioCompaniesFromOutputRows", () => {
       NAME: "Acme",
       Domains: ["acme.com"],
       "Company Linkedin Url": "https://linkedin.com/company/acme",
-      "Observability Tool Research": "Datadog",
       "Status 5": "ChasingPOC",
-      "Number Of SREs": "3",
-      "Current Workflow": "important",
     });
     expect(body.data.values.Stage).toBeUndefined();
-    expect(body.data.values["SRE Count"]).toBeUndefined();
-    expect(body.data.values.notes).toBeUndefined();
   });
 
   it("maps outreach_date onto the Attio outreach_date slug when the row carries it", async () => {

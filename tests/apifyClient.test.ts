@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EnrichedEmployee, ApifyOpenToWorkCache, ApifyExperienceEntry } from "../src/types/prospect";
 
 const getRequiredEnvMock = vi.fn();

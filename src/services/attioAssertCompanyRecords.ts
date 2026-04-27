@@ -49,14 +49,9 @@ const COLUMN_TO_ATTIO_SLUG_CANDIDATES: Record<keyof OutputRow, string[]> = {
   company_domain: ["domains", "domain", "website", "company_domain"],
   company_linkedin_url: ["company_linkedin_url", "linkedin_url", "linkedin", "company_linkedin"],
   apollo_account_id: [],
-  observability_tool_research: ["observability_tool_research", "observability_tool"],
   // This workspace stores pipeline stages in "status_5". Do not write these
   // values into the narrower "stage" attribute.
   stage: ["status_5"],
-  // Live Attio workspace metadata shows this field is stored as "number_of_sres".
-  sre_count: ["number_of_sres"],
-  // Live Attio workspace metadata shows the Notes field uses this slug.
-  notes: ["current_workflow"],
   outreach_date: ["outreach_date"],
 };
 

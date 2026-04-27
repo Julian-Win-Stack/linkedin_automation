@@ -3,8 +3,6 @@ import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import researchRouter from "../src/routes/research";
 import {
-  setJobMessage,
-  setJobProgress,
   createJob,
   getJob,
   markJobDone,

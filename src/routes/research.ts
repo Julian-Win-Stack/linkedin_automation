@@ -72,8 +72,6 @@ async function processUserQueue(selectedUser: SelectedUser): Promise<void> {
         summary: job.summary ?? null,
         warnings: job.warnings,
         skippedCompanies: job.skippedCompanies,
-        rejectedCompanies: job.rejectedCompanies,
-        rejectedReason: job.rejectedReason ?? null,
         campaignPushData: job.campaignPushData ?? null,
       });
       removeJob(jobId);
@@ -93,8 +91,6 @@ async function processUserQueue(selectedUser: SelectedUser): Promise<void> {
       summary: job.summary ?? null,
       warnings: job.warnings,
       skippedCompanies: job.skippedCompanies,
-      rejectedCompanies: job.rejectedCompanies,
-      rejectedReason: job.rejectedReason ?? null,
       errorMessage: job.error ?? "Queue item failed.",
       campaignPushData: job.campaignPushData ?? null,
     });
@@ -195,8 +191,6 @@ router.get("/queue", (req, res) => {
       summary: item.summary,
       warnings: item.warnings,
       skippedCompanies: item.skippedCompanies,
-      rejectedCompanies: item.rejectedCompanies,
-      rejectedReason: item.rejectedReason,
       errorMessage: item.errorMessage ?? runningJob?.error ?? null,
       progressMessage: item.status === "running" ? (runningJob?.message ?? null) : null,
       currentRow: item.status === "running" ? (runningJob?.currentRow ?? null) : null,
@@ -264,8 +258,6 @@ router.post("/queue/:queueItemId/cancel", (req, res) => {
     status: "cancelled",
     warnings: item.warnings,
     skippedCompanies: item.skippedCompanies,
-    rejectedCompanies: item.rejectedCompanies,
-    rejectedReason: item.rejectedReason,
     errorMessage: "Queue item cancelled by user.",
   });
   triggerUserQueue(item.selectedUser);
@@ -294,8 +286,6 @@ router.post("/queue/cancel-all", (req, res) => {
       status: "cancelled",
       warnings: item.warnings,
       skippedCompanies: item.skippedCompanies,
-      rejectedCompanies: item.rejectedCompanies,
-      rejectedReason: item.rejectedReason,
       campaignPushData: item.campaignPushData,
       errorMessage: "Queue cancelled by user.",
     });
