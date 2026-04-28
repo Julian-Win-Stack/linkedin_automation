@@ -96,5 +96,5 @@ Users are `raihan | cherry | julian`. Each user has full isolation across:
 - **`__resetQueueStoreForTests()`** (`queueStore.ts`) closes the SQLite connection for test isolation. Always called in test teardown.
 - **`APOLLO_WATERFALL_ENABLED`** env var gates the Apollo waterfall enrichment path. Defaults `false`.
 - **`LEMLIST_PUSH_ENABLED`** env var gates actual Lemlist pushes. Useful for dry runs.
-- **CSV column names are configurable** via `NAME_COLUMN`, `DOMAIN_COLUMN`, `APOLLO_ACCOUNT_ID_COLUMN` env vars (`pipelineConfig.ts`). Defaults match the standard export format.
+- **CSV column names accept multiple candidates** (first case-insensitive match wins). Candidates are hardcoded as named constants in `src/config/pipelineConfig.ts` (`NAME_COLUMN_CANDIDATES`, `DOMAIN_COLUMN_CANDIDATES`, `APOLLO_ACCOUNT_ID_COLUMN_CANDIDATES`, `LINKEDIN_URL_COLUMN_CANDIDATES`). To support a new export format, append the header string to the relevant array.
 - **Checkpoint flush** happens every 50 companies via `Promise.allSettled` — failures in CRM sync don't abort the pipeline.
