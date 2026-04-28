@@ -18,21 +18,31 @@ export interface CompanyRowSkipInfo {
 
 interface ReadCompaniesOptions {
   csvBuffer: string;
-  nameColumn: string;
-  domainColumn: string;
-  linkedinUrlColumn?: string;
-  apolloAccountIdColumn?: string;
+  nameColumn: string[];
+  domainColumn: string[];
+  linkedinUrlColumn?: string[];
+  apolloAccountIdColumn?: string[];
   onSkipRow?: (skipInfo: CompanyRowSkipInfo) => void;
 }
 
 interface CountProcessableCompaniesOptions {
   csvBuffer: string;
-  domainColumn: string;
-  apolloAccountIdColumn?: string;
+  domainColumn: string[];
+  apolloAccountIdColumn?: string[];
 }
 
 function cleanCell(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+// Returns the actual header key from the CSV whose trimmed lowercase matches any candidate.
+function resolveHeader(candidates: string[], headerKeys: string[]): string | undefined {
+  const lowerKeys = headerKeys.map((k) => k.trim().toLowerCase());
+  for (const candidate of candidates) {
+    const idx = lowerKeys.indexOf(candidate.trim().toLowerCase());
+    if (idx !== -1) return headerKeys[idx];
+  }
+  return undefined;
 }
 
 const parseOptions = {
@@ -49,17 +59,33 @@ export async function* readCompanies(options: ReadCompaniesOptions): AsyncGenera
   const parser = inputStream.pipe(parse(parseOptions));
 
   let rowNumber = 1;
+  let nameHeader: string | undefined;
+  let domainHeader: string | undefined;
+  let linkedinHeader: string | undefined;
+  let apolloHeader: string | undefined;
+  let headersResolved = false;
 
   for await (const record of parser as AsyncIterable<Record<string, unknown>>) {
     rowNumber += 1;
 
-    const companyName = cleanCell(record[options.nameColumn]);
-    const companyDomain = cleanCell(record[options.domainColumn]);
-    const companyLinkedinUrl = options.linkedinUrlColumn
-      ? cleanCell(record[options.linkedinUrlColumn])
-      : "";
-    const apolloAccountId = options.apolloAccountIdColumn
-      ? cleanCell(record[options.apolloAccountIdColumn]) || undefined
+    if (!headersResolved) {
+      const keys = Object.keys(record);
+      nameHeader = resolveHeader(options.nameColumn, keys);
+      domainHeader = resolveHeader(options.domainColumn, keys);
+      linkedinHeader = options.linkedinUrlColumn
+        ? resolveHeader(options.linkedinUrlColumn, keys)
+        : undefined;
+      apolloHeader = options.apolloAccountIdColumn
+        ? resolveHeader(options.apolloAccountIdColumn, keys)
+        : undefined;
+      headersResolved = true;
+    }
+
+    const companyName = cleanCell(nameHeader ? record[nameHeader] : "");
+    const companyDomain = cleanCell(domainHeader ? record[domainHeader] : "");
+    const companyLinkedinUrl = linkedinHeader ? cleanCell(record[linkedinHeader]) : "";
+    const apolloAccountId = apolloHeader
+      ? cleanCell(record[apolloHeader]) || undefined
       : undefined;
 
     if (!companyDomain && !apolloAccountId) {
@@ -85,11 +111,23 @@ export async function countProcessableCompanies(options: CountProcessableCompani
   const inputStream = Readable.from([options.csvBuffer]);
   const parser = inputStream.pipe(parse(parseOptions));
   let count = 0;
+  let domainHeader: string | undefined;
+  let apolloHeader: string | undefined;
+  let headersResolved = false;
 
   for await (const record of parser as AsyncIterable<Record<string, unknown>>) {
-    const companyDomain = cleanCell(record[options.domainColumn]);
-    const apolloAccountId = options.apolloAccountIdColumn
-      ? cleanCell(record[options.apolloAccountIdColumn]) || undefined
+    if (!headersResolved) {
+      const keys = Object.keys(record);
+      domainHeader = resolveHeader(options.domainColumn, keys);
+      apolloHeader = options.apolloAccountIdColumn
+        ? resolveHeader(options.apolloAccountIdColumn, keys)
+        : undefined;
+      headersResolved = true;
+    }
+
+    const companyDomain = cleanCell(domainHeader ? record[domainHeader] : "");
+    const apolloAccountId = apolloHeader
+      ? cleanCell(record[apolloHeader]) || undefined
       : undefined;
     if (!companyDomain && !apolloAccountId) {
       continue;

@@ -43,7 +43,6 @@ const SRE_PERSON_TITLES = [
   "Head of Reliability",
 ];
 const PAST_SRE_EXPERIENCE_KEYWORDS = ["SRE", "Site Reliability"];
-const COMPANY_LINKEDIN_URL_COLUMN = "Company Linkedin Url";
 const WEEKLY_LINKEDIN_PUSH_LIMIT = 100;
 const LINKEDIN_LEADERSHIP_TITLE_REGEX = /\b(director|svp|vp|head|chief)\b/i;
 const EMAIL_TITLE_REJECT_REGEX = /\b(data|front[\s-]?end)\b/i;
@@ -399,7 +398,7 @@ export async function runResearchPipeline(
       csvBuffer,
       nameColumn: config.nameColumn,
       domainColumn: config.domainColumn,
-      linkedinUrlColumn: COMPANY_LINKEDIN_URL_COLUMN,
+      linkedinUrlColumn: config.linkedinUrlColumn,
       apolloAccountIdColumn: config.apolloAccountIdColumn,
       onSkipRow: (skipInfo) => {
         if (skipInfo.reason === "missing_website_and_apollo_account_id") {

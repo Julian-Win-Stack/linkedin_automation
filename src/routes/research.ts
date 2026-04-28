@@ -128,13 +128,15 @@ router.post("/research", upload.single("csv"), async (req, res) => {
     const config = loadPipelineConfig();
     const firstLine = csvBuffer.split("\n")[0] ?? "";
     const headers = firstLine.split(",").map((header) => header.trim().replace(/^"|"$/g, ""));
-    const hasNameColumn = headers.includes(config.nameColumn);
-    const hasDomainColumn = headers.includes(config.domainColumn);
-    const hasApolloAccountIdColumn = headers.includes(config.apolloAccountIdColumn);
+    const hasAnyCandidate = (candidates: string[]) =>
+      candidates.some((c) => headers.some((h) => h.trim().toLowerCase() === c.trim().toLowerCase()));
+    const hasNameColumn = hasAnyCandidate(config.nameColumn);
+    const hasDomainColumn = hasAnyCandidate(config.domainColumn);
+    const hasApolloAccountIdColumn = hasAnyCandidate(config.apolloAccountIdColumn);
 
     if (!hasNameColumn || (!hasDomainColumn && !hasApolloAccountIdColumn)) {
       return res.status(400).json({
-        error: `CSV must have "${config.nameColumn}" and at least one of "${config.domainColumn}" or "${config.apolloAccountIdColumn}". Found: ${headers.join(", ")}`,
+        error: `CSV must have "Company Name" and at least one of "Website" or "Apollo Account ID". Found: ${headers.join(", ")}`,
       });
     }
 

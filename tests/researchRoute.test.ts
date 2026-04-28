@@ -70,9 +70,10 @@ describe("research job routes", () => {
       searchApiKey: "s",
       model: "gpt-5.4",
       maxCompletionTokens: 2048,
-      nameColumn: "Company Name",
-      domainColumn: "Website",
-      apolloAccountIdColumn: "Apollo Account Id",
+      nameColumn: ["Company Name"],
+      domainColumn: ["Website"],
+      apolloAccountIdColumn: ["Apollo Account Id"],
+      linkedinUrlColumn: ["Company Linkedin Url"],
     });
     getWeeklySuccessCountsMock.mockReturnValue({
       linkedinCount: 0,
@@ -144,7 +145,7 @@ describe("research job routes", () => {
       .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toContain('at least one of "Website" or "Apollo Account Id"');
+    expect(response.body.error).toContain('at least one of "Website" or "Apollo Account ID"');
   });
 
   it("returns 400 when selectedUser is missing", async () => {

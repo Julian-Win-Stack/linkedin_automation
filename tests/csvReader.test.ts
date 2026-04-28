@@ -14,9 +14,9 @@ describe("readCompanies", () => {
 
     for await (const row of readCompanies({
       csvBuffer: csv,
-      nameColumn: "Company Name",
-      domainColumn: "Website",
-      apolloAccountIdColumn: "Apollo Account Id",
+      nameColumn: ["Company Name"],
+      domainColumn: ["Website"],
+      apolloAccountIdColumn: ["Apollo Account Id"],
       onSkipRow: (skipInfo) => skippedReasons.push(skipInfo.reason),
     })) {
       rows.push(row);
@@ -48,9 +48,9 @@ describe("readCompanies", () => {
 
     for await (const row of readCompanies({
       csvBuffer: csv,
-      nameColumn: "Company Name",
-      domainColumn: "Website",
-      apolloAccountIdColumn: "Apollo Account Id",
+      nameColumn: ["Company Name"],
+      domainColumn: ["Website"],
+      apolloAccountIdColumn: ["Apollo Account Id"],
       onSkipRow: (skipInfo) => skippedReasons.push(skipInfo.reason),
     })) {
       rows.push(row);
@@ -69,6 +69,69 @@ describe("readCompanies", () => {
     });
     expect(skippedReasons).toEqual(["missing_website_and_apollo_account_id"]);
   });
+
+  it("matches headers case-insensitively", async () => {
+    const csv = [
+      "company name,website,apollo account id",
+      "Acme,acme.com,apollo-123",
+    ].join("\n");
+    const rows = [];
+
+    for await (const row of readCompanies({
+      csvBuffer: csv,
+      nameColumn: ["Company Name"],
+      domainColumn: ["Website"],
+      apolloAccountIdColumn: ["Apollo Account Id"],
+    })) {
+      rows.push(row);
+    }
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      companyName: "Acme",
+      companyDomain: "acme.com",
+      apolloAccountId: "apollo-123",
+    });
+  });
+
+  it("uses fallback candidate when primary header is absent", async () => {
+    const csv = [
+      "Parent Record > Company name,Website",
+      "Acme,acme.com",
+    ].join("\n");
+    const rows = [];
+
+    for await (const row of readCompanies({
+      csvBuffer: csv,
+      nameColumn: ["Company Name", "Parent Record > Company name"],
+      domainColumn: ["Website"],
+    })) {
+      rows.push(row);
+    }
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].companyName).toBe("Acme");
+  });
+
+  it("reads name as empty string when no candidate matches any header", async () => {
+    const csv = [
+      "Org,Website",
+      "Acme,acme.com",
+    ].join("\n");
+    const rows = [];
+
+    for await (const row of readCompanies({
+      csvBuffer: csv,
+      nameColumn: ["Company Name"],
+      domainColumn: ["Website"],
+    })) {
+      rows.push(row);
+    }
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].companyName).toBe("");
+    expect(rows[0].companyDomain).toBe("acme.com");
+  });
 });
 
 describe("countProcessableCompanies", () => {
@@ -82,8 +145,25 @@ describe("countProcessableCompanies", () => {
 
     const count = await countProcessableCompanies({
       csvBuffer: csv,
-      domainColumn: "Website",
-      apolloAccountIdColumn: "Apollo Account Id",
+      domainColumn: ["Website"],
+      apolloAccountIdColumn: ["Apollo Account Id"],
+    });
+
+    expect(count).toBe(2);
+  });
+
+  it("counts correctly with case-insensitive header matching", async () => {
+    const csv = [
+      "company name,WEBSITE,apollo account id",
+      "Acme,acme.com,",
+      "Bravo,,apollo-123",
+      "Charlie,,",
+    ].join("\n");
+
+    const count = await countProcessableCompanies({
+      csvBuffer: csv,
+      domainColumn: ["Website"],
+      apolloAccountIdColumn: ["Apollo Account Id"],
     });
 
     expect(count).toBe(2);

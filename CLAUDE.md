@@ -61,4 +61,4 @@ Whenever you build or change something:
 ## Non-Obvious Defaults
 
 - `APOLLO_WATERFALL_ENABLED` defaults `false` — Apollo waterfall enrichment is off unless explicitly set.
-- CSV column names default to `"Company Name"`, `"Website"`, `"Apollo Account Id"` but are overridable via `NAME_COLUMN`, `DOMAIN_COLUMN`, `APOLLO_ACCOUNT_ID_COLUMN` env vars.
+- CSV column names accept **multiple candidates** (first case-insensitive match wins). Defaults: `nameColumn=["Company Name"]`, `domainColumn=["Website"]`, `apolloAccountIdColumn=["Apollo Account Id"]`, `linkedinUrlColumn=["Company Linkedin Url"]`. Override via env vars `NAME_COLUMN`, `DOMAIN_COLUMN`, `APOLLO_ACCOUNT_ID_COLUMN`, `LINKEDIN_URL_COLUMN` — comma-separated lists accepted (e.g. `NAME_COLUMN="Company Name,Parent Record > Company name"`).
