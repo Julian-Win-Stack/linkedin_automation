@@ -48,7 +48,7 @@ Each stage runs per-company inside `researchPipeline.ts`:
 
 | Stage | Files | Reject condition |
 |-------|-------|-----------------|
-| CSV parse | `observability/csvReader.ts` | Missing name + domain + Apollo ID |
+| CSV parse | `observability/csvReader.ts` | Missing Apollo Account ID (skipped rows surfaced in UI) |
 | Apify scrape | `services/apifyCompanyEmployees.ts` | — |
 | Candidate filter | `services/apifyClient.ts`, `services/computeTenure.ts` | open_to_work, frontend role, contract employment removed |
 | LinkedIn selection | `services/sreSelection.ts` | — |

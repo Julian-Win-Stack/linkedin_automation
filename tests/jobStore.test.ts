@@ -86,6 +86,25 @@ describe("jobStore lifecycle", () => {
     expect(getJob(jobId)).toBeUndefined();
   });
 
+  it("createJob initializes companiesMissingApolloAccountId as empty array", async () => {
+    const { createJob, getJob } = await loadJobStore();
+    const jobId = createJob();
+    const job = getJob(jobId);
+    expect(job?.companiesMissingApolloAccountId).toEqual([]);
+  });
+
+  it("setCompaniesMissingApolloAccountId stores the list on the job", async () => {
+    const { createJob, getJob, setCompaniesMissingApolloAccountId } = await loadJobStore();
+    const jobId = createJob();
+    const companies = [
+      { name: "Acme", website: "acme.com" },
+      { name: "Bravo", website: "" },
+    ];
+    setCompaniesMissingApolloAccountId(jobId, companies);
+    const job = getJob(jobId);
+    expect(job?.companiesMissingApolloAccountId).toEqual(companies);
+  });
+
   it("setJobPartialResults stores partial csv and campaignPushData on the job", async () => {
     const { createJob, getJob, setJobPartialResults } = await loadJobStore();
 

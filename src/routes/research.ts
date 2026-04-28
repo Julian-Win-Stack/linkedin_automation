@@ -72,6 +72,7 @@ async function processUserQueue(selectedUser: SelectedUser): Promise<void> {
         summary: job.summary ?? null,
         warnings: job.warnings,
         skippedCompanies: job.skippedCompanies,
+        companiesMissingApolloAccountId: job.companiesMissingApolloAccountId,
         campaignPushData: job.campaignPushData ?? null,
       });
       removeJob(jobId);
@@ -91,6 +92,7 @@ async function processUserQueue(selectedUser: SelectedUser): Promise<void> {
       summary: job.summary ?? null,
       warnings: job.warnings,
       skippedCompanies: job.skippedCompanies,
+      companiesMissingApolloAccountId: job.companiesMissingApolloAccountId,
       errorMessage: job.error ?? "Queue item failed.",
       campaignPushData: job.campaignPushData ?? null,
     });
@@ -131,12 +133,11 @@ router.post("/research", upload.single("csv"), async (req, res) => {
     const hasAnyCandidate = (candidates: string[]) =>
       candidates.some((c) => headers.some((h) => h.trim().toLowerCase() === c.trim().toLowerCase()));
     const hasNameColumn = hasAnyCandidate(config.nameColumn);
-    const hasDomainColumn = hasAnyCandidate(config.domainColumn);
     const hasApolloAccountIdColumn = hasAnyCandidate(config.apolloAccountIdColumn);
 
-    if (!hasNameColumn || (!hasDomainColumn && !hasApolloAccountIdColumn)) {
+    if (!hasNameColumn || !hasApolloAccountIdColumn) {
       return res.status(400).json({
-        error: `CSV must have "Company Name" and at least one of "Website" or "Apollo Account ID". Found: ${headers.join(", ")}`,
+        error: `CSV must have "Company Name" and "Apollo Account ID". Found: ${headers.join(", ")}`,
       });
     }
 
@@ -193,6 +194,8 @@ router.get("/queue", (req, res) => {
       summary: item.summary,
       warnings: item.warnings,
       skippedCompanies: item.skippedCompanies,
+      companiesMissingApolloAccountId:
+        runningJob?.companiesMissingApolloAccountId ?? item.companiesMissingApolloAccountId,
       errorMessage: item.errorMessage ?? runningJob?.error ?? null,
       progressMessage: item.status === "running" ? (runningJob?.message ?? null) : null,
       currentRow: item.status === "running" ? (runningJob?.currentRow ?? null) : null,
@@ -260,6 +263,7 @@ router.post("/queue/:queueItemId/cancel", (req, res) => {
     status: "cancelled",
     warnings: item.warnings,
     skippedCompanies: item.skippedCompanies,
+    companiesMissingApolloAccountId: item.companiesMissingApolloAccountId,
     errorMessage: "Queue item cancelled by user.",
   });
   triggerUserQueue(item.selectedUser);
@@ -288,6 +292,7 @@ router.post("/queue/cancel-all", (req, res) => {
       status: "cancelled",
       warnings: item.warnings,
       skippedCompanies: item.skippedCompanies,
+      companiesMissingApolloAccountId: item.companiesMissingApolloAccountId,
       campaignPushData: item.campaignPushData,
       errorMessage: "Queue cancelled by user.",
     });

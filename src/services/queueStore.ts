@@ -22,6 +22,7 @@ type QueueItemRow = {
   summary_json: string | null;
   warnings_json: string | null;
   skipped_companies_json: string | null;
+  companies_missing_apollo_id_json: string | null;
   error_message: string | null;
   campaign_push_data_json: string | null;
   created_at_ms: number;
@@ -42,6 +43,7 @@ export type QueueItem = {
   summary: JobSummary | null;
   warnings: string[];
   skippedCompanies: string[];
+  companiesMissingApolloAccountId: { name: string; website: string }[];
   errorMessage: string | null;
   campaignPushData: CampaignPushData | null;
   createdAtMs: number;
@@ -81,6 +83,8 @@ function rowToQueueItem(row: QueueItemRow): QueueItem {
     summary: parseJson<JobSummary>(row.summary_json),
     warnings: parseJson<string[]>(row.warnings_json) ?? [],
     skippedCompanies: parseJson<string[]>(row.skipped_companies_json) ?? [],
+    companiesMissingApolloAccountId:
+      parseJson<{ name: string; website: string }[]>(row.companies_missing_apollo_id_json) ?? [],
     errorMessage: row.error_message,
     campaignPushData: parseJson<CampaignPushData>(row.campaign_push_data_json),
     createdAtMs: row.created_at_ms,
@@ -123,6 +127,11 @@ function ensureDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_queue_items_user_status
       ON queue_items(selected_user, status, queue_order);
   `);
+  try {
+    instance.exec(`ALTER TABLE queue_items ADD COLUMN companies_missing_apollo_id_json TEXT`);
+  } catch {
+    // column already exists — no-op
+  }
   db = instance;
   return instance;
 }
@@ -274,6 +283,7 @@ export function completeQueueItem(queueItemId: string, input: {
   summary?: JobSummary | null;
   warnings?: string[];
   skippedCompanies?: string[];
+  companiesMissingApolloAccountId?: { name: string; website: string }[];
   errorMessage?: string | null;
   campaignPushData?: CampaignPushData | null;
 }): void {
@@ -286,6 +296,7 @@ export function completeQueueItem(queueItemId: string, input: {
         summary_json = ?,
         warnings_json = ?,
         skipped_companies_json = ?,
+        companies_missing_apollo_id_json = ?,
         error_message = ?,
         campaign_push_data_json = ?,
         updated_at_ms = ?,
@@ -298,6 +309,7 @@ export function completeQueueItem(queueItemId: string, input: {
     input.summary ? JSON.stringify(input.summary) : null,
     JSON.stringify(input.warnings ?? []),
     JSON.stringify(input.skippedCompanies ?? []),
+    JSON.stringify(input.companiesMissingApolloAccountId ?? []),
     input.errorMessage ?? null,
     input.campaignPushData ? JSON.stringify(input.campaignPushData) : null,
     nowMs,

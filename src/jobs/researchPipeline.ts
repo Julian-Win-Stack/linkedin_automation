@@ -20,6 +20,7 @@ import {
   setJobMessage,
   setJobProgress,
   setSkippedCompanies,
+  setCompaniesMissingApolloAccountId,
   setJobStatus,
   setJobSummary,
   setCampaignPushData,
@@ -316,10 +317,11 @@ export async function runResearchPipeline(
   const outputRows: OutputRow[] = [];
   const syncableOutputRows: OutputRow[] = [];
   const skippedCompanies: string[] = [];
+  const companiesMissingApolloAccountId: { name: string; website: string }[] = [];
   let companiesSinceLastCheckpoint = 0;
   let lastCheckpointSyncableIndex = 0;
   let totalRows = 0;
-  let skippedMissingWebsiteAndApolloAccountIdCount = 0;
+  let skippedMissingApolloAccountIdCount = 0;
   let apolloProcessedCompanyCount = 0;
   let totalLinkedinCampaignSuccessful = 0;
   let totalLinkedinCampaignFailed = 0;
@@ -401,9 +403,12 @@ export async function runResearchPipeline(
       linkedinUrlColumn: config.linkedinUrlColumn,
       apolloAccountIdColumn: config.apolloAccountIdColumn,
       onSkipRow: (skipInfo) => {
-        if (skipInfo.reason === "missing_website_and_apollo_account_id") {
-          skippedMissingWebsiteAndApolloAccountIdCount += 1;
-          skippedCompanies.push(skipInfo.companyName || `Row ${skipInfo.rowNumber}`);
+        if (skipInfo.reason === "missing_apollo_account_id") {
+          skippedMissingApolloAccountIdCount += 1;
+          companiesMissingApolloAccountId.push({
+            name: skipInfo.companyName || `Row ${skipInfo.rowNumber}`,
+            website: skipInfo.companyDomain,
+          });
         }
       },
     })) {
@@ -791,11 +796,12 @@ export async function runResearchPipeline(
 
     setJobMessage(jobId, "Finalizing results and syncing company updates.");
     setSkippedCompanies(jobId, skippedCompanies);
+    setCompaniesMissingApolloAccountId(jobId, companiesMissingApolloAccountId);
 
     const summary: JobSummary = {
       totalRows,
       eligibleCompanyCount,
-      skippedMissingWebsiteAndApolloAccountIdCount,
+      skippedMissingApolloAccountIdCount,
       apolloProcessedCompanyCount,
       totalLinkedinCampaignSuccessful,
       totalLinkedinCampaignFailed,

@@ -99,7 +99,7 @@ describe("research job routes", () => {
 
   it("enqueues a csv and returns queue item metadata", async () => {
     const app = createTestApp();
-    const csv = "Company Name,Website\nAcme,acme.com\n";
+    const csv = "Company Name,Website,Apollo Account Id\nAcme,acme.com,apollo-123\n";
     const response = await request(app)
       .post("/research")
       .field("selectedUser", "julian")
@@ -136,7 +136,7 @@ describe("research job routes", () => {
     expect(response.body.error).toContain("Company Name");
   });
 
-  it("returns 400 when both website and apollo account id columns are missing", async () => {
+  it("returns 400 when apollo account id column is missing", async () => {
     const app = createTestApp();
     const csv = "Company Name\nAcme\n";
     const response = await request(app)
@@ -145,7 +145,19 @@ describe("research job routes", () => {
       .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
 
     expect(response.status).toBe(400);
-    expect(response.body.error).toContain('at least one of "Website" or "Apollo Account ID"');
+    expect(response.body.error).toContain('"Apollo Account ID"');
+  });
+
+  it("returns 400 when apollo account id column is missing even when website column is present", async () => {
+    const app = createTestApp();
+    const csv = "Company Name,Website\nAcme,acme.com\n";
+    const response = await request(app)
+      .post("/research")
+      .field("selectedUser", "julian")
+      .attach("csv", Buffer.from(csv, "utf8"), "input.csv");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain('"Apollo Account ID"');
   });
 
   it("returns 400 when selectedUser is missing", async () => {
@@ -186,6 +198,7 @@ describe("research job routes", () => {
         summary: null,
         warnings: [],
         skippedCompanies: [],
+        companiesMissingApolloAccountId: [],
         rejectedCompanies: [],
         rejectedReason: null,
         errorMessage: null,
@@ -210,7 +223,7 @@ describe("research job routes", () => {
     enqueueQueueItemMock.mockImplementationOnce(() => {
       throw new Error("Queue limit reached (10) for julian.");
     });
-    const csv = "Company Name,Website\nAcme,acme.com\n";
+    const csv = "Company Name,Website,Apollo Account Id\nAcme,acme.com,apollo-123\n";
     const response = await request(app)
       .post("/research")
       .field("selectedUser", "julian")
@@ -283,6 +296,7 @@ describe("research job routes", () => {
       summary: null,
       warnings: [],
       skippedCompanies: [],
+      companiesMissingApolloAccountId: [],
       rejectedCompanies: [],
       rejectedReason: null,
       errorMessage: null,
@@ -313,12 +327,13 @@ describe("research job routes", () => {
         queueOrder: 1,
         status: "running",
         weekStartMs: 0,
-        csvInput: "Company Name,Website\nAcme,acme.com\n",
+        csvInput: "Company Name,Website,Apollo Account Id\nAcme,acme.com,apollo-123\n",
         jobId: null,
         csvOutputBase64: null,
         summary: null,
         warnings: [],
         skippedCompanies: [],
+        companiesMissingApolloAccountId: [],
         rejectedCompanies: [],
         rejectedReason: null,
         errorMessage: null,
@@ -335,12 +350,13 @@ describe("research job routes", () => {
       queueOrder: 1,
       status: "running",
       weekStartMs: 0,
-      csvInput: "Company Name,Website\nAcme,acme.com\n",
+      csvInput: "Company Name,Website,Apollo Account Id\nAcme,acme.com,apollo-123\n",
       jobId: "dynamic",
       csvOutputBase64: null,
       summary: null,
       warnings: [],
       skippedCompanies: [],
+      companiesMissingApolloAccountId: [],
       rejectedCompanies: [],
       rejectedReason: null,
       errorMessage: null,
@@ -357,7 +373,7 @@ describe("research job routes", () => {
     const response = await request(app)
       .post("/research")
       .field("selectedUser", "julian")
-      .attach("csv", Buffer.from("Company Name,Website\nAcme,acme.com\n", "utf8"), "input.csv");
+      .attach("csv", Buffer.from("Company Name,Website,Apollo Account Id\nAcme,acme.com,apollo-123\n", "utf8"), "input.csv");
 
     expect(response.status).toBe(200);
 
@@ -392,6 +408,7 @@ describe("research job routes", () => {
         summary: null,
         warnings: ["w1"],
         skippedCompanies: [],
+        companiesMissingApolloAccountId: [],
         rejectedCompanies: [],
         rejectedReason: null,
         errorMessage: null,
@@ -413,6 +430,7 @@ describe("research job routes", () => {
         summary: null,
         warnings: [],
         skippedCompanies: [],
+        companiesMissingApolloAccountId: [],
         rejectedCompanies: [],
         rejectedReason: null,
         errorMessage: null,
@@ -434,6 +452,7 @@ describe("research job routes", () => {
         summary: null,
         warnings: [],
         skippedCompanies: [],
+        companiesMissingApolloAccountId: [],
         rejectedCompanies: [],
         rejectedReason: null,
         errorMessage: null,
@@ -484,12 +503,13 @@ describe("research job routes", () => {
       queueOrder: 1,
       status: "running" as const,
       weekStartMs: 0,
-      csvInput: "Company Name,Website\nAcme,acme.com\n",
+      csvInput: "Company Name,Website,Apollo Account Id\nAcme,acme.com,apollo-123\n",
       jobId,
       csvOutputBase64: null,
       summary: null,
       warnings: [],
       skippedCompanies: [],
+      companiesMissingApolloAccountId: [],
       rejectedCompanies: [],
       rejectedReason: null,
       errorMessage: null,

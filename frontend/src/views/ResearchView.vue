@@ -20,6 +20,7 @@ type QueueItem = {
   summary: Record<string, number> | null;
   warnings: string[];
   skippedCompanies: string[];
+  companiesMissingApolloAccountId: { name: string; website: string }[];
   errorMessage: string | null;
   progressMessage: string | null;
   currentRow: number | null;
@@ -509,6 +510,20 @@ async function clearFinishedQueueItems(): Promise<void> {
               <div v-if="item.summary" class="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-300">
                 <p>LinkedIn pushed: {{ item.summary.totalLinkedinCampaignSuccessful ?? 0 }}</p>
                 <p>LinkedIn failed: {{ item.summary.totalLinkedinCampaignFailed ?? 0 }}</p>
+              </div>
+
+              <div
+                v-if="item.companiesMissingApolloAccountId && item.companiesMissingApolloAccountId.length > 0"
+                class="mt-3 rounded-md border border-rose-400/40 bg-rose-500/10 p-3"
+              >
+                <p class="text-xs font-semibold text-rose-200">
+                  Skipped — missing Apollo Account ID ({{ item.companiesMissingApolloAccountId.length }})
+                </p>
+                <ul class="mt-2 space-y-1 text-xs text-rose-100">
+                  <li v-for="(entry, idx) in item.companiesMissingApolloAccountId" :key="idx">
+                    {{ entry.name || "(no name)" }} — {{ entry.website || "(no website)" }}
+                  </li>
+                </ul>
               </div>
 
               <div class="mt-3 flex flex-wrap gap-2">

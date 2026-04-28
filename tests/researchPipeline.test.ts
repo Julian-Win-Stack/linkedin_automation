@@ -192,9 +192,10 @@ describe("runResearchPipeline orchestration", () => {
       jobId,
       "csv",
       {
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
+        nameColumn: ["Company Name"],
+        domainColumn: ["Website"],
+        apolloAccountIdColumn: ["Apollo Account Id"],
+        linkedinUrlColumn: ["Company Linkedin Url"],
       },
       "julian",
       Date.now()
@@ -242,9 +243,10 @@ describe("runResearchPipeline orchestration", () => {
       jobId,
       "csv",
       {
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
+        nameColumn: ["Company Name"],
+        domainColumn: ["Website"],
+        apolloAccountIdColumn: ["Apollo Account Id"],
+        linkedinUrlColumn: ["Company Linkedin Url"],
       },
       "julian",
       Date.now()
@@ -283,9 +285,10 @@ describe("runResearchPipeline orchestration", () => {
       jobId,
       "csv",
       {
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
+        nameColumn: ["Company Name"],
+        domainColumn: ["Website"],
+        apolloAccountIdColumn: ["Apollo Account Id"],
+        linkedinUrlColumn: ["Company Linkedin Url"],
       },
       "julian",
       Date.now()
@@ -315,15 +318,50 @@ describe("runResearchPipeline orchestration", () => {
       jobId,
       "csv",
       {
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
+        nameColumn: ["Company Name"],
+        domainColumn: ["Website"],
+        apolloAccountIdColumn: ["Apollo Account Id"],
+        linkedinUrlColumn: ["Company Linkedin Url"],
       },
       "julian",
       Date.now()
     );
 
     expect(scrapeCompanyEmployeesMock).not.toHaveBeenCalled();
+  });
+
+  it("tracks companies skipped for missing apollo account id", async () => {
+    readCompaniesMock.mockImplementationOnce(async function* (
+      options: { onSkipRow?: (info: { reason: string; companyName: string; companyDomain: string; rowNumber: number }) => void }
+    ) {
+      options.onSkipRow?.({
+        reason: "missing_apollo_account_id",
+        companyName: "NoApollo Inc",
+        companyDomain: "noapollo.com",
+        rowNumber: 2,
+      });
+      yield { companyName: "Acme", companyDomain: "acme.com", companyLinkedinUrl: "", apolloAccountId: "org_1", rowNumber: 3 };
+    });
+
+    const jobId = createJob();
+    await runResearchPipeline(
+      jobId,
+      "csv",
+      {
+        nameColumn: ["Company Name"],
+        domainColumn: ["Website"],
+        apolloAccountIdColumn: ["Apollo Account Id"],
+        linkedinUrlColumn: ["Company Linkedin Url"],
+      },
+      "julian",
+      Date.now()
+    );
+
+    const job = getJob(jobId);
+    expect(job?.companiesMissingApolloAccountId).toEqual([
+      { name: "NoApollo Inc", website: "noapollo.com" },
+    ]);
+    expect(job?.summary?.skippedMissingApolloAccountIdCount).toBe(1);
   });
 
   it("still marks done when account sync fails", async () => {
@@ -337,9 +375,10 @@ describe("runResearchPipeline orchestration", () => {
       jobId,
       "csv",
       {
-        nameColumn: "Company Name",
-        domainColumn: "Website",
-        apolloAccountIdColumn: "Apollo Account Id",
+        nameColumn: ["Company Name"],
+        domainColumn: ["Website"],
+        apolloAccountIdColumn: ["Apollo Account Id"],
+        linkedinUrlColumn: ["Company Linkedin Url"],
       },
       "julian",
       Date.now()
@@ -506,10 +545,11 @@ describe("runResearchPipeline orchestration", () => {
 });
 
 const defaultPipelineConfig = {
-  nameColumn: "Company Name",
-  domainColumn: "Website",
-  apolloAccountIdColumn: "Apollo Account Id",
-} as const;
+  nameColumn: ["Company Name"],
+  domainColumn: ["Website"],
+  apolloAccountIdColumn: ["Apollo Account Id"],
+  linkedinUrlColumn: ["Company Linkedin Url"],
+};
 
 function makeCompanyRows(count: number) {
   return Array.from({ length: count }, (_, i) => ({

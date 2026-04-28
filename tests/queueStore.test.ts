@@ -111,6 +111,33 @@ describe("queueStore", () => {
     expect(completed?.warnings).toEqual(["warn-1"]);
   });
 
+  it("round-trips companiesMissingApolloAccountId through completeQueueItem", () => {
+    process.env.WEEKLY_SUCCESS_SQLITE_PATH = makeTempDbPath();
+    const weekStartMs = Date.now();
+
+    enqueueQueueItem({
+      queueItemId: "q-1",
+      selectedUser: "julian",
+      csvInput: "Company Name,Website,Apollo Account Id\nAcme,acme.com,\n",
+      weekStartMs,
+    });
+    claimNextQueuedItemForUser("julian");
+    setQueueItemJobId("q-1", "job-1");
+
+    const companies = [
+      { name: "Acme", website: "acme.com" },
+      { name: "Bravo Corp", website: "" },
+    ];
+    completeQueueItem("q-1", {
+      status: "done",
+      companiesMissingApolloAccountId: companies,
+      warnings: [],
+    });
+
+    const item = getQueueItemById("q-1");
+    expect(item?.companiesMissingApolloAccountId).toEqual(companies);
+  });
+
   it("formats queue labels correctly", () => {
     expect(toQueueLabel(1)).toBe("1st queue");
     expect(toQueueLabel(2)).toBe("2nd queue");

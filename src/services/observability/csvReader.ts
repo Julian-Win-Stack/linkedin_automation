@@ -9,10 +9,11 @@ export type CompanyRow = {
   rowNumber: number;
 };
 
-export type CompanyRowSkipReason = "missing_website_and_apollo_account_id";
+export type CompanyRowSkipReason = "missing_apollo_account_id";
 export interface CompanyRowSkipInfo {
   reason: CompanyRowSkipReason;
   companyName: string;
+  companyDomain: string;
   rowNumber: number;
 }
 
@@ -88,10 +89,11 @@ export async function* readCompanies(options: ReadCompaniesOptions): AsyncGenera
       ? cleanCell(record[apolloHeader]) || undefined
       : undefined;
 
-    if (!companyDomain && !apolloAccountId) {
+    if (!apolloAccountId) {
       options.onSkipRow?.({
-        reason: "missing_website_and_apollo_account_id",
+        reason: "missing_apollo_account_id",
         companyName,
+        companyDomain,
         rowNumber,
       });
       continue;
@@ -111,25 +113,22 @@ export async function countProcessableCompanies(options: CountProcessableCompani
   const inputStream = Readable.from([options.csvBuffer]);
   const parser = inputStream.pipe(parse(parseOptions));
   let count = 0;
-  let domainHeader: string | undefined;
   let apolloHeader: string | undefined;
   let headersResolved = false;
 
   for await (const record of parser as AsyncIterable<Record<string, unknown>>) {
     if (!headersResolved) {
       const keys = Object.keys(record);
-      domainHeader = resolveHeader(options.domainColumn, keys);
       apolloHeader = options.apolloAccountIdColumn
         ? resolveHeader(options.apolloAccountIdColumn, keys)
         : undefined;
       headersResolved = true;
     }
 
-    const companyDomain = cleanCell(domainHeader ? record[domainHeader] : "");
     const apolloAccountId = apolloHeader
       ? cleanCell(record[apolloHeader]) || undefined
       : undefined;
-    if (!companyDomain && !apolloAccountId) {
+    if (!apolloAccountId) {
       continue;
     }
     count += 1;
